@@ -1,6 +1,6 @@
-# HostPanel
+# Ike
 
-> **Working name.** Rename the project before the first public release (see "Renaming" below).
+> *Ike* (pronounced **ee-keh**) is Igbo for **strength, power**: servers that stay strong.
 
 An open-source, all-in-one hosting control panel for Linux VPS servers. It combines:
 
@@ -31,13 +31,13 @@ Requirements: a **fresh** KVM VPS (OpenVZ/LXC is not supported), root access, at
 ## Install
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/YOUR-ORG/hostpanel/main/installer/install.sh | sudo bash
+curl -sSL https://raw.githubusercontent.com/YOUR-ORG/ike/main/installer/install.sh | sudo bash
 ```
 
 Or download it first and read it (recommended):
 
 ```bash
-wget https://raw.githubusercontent.com/YOUR-ORG/hostpanel/main/installer/install.sh
+wget https://raw.githubusercontent.com/YOUR-ORG/ike/main/installer/install.sh
 less install.sh
 sudo bash install.sh
 ```
@@ -52,7 +52,7 @@ Installer options:
 | `--agent-binary PATH` | Use a locally built agent instead of downloading a release |
 | `--mcp-binary PATH` | Use a locally built MCP server instead of downloading a release |
 
-What it sets up: Nginx (nginx.org repo, falling back to Ubuntu's), PHP-FPM, MariaDB (Ubuntu's LTS-maintained package), OpenSSH with SFTP jail rules, ufw firewall (SSH, 80, 443), fail2ban, and the `hp-agent` service.
+What it sets up: Nginx (nginx.org repo, falling back to Ubuntu's), PHP-FPM, MariaDB (Ubuntu's LTS-maintained package), OpenSSH with SFTP jail rules, ufw firewall (SSH, 80, 443), fail2ban, and the `ike-agent` service.
 
 ## SSH and SFTP
 
@@ -64,14 +64,14 @@ Each site's Linux user has one of three modes, set through the agent API or MCP:
 | `sftp` | File transfer only, locked to the site's home folder |
 | `shell` | Full shell, **not** jailed — only for users you trust |
 
-Keys live in root-owned files under `/etc/ssh/hostpanel/keys/`, so a hosting user can't add keys behind the panel's back. Password logins are disabled for these users.
+Keys live in root-owned files under `/etc/ssh/ike/keys/`, so a hosting user can't add keys behind the panel's back. Password logins are disabled for these users.
 
 ## AI agents (MCP)
 
-`hp-mcp` lets AI clients manage the server over SSH, with no extra ports:
+`ike-mcp` lets AI clients manage the server over SSH, with no extra ports:
 
 ```json
-{ "mcpServers": { "my-vps": { "command": "ssh", "args": ["root@SERVER-IP", "hp-mcp"] } } }
+{ "mcpServers": { "my-vps": { "command": "ssh", "args": ["root@SERVER-IP", "ike-mcp"] } } }
 ```
 
 It is read-only unless you add `--allow-write`. See [docs/MCP.md](docs/MCP.md).
@@ -84,7 +84,7 @@ It is read-only unless you add `--allow-write`. See [docs/MCP.md](docs/MCP.md).
 └───────────────────┬────────────────────────┘
                     │  unix socket today, gRPC + mTLS for remote nodes later
               ┌─────▼──────┐
-              │  hp-agent  │   small Go daemon, the only root component
+              │  ike-agent  │   small Go daemon, the only root component
               └────────────┘
                 Nginx · PHP-FPM · MariaDB · Linux users
 ```
@@ -94,7 +94,7 @@ The agent exposes a **small, fixed set of validated actions** (create site, dele
 ## Repository layout
 
 ```
-agent/        Go source: hp-agent (root daemon) and hp-mcp (MCP server)
+agent/        Go source: ike-agent (root daemon) and ike-mcp (MCP server)
 installer/    install.sh for Ubuntu 22.04 / 24.04 / 26.04
 docs/         Design notes and roadmap
 .github/      CI (Go tests, ShellCheck)
@@ -116,23 +116,23 @@ See [docs/ROADMAP.md](docs/ROADMAP.md).
 ```bash
 cd agent
 go test ./...
-go build -o hp-agent ./cmd/hp-agent
-go build -o hp-mcp ./cmd/hp-mcp
+go build -o ike-agent ./cmd/ike-agent
+go build -o ike-mcp ./cmd/ike-mcp
 
 # Run against a fake filesystem root without touching the system:
-mkdir -p /tmp/hp-test/etc/php/8.3/fpm
-./hp-agent --root /tmp/hp-test --dry-run --socket /tmp/hp.sock
+mkdir -p /tmp/ike-test/etc/php/8.3/fpm
+./ike-agent --root /tmp/ike-test --dry-run --socket /tmp/ike.sock
 
 # In another terminal:
-curl --unix-socket /tmp/hp.sock -X POST http://agent/v1/sites -d '{"domain":"example.com","user":"example"}'
-./hp-mcp --socket /tmp/hp.sock --audit-log ""   # then type JSON-RPC messages
+curl --unix-socket /tmp/ike.sock -X POST http://agent/v1/sites -d '{"domain":"example.com","user":"example"}'
+./ike-mcp --socket /tmp/ike.sock --audit-log ""   # then type JSON-RPC messages
 ```
 
-Releases: push a tag like `v0.1.0` and GitHub Actions builds `hp-agent` and `hp-mcp` for amd64/arm64 with checksums, which the installer downloads.
+Releases: push a tag like `v0.1.0` and GitHub Actions builds `ike-agent` and `ike-mcp` for amd64/arm64 with checksums, which the installer downloads.
 
-## Renaming
+## Before publishing
 
-The name `hostpanel` / `hp-agent` appears in: this README, `installer/install.sh` (the `PANEL_NAME` / `AGENT_NAME` variables at the top), `agent/go.mod` (module path), `.github/workflows`, and the Go import paths. Also replace `YOUR-ORG` with your GitHub user or organization. Search and replace `hostpanel` and `hp-agent` before publishing.
+Replace `YOUR-ORG` with your GitHub user or organization in: this README, `installer/install.sh` (`REPO=`), `agent/go.mod` and the Go import paths, and `SECURITY.md`.
 
 ## License
 

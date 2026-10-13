@@ -1,26 +1,26 @@
 # AI agents (MCP)
 
-HostPanel ships `hp-mcp`, a [Model Context Protocol](https://modelcontextprotocol.io) server. It lets AI clients such as Claude, Cursor or VS Code manage a server through the **same validated agent API** the panel uses. There is no shell tool: an AI can only do what the listed tools allow.
+Ike ships `ike-mcp`, a [Model Context Protocol](https://modelcontextprotocol.io) server. It lets AI clients such as Claude, Cursor or VS Code manage a server through the **same validated agent API** the panel uses. There is no shell tool: an AI can only do what the listed tools allow.
 
 ## Connect over SSH (recommended)
 
-Nothing extra to open on the firewall. The AI client runs `hp-mcp` on the server through SSH using your existing key. Add this to your MCP client config:
+Nothing extra to open on the firewall. The AI client runs `ike-mcp` on the server through SSH using your existing key. Add this to your MCP client config:
 
 ```json
 {
   "mcpServers": {
     "my-vps": {
       "command": "ssh",
-      "args": ["root@203.0.113.10", "hp-mcp"]
+      "args": ["root@203.0.113.10", "ike-mcp"]
     }
   }
 }
 ```
 
-For write access, add `"--allow-write"` after `"hp-mcp"`. Tip: use a dedicated SSH key for the AI and restrict it in `/root/.ssh/authorized_keys`:
+For write access, add `"--allow-write"` after `"ike-mcp"`. Tip: use a dedicated SSH key for the AI and restrict it in `/root/.ssh/authorized_keys`:
 
 ```
-command="/usr/local/bin/hp-mcp --allow-write",restrict ssh-ed25519 AAAA... ai-agent
+command="/usr/local/bin/ike-mcp --allow-write",restrict ssh-ed25519 AAAA... ai-agent
 ```
 
 With `restrict` and a forced command, that key can only ever start the MCP server — never a shell.
@@ -45,7 +45,7 @@ With `restrict` and a forced command, that key can only ever start the MCP serve
 - **Read-only by default.** Write tools are hidden and refused unless `--allow-write` is passed.
 - **Confirmation for deletes.** `delete_site` fails unless `confirm_domain` repeats the domain exactly.
 - **Strict input checks.** Unknown arguments are rejected; the agent re-validates every value.
-- **Audit log.** Every call (allowed, denied or failed) is appended to `/var/log/hostpanel/mcp-audit.log` as JSON lines. Public keys are redacted.
+- **Audit log.** Every call (allowed, denied or failed) is appended to `/var/log/ike/mcp-audit.log` as JSON lines. Public keys are redacted.
 
 ## Coming later
 

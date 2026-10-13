@@ -1,5 +1,5 @@
 // Package mcp implements a Model Context Protocol server (JSON-RPC 2.0 over stdio)
-// so AI agents can manage a HostPanel server through the same validated agent API
+// so AI agents can manage a Ike server through the same validated agent API
 // the panel uses. It never exposes a shell.
 //
 // Safety model:
@@ -20,10 +20,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/YOUR-ORG/hostpanel/agent/internal/client"
+	"github.com/YOUR-ORG/ike/agent/internal/client"
 )
 
-const ServerName = "hostpanel"
+const ServerName = "ike"
 
 // Protocol versions this server can speak, newest first.
 var supportedVersions = []string{"2025-06-18", "2025-03-26", "2024-11-05"}
@@ -106,7 +106,7 @@ func (s *Server) Handle(ctx context.Context, msg []byte) *rpcResponse {
 			"protocolVersion": version,
 			"capabilities":    map[string]any{"tools": map[string]any{"listChanged": false}},
 			"serverInfo":      map[string]any{"name": ServerName, "version": s.Version},
-			"instructions": "HostPanel server management (" + mode + "). Each website has its own Linux user, " +
+			"instructions": "Ike server management (" + mode + "). Each website has its own Linux user, " +
 				"PHP-FPM pool and Nginx config. Check list_sites before creating a site. Never delete a site " +
 				"unless the human explicitly asked for that specific domain to be deleted.",
 		}
@@ -314,7 +314,7 @@ func (s *Server) callTool(ctx context.Context, name string, raw json.RawMessage)
 		return toolError("unknown tool: " + name)
 	case t.write && !s.AllowWrite:
 		s.audit(name, args, "denied: read-only mode")
-		return toolError("this MCP server is read-only; restart hp-mcp with --allow-write to enable changes")
+		return toolError("this MCP server is read-only; restart ike-mcp with --allow-write to enable changes")
 	}
 	if err := checkArgs(t.InputSchema, args); err != nil {
 		return toolError(err.Error())

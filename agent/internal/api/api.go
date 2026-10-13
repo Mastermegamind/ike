@@ -21,9 +21,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/YOUR-ORG/hostpanel/agent/internal/runner"
-	"github.com/YOUR-ORG/hostpanel/agent/internal/sites"
-	"github.com/YOUR-ORG/hostpanel/agent/internal/sysinfo"
+	"github.com/YOUR-ORG/ike/agent/internal/runner"
+	"github.com/YOUR-ORG/ike/agent/internal/sites"
+	"github.com/YOUR-ORG/ike/agent/internal/sysinfo"
 )
 
 const Version = "0.1.0"

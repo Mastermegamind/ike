@@ -12,7 +12,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/YOUR-ORG/hostpanel/agent/internal/runner"
+	"github.com/YOUR-ORG/ike/agent/internal/runner"
 )
 
 type Info struct {
@@ -110,7 +110,7 @@ type ServiceStatus struct {
 
 // Services reports systemd state of the services the panel manages.
 func Services(ctx context.Context, r runner.Runner, root string) []ServiceStatus {
-	names := []string{"nginx", "mariadb", "fail2ban", "hp-agent"}
+	names := []string{"nginx", "mariadb", "fail2ban", "ike-agent"}
 	for _, v := range PHPVersions(root) {
 		names = append(names, "php"+v+"-fpm")
 	}

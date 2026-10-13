@@ -5,7 +5,7 @@ import "text/template"
 // Every value inserted into these templates has already passed package validate,
 // so it cannot contain spaces, semicolons, braces or newlines.
 
-var nginxTmpl = template.Must(template.New("nginx").Parse(`# Managed by HostPanel. Manual changes will be overwritten.
+var nginxTmpl = template.Must(template.New("nginx").Parse(`# Managed by Ike. Manual changes will be overwritten.
 server {
     listen 80;
     listen [::]:80;
@@ -49,7 +49,7 @@ server {
 }
 `))
 
-var poolTmpl = template.Must(template.New("pool").Parse(`; Managed by HostPanel. Manual changes will be overwritten.
+var poolTmpl = template.Must(template.New("pool").Parse(`; Managed by Ike. Manual changes will be overwritten.
 [{{.User}}]
 user = {{.User}}
 group = {{.User}}

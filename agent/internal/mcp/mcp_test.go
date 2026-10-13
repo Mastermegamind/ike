@@ -11,11 +11,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/YOUR-ORG/hostpanel/agent/internal/api"
-	"github.com/YOUR-ORG/hostpanel/agent/internal/client"
-	"github.com/YOUR-ORG/hostpanel/agent/internal/config"
-	"github.com/YOUR-ORG/hostpanel/agent/internal/runner"
-	"github.com/YOUR-ORG/hostpanel/agent/internal/sites"
+	"github.com/YOUR-ORG/ike/agent/internal/api"
+	"github.com/YOUR-ORG/ike/agent/internal/client"
+	"github.com/YOUR-ORG/ike/agent/internal/config"
+	"github.com/YOUR-ORG/ike/agent/internal/runner"
+	"github.com/YOUR-ORG/ike/agent/internal/sites"
 )
 
 // newServer wires an MCP server to a real agent API running in dry-run mode.

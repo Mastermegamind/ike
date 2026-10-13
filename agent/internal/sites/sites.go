@@ -19,9 +19,9 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/YOUR-ORG/hostpanel/agent/internal/config"
-	"github.com/YOUR-ORG/hostpanel/agent/internal/runner"
-	"github.com/YOUR-ORG/hostpanel/agent/internal/validate"
+	"github.com/YOUR-ORG/ike/agent/internal/config"
+	"github.com/YOUR-ORG/ike/agent/internal/runner"
+	"github.com/YOUR-ORG/ike/agent/internal/validate"
 )
 
 var (
@@ -77,12 +77,12 @@ func (m *Manager) layout(domain, usr, php string) layout {
 		SiteDir:   site,
 		DocRoot:   filepath.Join(site, "public_html"),
 		TmpDir:    filepath.Join(home, "tmp"),
-		LogDir:    filepath.Join("/var/log/hostpanel", domain),
+		LogDir:    filepath.Join("/var/log/ike", domain),
 		PHPSocket: fmt.Sprintf("/run/php/php%s-fpm-%s.sock", php, usr),
 		WebUser:   m.cfg.WebUser,
 		WebGroup:  m.cfg.WebGroup,
 		VhostFile: filepath.Join(m.cfg.NginxSitesDir, domain+".conf"),
-		PoolFile:  filepath.Join("/etc/php", php, "fpm/pool.d", "hp-"+usr+".conf"),
+		PoolFile:  filepath.Join("/etc/php", php, "fpm/pool.d", "ike-"+usr+".conf"),
 		StateFile: filepath.Join(m.cfg.StateDir, domain+".json"),
 	}
 }
@@ -390,7 +390,7 @@ func writeFile(path string, data []byte, mode os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".hp-*")
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".ike-*")
 	if err != nil {
 		return err
 	}

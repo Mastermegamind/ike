@@ -12,8 +12,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/YOUR-ORG/hostpanel/agent/internal/config"
-	"github.com/YOUR-ORG/hostpanel/agent/internal/runner"
+	"github.com/YOUR-ORG/ike/agent/internal/config"
+	"github.com/YOUR-ORG/ike/agent/internal/runner"
 )
 
 func newTestManager(t *testing.T) (*Manager, *runner.DryRun, string) {
@@ -38,7 +38,7 @@ func TestCreateSite(t *testing.T) {
 		t.Fatalf("unexpected site: %+v", site)
 	}
 
-	vhost, err := os.ReadFile(filepath.Join(root, "etc/nginx/hostpanel/sites/example.com.conf"))
+	vhost, err := os.ReadFile(filepath.Join(root, "etc/nginx/ike/sites/example.com.conf"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,14 +46,14 @@ func TestCreateSite(t *testing.T) {
 		"server_name example.com www.example.com;",
 		"root /home/example/web/example.com/public_html;",
 		"fastcgi_pass unix:/run/php/php8.3-fpm-example.sock;",
-		"access_log /var/log/hostpanel/example.com/access.log;",
+		"access_log /var/log/ike/example.com/access.log;",
 	} {
 		if !strings.Contains(string(vhost), want) {
 			t.Errorf("vhost missing %q", want)
 		}
 	}
 
-	pool, err := os.ReadFile(filepath.Join(root, "etc/php/8.3/fpm/pool.d/hp-example.conf"))
+	pool, err := os.ReadFile(filepath.Join(root, "etc/php/8.3/fpm/pool.d/ike-example.conf"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,10 +117,10 @@ func TestCreateRollsBackWhenNginxTestFails(t *testing.T) {
 		t.Fatal("expected error")
 	}
 	for _, p := range []string{
-		"etc/nginx/hostpanel/sites/broken.com.conf",
-		"etc/php/8.3/fpm/pool.d/hp-broken.conf",
-		"var/lib/hostpanel/sites/broken.com.json",
-		"var/log/hostpanel/broken.com",
+		"etc/nginx/ike/sites/broken.com.conf",
+		"etc/php/8.3/fpm/pool.d/ike-broken.conf",
+		"var/lib/ike/sites/broken.com.json",
+		"var/log/ike/broken.com",
 		"home/broken",
 	} {
 		if _, err := os.Stat(filepath.Join(root, p)); !os.IsNotExist(err) {
@@ -141,7 +141,7 @@ func TestDeleteSite(t *testing.T) {
 	if err := m.Delete(ctx, "gone.com", true); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(root, "etc/nginx/hostpanel/sites/gone.com.conf")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(root, "etc/nginx/ike/sites/gone.com.conf")); !os.IsNotExist(err) {
 		t.Error("vhost still exists")
 	}
 	if !strings.Contains(strings.Join(r.History(), "\n"), "userdel --remove gone") {
@@ -205,7 +205,7 @@ func TestSSHAccessAndKeys(t *testing.T) {
 	if err != nil || site.SSH != SSHSFTP {
 		t.Fatalf("SetSSHMode sftp: %v %+v", err, site)
 	}
-	if !strings.Contains(strings.Join(r.History(), "\n"), "usermod --shell /usr/sbin/nologin --groups hp-sftp sshuser") {
+	if !strings.Contains(strings.Join(r.History(), "\n"), "usermod --shell /usr/sbin/nologin --groups ike-sftp sshuser") {
 		t.Error("sftp usermod not called")
 	}
 	if _, err := m.SetSSHMode(ctx, "ssh.com", "root"); err == nil {
@@ -227,7 +227,7 @@ func TestSSHAccessAndKeys(t *testing.T) {
 	if len(keys) != 1 || keys[0].Fingerprint != k.Fingerprint {
 		t.Fatalf("ListSSHKeys = %+v", keys)
 	}
-	b, _ := os.ReadFile(filepath.Join(root, "etc/ssh/hostpanel/keys/sshuser"))
+	b, _ := os.ReadFile(filepath.Join(root, "etc/ssh/ike/keys/sshuser"))
 	if !strings.Contains(string(b), strings.Fields(key)[1]) {
 		t.Error("key not written to authorized keys file")
 	}

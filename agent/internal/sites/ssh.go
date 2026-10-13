@@ -18,17 +18,17 @@ import (
 // SSH access modes for a site's Linux user.
 const (
 	SSHNone  = "none"  // no login at all (default)
-	SSHSFTP  = "sftp"  // SFTP only, chrooted to the user's home (sshd Match Group hp-sftp)
-	SSHShell = "shell" // full shell, NOT jailed: trusted users only (Match Group hp-ssh)
+	SSHSFTP  = "sftp"  // SFTP only, chrooted to the user's home (sshd Match Group ike-sftp)
+	SSHShell = "shell" // full shell, NOT jailed: trusted users only (Match Group ike-ssh)
 )
 
 const (
-	groupSFTP = "hp-sftp"
-	groupSSH  = "hp-ssh"
+	groupSFTP = "ike-sftp"
+	groupSSH  = "ike-ssh"
 	maxKeys   = 20
 	// Keys live in a root-owned file per user (sshd AuthorizedKeysFile), so hosting
 	// users cannot add keys behind the panel's back.
-	keysDir = "/etc/ssh/hostpanel/keys"
+	keysDir = "/etc/ssh/ike/keys"
 )
 
 var (
@@ -207,7 +207,7 @@ func (m *Manager) readKeys(usr string) ([]SSHKey, error) {
 
 func (m *Manager) writeKeys(usr string, keys []SSHKey) error {
 	var buf bytes.Buffer
-	buf.WriteString("# Managed by HostPanel. Edit keys in the panel, not here.\n")
+	buf.WriteString("# Managed by Ike. Edit keys in the panel, not here.\n")
 	for _, k := range keys {
 		buf.WriteString(k.line + "\n")
 	}

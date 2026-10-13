@@ -21,7 +21,7 @@ jobs:
       - name: Build static binaries
         run: |
           for arch in amd64 arm64; do
-            for bin in hp-agent hp-mcp; do
+            for bin in ike-agent ike-mcp; do
               CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -ldflags "-s -w" -o dist/$bin-linux-$arch ./cmd/$bin
             done
           done

@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# HostPanel installer for Ubuntu 22.04, 24.04 and 26.04 LTS.
+# Ike installer for Ubuntu 22.04, 24.04 and 26.04 LTS.
 # Run on a FRESH KVM VPS as root:
-#   curl -sSL https://raw.githubusercontent.com/YOUR-ORG/hostpanel/main/installer/install.sh | sudo bash
+#   curl -sSL https://raw.githubusercontent.com/YOUR-ORG/ike/main/installer/install.sh | sudo bash
 #
 # Licensed under the GNU AGPL-3.0.
 
 set -euo pipefail
 
-PANEL_NAME="hostpanel"
-AGENT_NAME="hp-agent"
-MCP_NAME="hp-mcp"
-REPO="YOUR-ORG/hostpanel"
+PANEL_NAME="ike"
+AGENT_NAME="ike-agent"
+MCP_NAME="ike-mcp"
+REPO="YOUR-ORG/ike"
 SUPPORTED_UBUNTU="22.04 24.04 26.04"
 
 PHP_VERSIONS="8.1 8.2 8.3 8.4"
@@ -261,14 +261,14 @@ SQL
 }
 
 # SSH access for hosting accounts:
-#   hp-sftp group -> SFTP only, chrooted to the user's home
-#   hp-ssh  group -> normal shell (trusted users)
+#   ike-sftp group -> SFTP only, chrooted to the user's home
+#   ike-ssh  group -> normal shell (trusted users)
 # Keys are read from a root-owned file per user so users can't add keys themselves.
 configure_ssh() {
 	info "Configuring SSH/SFTP for hosting accounts"
 	apt_install openssh-server
-	getent group hp-sftp >/dev/null || groupadd --system hp-sftp
-	getent group hp-ssh  >/dev/null || groupadd --system hp-ssh
+	getent group ike-sftp >/dev/null || groupadd --system ike-sftp
+	getent group ike-ssh  >/dev/null || groupadd --system ike-ssh
 	install -d -m 0755 -o root -g root "/etc/ssh/${PANEL_NAME}" "$SSH_KEYS_DIR"
 
 	local cfg=/etc/ssh/sshd_config
@@ -282,7 +282,7 @@ configure_ssh() {
 	sed -i "/^# BEGIN ${PANEL_NAME}/,/^# END ${PANEL_NAME}/d" "$cfg"
 	cat >>"$cfg" <<EOF
 # BEGIN ${PANEL_NAME} (managed, do not edit between these markers)
-Match Group hp-sftp
+Match Group ike-sftp
     ChrootDirectory %h
     ForceCommand internal-sftp -d /web
     AuthorizedKeysFile ${SSH_KEYS_DIR}/%u
@@ -292,7 +292,7 @@ Match Group hp-sftp
     AllowAgentForwarding no
     X11Forwarding no
     PermitTunnel no
-Match Group hp-ssh
+Match Group ike-ssh
     AuthorizedKeysFile ${SSH_KEYS_DIR}/%u
     PasswordAuthentication no
     KbdInteractiveAuthentication no

@@ -23,7 +23,7 @@ var reservedUsers = map[string]bool{
 	"systemd": true, "syslog": true, "messagebus": true, "sshd": true, "ubuntu": true,
 	"nginx": true, "apache": true, "mysql": true, "mariadb": true, "postgres": true,
 	"postfix": true, "dovecot": true, "www": true, "wwwdata": true, "ftp": true,
-	"hostpanel": true, "docker": true, "redis": true, "named": true, "bind": true,
+	"ike": true, "docker": true, "redis": true, "named": true, "bind": true,
 	"pdns": true, "lxd": true, "polkitd": true, "tss": true, "uuidd": true, "tcpdump": true,
 }
 

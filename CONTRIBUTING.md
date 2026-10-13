@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping build HostPanel!
+Thanks for helping build Ike!
 
 ## Getting started
 

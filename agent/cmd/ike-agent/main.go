@@ -1,4 +1,4 @@
-// hp-agent is the root daemon that applies changes on a HostPanel server.
+// ike-agent is the root daemon that applies changes on a Ike server.
 package main
 
 import (
@@ -17,26 +17,26 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/YOUR-ORG/hostpanel/agent/internal/api"
-	"github.com/YOUR-ORG/hostpanel/agent/internal/config"
-	"github.com/YOUR-ORG/hostpanel/agent/internal/runner"
-	"github.com/YOUR-ORG/hostpanel/agent/internal/sites"
+	"github.com/YOUR-ORG/ike/agent/internal/api"
+	"github.com/YOUR-ORG/ike/agent/internal/config"
+	"github.com/YOUR-ORG/ike/agent/internal/runner"
+	"github.com/YOUR-ORG/ike/agent/internal/sites"
 )
 
 func main() {
 	var (
-		socket  = flag.String("socket", "/run/hostpanel/agent.sock", "unix socket to listen on")
-		cfgPath = flag.String("config", "/etc/hostpanel/agent.json", "config file")
+		socket  = flag.String("socket", "/run/ike/agent.sock", "unix socket to listen on")
+		cfgPath = flag.String("config", "/etc/ike/agent.json", "config file")
 		root    = flag.String("root", "/", "filesystem root (for testing)")
 		dryRun  = flag.Bool("dry-run", false, "log commands instead of running them")
-		group   = flag.String("socket-group", "hostpanel", "group allowed to use the socket")
+		group   = flag.String("socket-group", "ike", "group allowed to use the socket")
 		showVer = flag.Bool("version", false, "print version and exit")
 	)
 	flag.Parse()
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
 
 	if *showVer {
-		fmt.Println("hp-agent", api.Version)
+		fmt.Println("ike-agent", api.Version)
 		return
 	}
 	if err := run(*socket, *cfgPath, *root, *group, *dryRun); err != nil {
@@ -54,7 +54,7 @@ func run(socket, cfgPath, root, group string, dryRun bool) error {
 
 	if !dryRun {
 		if os.Geteuid() != 0 {
-			return errors.New("hp-agent must run as root (use --dry-run for development)")
+			return errors.New("ike-agent must run as root (use --dry-run for development)")
 		}
 		if root != "/" {
 			return errors.New("--root can only be changed together with --dry-run")
@@ -99,7 +99,7 @@ func run(socket, cfgPath, root, group string, dryRun bool) error {
 		_ = hs.Shutdown(shutdown)
 	}()
 
-	slog.Info("hp-agent listening", "version", api.Version, "socket", socket)
+	slog.Info("ike-agent listening", "version", api.Version, "socket", socket)
 	if err := hs.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}

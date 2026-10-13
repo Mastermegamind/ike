@@ -1,5 +1,5 @@
-// hp-mcp is a Model Context Protocol server over stdio. AI clients (Claude, Cursor,
-// VS Code, ...) launch it locally, or remotely with:  ssh root@your-server hp-mcp
+// ike-mcp is a Model Context Protocol server over stdio. AI clients (Claude, Cursor,
+// VS Code, ...) launch it locally, or remotely with:  ssh root@your-server ike-mcp
 package main
 
 import (
@@ -12,16 +12,16 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/YOUR-ORG/hostpanel/agent/internal/api"
-	"github.com/YOUR-ORG/hostpanel/agent/internal/client"
-	"github.com/YOUR-ORG/hostpanel/agent/internal/mcp"
+	"github.com/YOUR-ORG/ike/agent/internal/api"
+	"github.com/YOUR-ORG/ike/agent/internal/client"
+	"github.com/YOUR-ORG/ike/agent/internal/mcp"
 )
 
 func main() {
 	var (
-		socket     = flag.String("socket", "/run/hostpanel/agent.sock", "hp-agent unix socket")
+		socket     = flag.String("socket", "/run/ike/agent.sock", "ike-agent unix socket")
 		allowWrite = flag.Bool("allow-write", false, "enable tools that change the server (create/delete sites, SSH access)")
-		auditPath  = flag.String("audit-log", "/var/log/hostpanel/mcp-audit.log", "append every tool call here (empty to disable)")
+		auditPath  = flag.String("audit-log", "/var/log/ike/mcp-audit.log", "append every tool call here (empty to disable)")
 		showVer    = flag.Bool("version", false, "print version and exit")
 	)
 	flag.Parse()
@@ -29,7 +29,7 @@ func main() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
 
 	if *showVer {
-		fmt.Println("hp-mcp", api.Version)
+		fmt.Println("ike-mcp", api.Version)
 		return
 	}
 

@@ -1,4 +1,4 @@
-// Package client talks to hp-agent's JSON API. Used by hp-mcp and, later, the control plane.
+// Package client talks to ike-agent's JSON API. Used by ike-mcp and, later, the control plane.
 package client
 
 import (
@@ -26,7 +26,7 @@ func Unix(socket string) *Client {
 			return d.DialContext(ctx, "unix", socket)
 		},
 	}
-	return &Client{BaseURL: "http://hp-agent", HTTP: &http.Client{Transport: tr, Timeout: 6 * time.Minute}}
+	return &Client{BaseURL: "http://ike-agent", HTTP: &http.Client{Transport: tr, Timeout: 6 * time.Minute}}
 }
 
 // Do sends a request and decodes the JSON response into out (if non-nil).
@@ -49,7 +49,7 @@ func (c *Client) Do(ctx context.Context, method, path string, body any, out any)
 	}
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
-		return fmt.Errorf("cannot reach hp-agent: %w", err)
+		return fmt.Errorf("cannot reach ike-agent: %w", err)
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))

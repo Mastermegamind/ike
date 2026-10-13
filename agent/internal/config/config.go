@@ -27,9 +27,9 @@ func Default() Config {
 		Root:          "/",
 		WebUser:       "www-data",
 		WebGroup:      "www-data",
-		NginxSitesDir: "/etc/nginx/hostpanel/sites",
+		NginxSitesDir: "/etc/nginx/ike/sites",
 		HomeBase:      "/home",
-		StateDir:      "/var/lib/hostpanel/sites",
+		StateDir:      "/var/lib/ike/sites",
 		DefaultPHP:    "8.3",
 	}
 }

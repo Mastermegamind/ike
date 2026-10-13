@@ -3,7 +3,7 @@
 ## Phase 1 — Foundation (current)
 - [x] Installer for Ubuntu 22.04 / 24.04 / 26.04 with OS, KVM, RAM and fresh-server checks
 - [x] nginx.org and ondrej/php repos with fallback to Ubuntu packages; Ubuntu's MariaDB
-- [x] hp-agent daemon on a root-only unix socket
+- [x] ike-agent daemon on a root-only unix socket
 - [x] Site creation: Linux user, home layout, PHP-FPM pool per site, Nginx vhost, config test + reload
 - [x] Site deletion, system info, service status
 - [x] SSH per site: none / SFTP-only (chroot) / shell, panel-managed keys
