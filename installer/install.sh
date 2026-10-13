@@ -27,6 +27,11 @@ INSTALL_MARIADB=1
 FORCE=0
 AGENT_BINARY=""
 MCP_BINARY=""
+PANEL_BINARY=""
+ADMIN_USER="admin"
+ADMIN_EMAIL=""
+WIZARD=0
+PANEL_PORTS="2083 2086 2087"
 
 LOG_FILE="/var/log/${PANEL_NAME}-install.log"
 CONF_DIR="/etc/${PANEL_NAME}"
@@ -97,9 +102,15 @@ Other
   --force                     Install even if the server is not fresh
   --agent-binary PATH         Use a locally built ${AGENT_NAME}
   --mcp-binary PATH           Use a locally built ${MCP_NAME}
+  --panel-binary PATH         Use a locally built ike-panel
+  --admin-user NAME           First panel admin (default: admin)
+  --admin-email EMAIL         First panel admin's email
+  --wizard                    Ask for every choice step by step (default when run with no options in a terminal)
   -h, --help                  Show this help
 EOF
 }
+
+if [ $# -eq 0 ] && [ -t 0 ] && [ -t 1 ]; then WIZARD=1; fi
 
 while [ $# -gt 0 ]; do
 	case "$1" in
@@ -114,10 +125,47 @@ while [ $# -gt 0 ]; do
 		--force) FORCE=1; shift ;;
 		--agent-binary) AGENT_BINARY="${2:?}"; shift 2 ;;
 		--mcp-binary) MCP_BINARY="${2:?}"; shift 2 ;;
+		--panel-binary) PANEL_BINARY="${2:?}"; shift 2 ;;
+		--admin-user) ADMIN_USER="${2:?}"; shift 2 ;;
+		--admin-email) ADMIN_EMAIL="${2:?}"; shift 2 ;;
+		--wizard) WIZARD=1; shift ;;
 		-h|--help) usage; exit 0 ;;
 		*) usage; die "Unknown option: $1" ;;
 	esac
 done
+
+# ---------------------------------------------------------------- wizard ----
+
+ask() { # ask "Question" default  ->  sets REPLY
+	local q="$1" def="$2"
+	printf '%s%s%s [%s]: ' "$C_BLD" "$q" "$C_RST" "$def" >&2
+	read -r REPLY </dev/tty || REPLY=""
+	REPLY="${REPLY:-$def}"
+}
+
+run_wizard() {
+	printf '\n%sIke guided install%s\nPress Enter to accept the suggestion in [brackets].\n\n' "$C_BLD" "$C_RST" >&2
+	echo "Web server: nginx (fastest), apache (Apache only), hybrid (Nginx in front, Apache per website for .htaccess)" >&2
+	ask "Web server" "$WEB_STACK"; WEB_STACK="$REPLY"
+	if [ "$WEB_STACK" = "hybrid" ]; then
+		ask "New websites use (nginx or nginx+apache)" "nginx+apache"; DEFAULT_WEB_SERVER="$REPLY"
+	fi
+	echo "PHP versions separated by spaces, or 'all' for ${ALL_PHP}" >&2
+	ask "PHP versions" "$PHP_VERSIONS"; PHP_VERSIONS="$REPLY"
+	ask "Node.js versions (or none)" "$NODE_VERSIONS"; NODE_VERSIONS="$REPLY"
+	ask "Python versions (or none)" "$PYTHON_VERSIONS"; PYTHON_VERSIONS="$REPLY"
+	ask "Install MariaDB (yes/no)" "yes"
+	if [ "$REPLY" = "no" ]; then INSTALL_MARIADB=0; fi
+	if [ "$INSTALL_MARIADB" -eq 1 ]; then
+		ask "phpMyAdmin (stable, 6 for the 6.0 preview, none)" "$PMA_CHANNEL"; PMA_CHANNEL="$REPLY"
+	fi
+	ask "First panel admin username" "$ADMIN_USER"; ADMIN_USER="$REPLY"
+	ask "Admin email" "${ADMIN_EMAIL:-admin@$(hostname -f 2>/dev/null || hostname)}"; ADMIN_EMAIL="$REPLY"
+	ask "Install now? (yes/no)" "yes"
+	[ "$REPLY" = "yes" ] || die "Cancelled. Nothing was changed."
+}
+
+if [ "$WIZARD" -eq 1 ]; then run_wizard; fi
 
 [ "$PHP_VERSIONS" = "all" ] && PHP_VERSIONS="$ALL_PHP"
 [ "$NODE_VERSIONS" = "none" ] && NODE_VERSIONS=""
@@ -205,7 +253,7 @@ install_base() {
 	apt-get update -q >>"$LOG_FILE" 2>&1
 	info "Installing base packages"
 	apt_install ca-certificates curl gnupg software-properties-common lsb-release \
-		ufw fail2ban unzip xz-utils acl openssl cron logrotate python3
+		ufw fail2ban unzip xz-utils acl openssl cron logrotate python3 rsync unattended-upgrades quota
 	systemctl enable --now cron >>"$LOG_FILE" 2>&1
 }
 
@@ -603,6 +651,7 @@ configure_firewall() {
 	{
 		ufw allow 80/tcp comment 'HTTP'
 		ufw allow 443/tcp comment 'HTTPS'
+		for p in $PANEL_PORTS; do ufw allow "${p}/tcp" comment 'Ike panel'; done
 		ufw default deny incoming
 		ufw default allow outgoing
 		ufw --force enable
@@ -649,14 +698,15 @@ install_agent() {
 	getent group "$PANEL_NAME" >/dev/null || groupadd --system "$PANEL_NAME"
 	install -d -m 0755 -o root -g root "$CONF_DIR" "${CONF_DIR}/pages" "${OPT_DIR}" "$RUNTIMES_DIR" \
 		"${RUNTIMES_DIR}/node" "${RUNTIMES_DIR}/python"
-	install -d -m 0700 -o root -g root "${CONF_DIR}/apps" "$STATE_DIR" "$STATE_DIR/sites" "$STATE_DIR/accounts"
+	install -d -m 0711 -o root -g root "$STATE_DIR"
+	install -d -m 0700 -o root -g root "${CONF_DIR}/apps" "$STATE_DIR/sites" "$STATE_DIR/accounts" "$STATE_DIR/imports"
 	install -d -m 0750 -o root -g adm "$PANEL_LOG_DIR"
 
 	fetch_binary "$AGENT_NAME" "/usr/local/bin/${AGENT_NAME}" "$AGENT_BINARY"
 	fetch_binary "$MCP_NAME" "/usr/local/bin/${MCP_NAME}" "$MCP_BINARY"
 
 	local protected="" p
-	for p in $SSH_PORTS 80 443; do protected="${protected}\"${p}/tcp\", "; done
+	for p in $SSH_PORTS 80 443 $PANEL_PORTS; do protected="${protected}\"${p}/tcp\", "; done
 	cat >"$CONF_DIR/agent.json" <<EOF
 {
   "web_stack": "${WEB_STACK}",
@@ -673,6 +723,8 @@ install_agent() {
   "apps_dir": "${CONF_DIR}/apps",
   "runtimes_dir": "${RUNTIMES_DIR}",
   "tools_dir": "${OPT_DIR}/bin",
+  "imports_dir": "${STATE_DIR}/imports",
+  "repo": "${REPO}",
   "default_php": "${DEFAULT_PHP}",
   "protected_ports": [${protected%, }]
 }
@@ -714,6 +766,73 @@ EOF
 	echo "installed_at=$(date -u +%FT%TZ) ubuntu=${OS_VERSION} web=${WEB_STACK} php=\"${PHP_INSTALLED}\"" >"$CONF_DIR/installed"
 }
 
+install_panel() {
+	info "Installing the Ike web panel"
+	fetch_binary "ike-panel" "/usr/local/bin/ike-panel" "$PANEL_BINARY"
+	# The panel runs unprivileged; the ike group lets it talk to the agent socket.
+	getent passwd ike >/dev/null || useradd --system --gid "$PANEL_NAME" --home-dir "${STATE_DIR}/panel" --shell /usr/sbin/nologin ike
+	install -d -m 0700 -o ike -g "$PANEL_NAME" "${STATE_DIR}/panel" "${CONF_DIR}/tls"
+	local host
+	host=$(hostname -f 2>/dev/null || hostname)
+	if [ ! -f "${CONF_DIR}/panel.json" ]; then
+		cat >"${CONF_DIR}/panel.json" <<JSON
+{
+  "listeners": [
+    { "name": "panel",    "addr": ":2083", "roles": ["user", "reseller", "admin"] },
+    { "name": "reseller", "addr": ":2086", "roles": ["reseller", "admin"] },
+    { "name": "admin",    "addr": ":2087", "roles": ["admin"] }
+  ],
+  "tls_cert": "${CONF_DIR}/tls/panel.crt",
+  "tls_key": "${CONF_DIR}/tls/panel.key",
+  "agent_socket": "/run/${PANEL_NAME}/agent.sock",
+  "store": "${STATE_DIR}/panel/panel.json",
+  "hostname": "${host}",
+  "public_url": "https://${host}:2083"
+}
+JSON
+	fi
+	chown root:"$PANEL_NAME" "${CONF_DIR}/panel.json"
+	chmod 0640 "${CONF_DIR}/panel.json"
+
+	if [ ! -s "${STATE_DIR}/panel/panel.json" ]; then
+		ADMIN_EMAIL="${ADMIN_EMAIL:-admin@${host}}"
+		ADMIN_PASSWORD_LINE=$(runuser -u ike -- /usr/local/bin/ike-panel create-admin --username "$ADMIN_USER" \
+			--email "$ADMIN_EMAIL" --store "${STATE_DIR}/panel/panel.json" </dev/null)
+	fi
+
+	cat >/etc/systemd/system/ike-panel.service <<UNIT
+[Unit]
+Description=Ike web panel
+After=network.target ${AGENT_NAME}.service
+Wants=${AGENT_NAME}.service
+
+[Service]
+User=ike
+Group=${PANEL_NAME}
+ExecStart=/usr/local/bin/ike-panel --config ${CONF_DIR}/panel.json
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=${STATE_DIR}/panel ${CONF_DIR}/tls
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+	systemctl daemon-reload
+	systemctl enable --now ike-panel >>"$LOG_FILE" 2>&1
+	systemctl restart ike-panel
+}
+
 summary() {
 	local ip
 	ip=$(curl -fsS --max-time 5 https://api.ipify.org 2>/dev/null || hostname -I | awk '{print $1}')
@@ -731,7 +850,16 @@ ${C_BLD}${C_GRN}${PANEL_NAME} installed successfully${C_RST}
   Server IP     ${ip}
   Install log   ${LOG_FILE}
 
-${C_BLD}Try it${C_RST} (point example.com's DNS A record to ${ip} first):
+${C_BLD}Sign in to the panel${C_RST} (browsers warn about the self-signed certificate until SSL is set up):
+
+  Admin panel       https://${ip}:2087
+  Reseller panel    https://${ip}:2086
+  Account owners    https://${ip}:2083
+  ${ADMIN_PASSWORD_LINE:-The admin account already exists.}
+
+  Turn on two-factor sign-in in Settings after you sign in.
+
+${C_BLD}Or use the API directly${C_RST} (point example.com's DNS A record to ${ip} first):
 
   curl --unix-socket /run/${PANEL_NAME}/agent.sock -X POST http://agent/v1/accounts -d '{"name":"example"}'
   curl --unix-socket /run/${PANEL_NAME}/agent.sock -X POST http://agent/v1/sites \\
@@ -766,6 +894,7 @@ main() {
 	configure_ssh
 	configure_firewall
 	install_agent
+	install_panel
 	summary
 }
 

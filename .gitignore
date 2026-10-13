@@ -6,3 +6,4 @@ agent/ike-mcp
 web/node_modules/
 web/dist/
 web/dist-single/
+dist/
