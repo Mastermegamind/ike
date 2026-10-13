@@ -204,18 +204,15 @@ func (m *Manager) cronFile(account string) string {
 	return m.p(filepath.Join(m.cfg.CronDir, "ike-"+account))
 }
 
-// writeCron renders /etc/cron.d/ike-<account>. The file is root-owned; every
-// line names the account user, so jobs run with that user's permissions only.
-func (m *Manager) writeCron(account string) error {
-	a, err := m.getAccount(account)
-	if err != nil {
-		return err
-	}
+// cronBody renders an account's cron file, or nil when it should not exist.
+// The file is root-owned; every line names the account user, so jobs run with
+// that user's permissions only.
+func (m *Manager) cronBody(a *Account) []byte {
 	if a.Suspended || len(a.Cron) == 0 {
-		return m.disableCron(account)
+		return nil
 	}
 	var b bytes.Buffer
-	fmt.Fprintf(&b, "# Managed by Ike for account %s. Edit jobs in the panel, not here.\n", account)
+	fmt.Fprintf(&b, "# Managed by Ike for account %s. Edit jobs in the panel, not here.\n", a.Name)
 	b.WriteString("SHELL=/bin/bash\nPATH=/usr/local/bin:/usr/bin:/bin\nMAILTO=\"\"\n\n")
 	for _, j := range a.Cron {
 		if j.Comment != "" {
@@ -227,9 +224,22 @@ func (m *Manager) writeCron(account string) error {
 		}
 		// In crontab syntax an unescaped % means "newline"; escape it so the command runs as written.
 		cmd := strings.ReplaceAll(j.Command, "%", `\%`)
-		fmt.Fprintf(&b, "%s%s %s cd ~ && %s\n", prefix, j.Schedule, account, cmd)
+		fmt.Fprintf(&b, "%s%s %s cd ~ && %s\n", prefix, j.Schedule, a.Name, cmd)
 	}
-	return writeFile(m.cronFile(account), b.Bytes(), 0o644)
+	return b.Bytes()
+}
+
+// writeCron installs /etc/cron.d/ike-<account>.
+func (m *Manager) writeCron(account string) error {
+	a, err := m.getAccount(account)
+	if err != nil {
+		return err
+	}
+	body := m.cronBody(a)
+	if body == nil {
+		return m.disableCron(account)
+	}
+	return writeFile(m.cronFile(account), body, 0o644)
 }
 
 func (m *Manager) disableCron(account string) error {

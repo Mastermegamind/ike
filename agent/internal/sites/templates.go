@@ -22,6 +22,11 @@ server {
     error_log  {{.LogDir}}/error.log;
 
     client_max_body_size 64m;
+{{- if .Staging}}
+
+    # Staging copy: keep it out of search results.
+    add_header X-Robots-Tag "noindex, nofollow" always;
+{{- end}}
 
     location ^~ /.well-known/acme-challenge/ {
         root {{.DocRoot}};
@@ -192,7 +197,7 @@ listen.group = {{.WebGroup}}
 listen.mode = 0660
 
 pm = ondemand
-pm.max_children = 5
+pm.max_children = {{.PHPWorkers}}
 pm.process_idle_timeout = 30s
 pm.max_requests = 500
 
@@ -206,7 +211,7 @@ php_admin_flag[log_errors] = on
 php_admin_value[disable_functions] = exec,passthru,shell_exec,system,proc_open,popen,pcntl_exec
 php_admin_value[upload_max_filesize] = 64M
 php_admin_value[post_max_size] = 64M
-php_admin_value[memory_limit] = 256M
+php_admin_value[memory_limit] = {{.PHPMemoryMB}}M
 `))
 
 // Root-owned launcher for Node.js/Python apps. Runs as the account user.
@@ -233,6 +238,10 @@ var unitTmpl = template.Must(template.New("unit").Parse(`# Managed by Ike. Manua
 [Unit]
 Description=Ike {{.Runtime}} app for {{.Domain}}
 After=network.target
+# Give up after 10 crashes in 5 minutes instead of looping forever; the health
+# assistant reports it and a manual start resets the counter.
+StartLimitIntervalSec=300
+StartLimitBurst=10
 
 [Service]
 Type=simple
@@ -240,6 +249,7 @@ User={{.User}}
 Group={{.User}}
 WorkingDirectory={{.AppDir}}
 ExecStart=/bin/bash {{.StartScript}}
+Slice={{.Slice}}
 Restart=always
 RestartSec=3
 # Isolation: the app sees only its own account home and cannot gain privileges.

@@ -15,8 +15,10 @@ import (
 	"github.com/YOUR-ORG/ike/agent/internal/client"
 	"github.com/YOUR-ORG/ike/agent/internal/config"
 	"github.com/YOUR-ORG/ike/agent/internal/firewall"
+	"github.com/YOUR-ORG/ike/agent/internal/jobs"
 	"github.com/YOUR-ORG/ike/agent/internal/runner"
 	"github.com/YOUR-ORG/ike/agent/internal/sites"
+	"github.com/YOUR-ORG/ike/agent/internal/updates"
 )
 
 // newServer wires an MCP server to a real agent API running in dry-run mode.
@@ -30,7 +32,9 @@ func newServer(t *testing.T, allowWrite bool) (*Server, *bytes.Buffer) {
 	cfg.Root, cfg.DryRun = root, true
 	r := &runner.DryRun{}
 	fw := &firewall.Manager{Run: r, StateFile: filepath.Join(root, "fw.json"), Protected: cfg.ProtectedPorts}
-	agent := &api.Server{Sites: sites.NewManager(cfg, r), Firewall: fw, Runner: r, Config: cfg}
+	jm := jobs.NewManager()
+	agent := &api.Server{Sites: sites.NewManager(cfg, r), Firewall: fw, Runner: r, Config: cfg, Jobs: jm,
+		Updates: &updates.Manager{Run: r, Jobs: jm, Root: root}}
 	ts := httptest.NewServer(agent.Handler())
 	t.Cleanup(ts.Close)
 

@@ -42,6 +42,30 @@
 //
 //	GET    /v1/audit?lines=200                 every change made through the agent
 //
+//	GET    /v1/updates                         pending Ubuntu updates (refreshes package lists)
+//	POST   /v1/updates/apply                   {"security_only": bool} → background job
+//	GET    /v1/updates/auto                    automatic security update settings
+//	PUT    /v1/updates/auto                    {"security_updates","auto_reboot","reboot_time"}
+//	POST   /v1/server/reboot                   {"in_minutes": 5}
+//	DELETE /v1/server/reboot                   cancel a scheduled reboot
+//	GET    /v1/ike/release                     newest Ike release vs running version
+//	POST   /v1/ike/update                      download, verify, install, restart → job
+//	GET    /v1/jobs, GET /v1/jobs/{id}         background job status and log
+//
+//	GET    /v1/sites/{domain}/diagnose         health assistant: plain-language findings
+//	POST   /v1/sites/{domain}/staging          clone to staging.<domain> → job
+//	POST   /v1/sites/{domain}/push             push a staging copy's files to live → job
+//	PUT    /v1/sites/{domain}/healthcheck      {"path","interval_sec","fail_threshold","action"} or null
+//	GET    /v1/health/events                   app health monitor events
+//	GET    /v1/sites/{domain}/env              .env variables
+//	PUT    /v1/sites/{domain}/env              [{"key","value"}]
+//	PUT    /v1/accounts/{name}/limits          {"cpu_percent","memory_mb","max_processes","disk_mb","php_workers"}
+//	GET    /v1/usage                           per-account CPU, memory, disk, bandwidth (+24 h history)
+//	GET    /v1/security                        security baseline scan
+//	GET    /v1/drift                           managed config files changed by hand
+//	POST   /v1/drift/reconcile                 {"paths": [...]} restore them (all when empty)
+//	GET    /v1/imports/cpanel/{file}           inspect a cPanel backup in the imports folder
+//
 //	GET    /v1/firewall                        open ports + blocked addresses
 //	POST   /v1/firewall/ports                  {"port","proto","comment"}
 //	DELETE /v1/firewall/ports?port=&proto=
@@ -55,6 +79,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -65,15 +90,19 @@ import (
 
 	"github.com/YOUR-ORG/ike/agent/internal/config"
 	"github.com/YOUR-ORG/ike/agent/internal/firewall"
+	"github.com/YOUR-ORG/ike/agent/internal/jobs"
 	"github.com/YOUR-ORG/ike/agent/internal/runner"
 	"github.com/YOUR-ORG/ike/agent/internal/sites"
 	"github.com/YOUR-ORG/ike/agent/internal/sysinfo"
+	"github.com/YOUR-ORG/ike/agent/internal/updates"
 )
 
-const Version = "0.2.0"
+const Version = "0.3.0"
 
 type Server struct {
 	Sites     *sites.Manager
+	Updates   *updates.Manager
+	Jobs      *jobs.Manager
 	Firewall  *firewall.Manager
 	Runner    runner.Runner
 	Config    config.Config
@@ -331,6 +360,145 @@ func (s *Server) Handler() http.Handler {
 	h("GET /v1/audit", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
 		n, _ := strconv.Atoi(r.URL.Query().Get("lines"))
 		return ok(s.readAudit(n))
+	})
+
+	// ---- updates and jobs
+	h("GET /v1/updates", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		ctx, cancel := long(r)
+		defer cancel()
+		return ok(s.Updates.Check(ctx))
+	})
+	h("POST /v1/updates/apply", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		var body struct {
+			SecurityOnly bool `json:"security_only"`
+		}
+		if r.ContentLength != 0 && !decode(w, r, &body) {
+			return 0, nil, nil
+		}
+		j, err := s.Updates.Apply(body.SecurityOnly)
+		return http.StatusAccepted, j, err
+	})
+	h("GET /v1/updates/auto", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		return ok(s.Updates.AutoSettings(), nil)
+	})
+	h("PUT /v1/updates/auto", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		var body updates.AutoSettings
+		if !decode(w, r, &body) {
+			return 0, nil, nil
+		}
+		return ok(body, s.Updates.SetAutoSettings(body))
+	})
+	h("POST /v1/server/reboot", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		var body struct {
+			InMinutes int `json:"in_minutes"`
+		}
+		if !decode(w, r, &body) {
+			return 0, nil, nil
+		}
+		return ok(map[string]int{"reboot_in_minutes": body.InMinutes}, s.Updates.ScheduleReboot(r.Context(), body.InMinutes))
+	})
+	h("DELETE /v1/server/reboot", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		return ok(map[string]bool{"cancelled": true}, s.Updates.CancelReboot(r.Context()))
+	})
+	h("GET /v1/ike/release", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		return ok(s.Updates.CheckIke(r.Context()))
+	})
+	h("POST /v1/ike/update", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		j, err := s.Updates.UpdateIke(r.Context())
+		return http.StatusAccepted, j, err
+	})
+	h("GET /v1/jobs", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		return ok(s.Jobs.List(), nil)
+	})
+	h("GET /v1/jobs/{id}", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		j, found := s.Jobs.Get(r.PathValue("id"))
+		if !found {
+			return 0, nil, fmt.Errorf("job %w", sites.ErrNotFound)
+		}
+		return ok(j, nil)
+	})
+
+	// ---- health, staging, limits, env, usage, security, drift, imports
+	h("GET /v1/sites/{domain}/diagnose", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		return ok(s.Sites.Diagnose(r.Context(), r.PathValue("domain")))
+	})
+	h("POST /v1/sites/{domain}/staging", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		d := r.PathValue("domain")
+		if _, err := s.Sites.Get(d); err != nil {
+			return 0, nil, err
+		}
+		j, err := s.Jobs.Start("staging:"+d, "Create a staging copy of "+d, 2*time.Hour, func(ctx context.Context, log jobs.Logger) error {
+			res, err := s.Sites.CreateStaging(ctx, d, log)
+			if err == nil {
+				log("Staging copy ready at %s", res.Staging)
+				if res.Note != "" {
+					log("%s", res.Note)
+				}
+			}
+			return err
+		})
+		return http.StatusAccepted, j, err
+	})
+	h("POST /v1/sites/{domain}/push", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		d := r.PathValue("domain")
+		j, err := s.Jobs.Start("push:"+d, "Push "+d+" to live", time.Hour, func(ctx context.Context, log jobs.Logger) error {
+			backup, err := s.Sites.PushStaging(ctx, d, log)
+			if err == nil {
+				log("Done. The previous live files are saved in %s", backup)
+			}
+			return err
+		})
+		return http.StatusAccepted, j, err
+	})
+	h("PUT /v1/sites/{domain}/healthcheck", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		var hc *sites.HealthCheck
+		if !decode(w, r, &hc) {
+			return 0, nil, nil
+		}
+		return ok(s.Sites.SetHealthCheck(r.PathValue("domain"), hc))
+	})
+	h("GET /v1/health/events", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		return ok(s.Sites.HealthEvents(), nil)
+	})
+	h("GET /v1/sites/{domain}/env", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		return ok(s.Sites.GetEnv(r.PathValue("domain")))
+	})
+	h("PUT /v1/sites/{domain}/env", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		var vars []sites.EnvVar
+		if !decode(w, r, &vars) {
+			return 0, nil, nil
+		}
+		return ok(map[string]int{"saved": len(vars)}, s.Sites.SetEnv(r.Context(), r.PathValue("domain"), vars))
+	})
+	h("PUT /v1/accounts/{name}/limits", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		var l sites.Limits
+		if !decode(w, r, &l) {
+			return 0, nil, nil
+		}
+		return ok(s.Sites.SetLimits(r.Context(), r.PathValue("name"), l))
+	})
+	h("GET /v1/usage", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		return ok(s.Sites.Usage(), nil)
+	})
+	h("GET /v1/security", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		return ok(s.Sites.SecurityScan(r.Context()), nil)
+	})
+	h("GET /v1/drift", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		return ok(s.Sites.DetectDrift(), nil)
+	})
+	h("POST /v1/drift/reconcile", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		var body struct {
+			Paths []string `json:"paths"`
+		}
+		if r.ContentLength != 0 && !decode(w, r, &body) {
+			return 0, nil, nil
+		}
+		ctx, cancel := long(r)
+		defer cancel()
+		return ok(s.Sites.Reconcile(ctx, body.Paths))
+	})
+	h("GET /v1/imports/cpanel/{file}", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		return ok(s.Sites.InspectCpanelBackup(r.PathValue("file")))
 	})
 
 	// ---- firewall

@@ -24,9 +24,11 @@ type Config struct {
 	AppsDir       string `json:"apps_dir"`       // root-owned start scripts for app sites
 	AppPortStart  int    `json:"app_port_start"` // first local port handed to apps
 	AccountsDir   string `json:"accounts_dir"`
-	PagesDir      string `json:"pages_dir"` // admin-editable starter, status and error pages
-	ToolsDir      string `json:"tools_dir"` // WP-CLI, uv
-	CronDir       string `json:"cron_dir"`  // /etc/cron.d
+	PagesDir      string `json:"pages_dir"`   // admin-editable starter, status and error pages
+	ToolsDir      string `json:"tools_dir"`   // WP-CLI, uv
+	ImportsDir    string `json:"imports_dir"` // uploaded cPanel backups
+	Repo          string `json:"repo"`        // GitHub "owner/name" Ike updates come from
+	CronDir       string `json:"cron_dir"`    // /etc/cron.d
 	FirewallState string `json:"firewall_state"`
 	// Ports that can never be closed from the panel (SSH, web, panel ports).
 	ProtectedPorts []string `json:"protected_ports"`
@@ -71,6 +73,8 @@ func Default() Config {
 		AccountsDir:    "/var/lib/ike/accounts",
 		PagesDir:       "/etc/ike/pages",
 		ToolsDir:       "/opt/ike/bin",
+		ImportsDir:     "/var/lib/ike/imports",
+		Repo:           "YOUR-ORG/ike",
 		CronDir:        "/etc/cron.d",
 		FirewallState:  "/var/lib/ike/firewall.json",
 		ProtectedPorts: []string{"22/tcp", "80/tcp", "443/tcp"},

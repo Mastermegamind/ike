@@ -19,17 +19,20 @@ import (
 
 // Site is one website inside an account.
 type Site struct {
-	Domain       string    `json:"domain"`
-	Account      string    `json:"account"`
-	Runtime      string    `json:"runtime"`           // php | node | python | static
-	Version      string    `json:"version,omitempty"` // 8.3, 22, 3.12
-	WebServer    string    `json:"web_server"`        // nginx | apache | nginx+apache
-	DocRoot      string    `json:"doc_root"`
-	Port         int       `json:"port,omitempty"` // local port for Node.js/Python apps
-	StartCommand string    `json:"start_command,omitempty"`
-	Status       string    `json:"status"`              // active | maintenance | suspended
-	AllowIPs     []string  `json:"allow_ips,omitempty"` // see the real site during maintenance
-	CreatedAt    time.Time `json:"created_at"`
+	Domain       string       `json:"domain"`
+	Account      string       `json:"account"`
+	Runtime      string       `json:"runtime"`           // php | node | python | static
+	Version      string       `json:"version,omitempty"` // 8.3, 22, 3.12
+	WebServer    string       `json:"web_server"`        // nginx | apache | nginx+apache
+	DocRoot      string       `json:"doc_root"`
+	Port         int          `json:"port,omitempty"` // local port for Node.js/Python apps
+	StartCommand string       `json:"start_command,omitempty"`
+	Status       string       `json:"status"`               // active | maintenance | suspended
+	AllowIPs     []string     `json:"allow_ips,omitempty"`  // see the real site during maintenance
+	Staging      bool         `json:"staging,omitempty"`    // a staging copy, hidden from search engines
+	StagingOf    string       `json:"staging_of,omitempty"` // the live domain it was copied from
+	Health       *HealthCheck `json:"health,omitempty"`     // Node.js/Python only
+	CreatedAt    time.Time    `json:"created_at"`
 }
 
 // CreateRequest adds a website to an existing account.
@@ -62,7 +65,9 @@ type layout struct {
 	StateFile, UnitName, UnitFile             string
 	StartScript, RuntimeBin, StartCommand     string
 	Port                                      int
-	IsApp                                     bool
+	IsApp, Staging                            bool
+	Slice                                     string
+	PHPWorkers, PHPMemoryMB                   int
 }
 
 // siteID is a short, stable, filename-safe id for a domain.
@@ -98,9 +103,16 @@ func (m *Manager) layout(s *Site) layout {
 		Port:         s.Port,
 		StartCommand: s.StartCommand,
 		IsApp:        IsApp(s.Runtime),
+		Staging:      s.Staging,
+		Slice:        "ike-acct-" + s.Account + ".slice",
 		PoolName:     key,
 	}
 	L.UnitFile = filepath.Join("/etc/systemd/system", L.UnitName+".service")
+	var lim Limits
+	if a, err := m.getAccount(s.Account); err == nil {
+		lim = a.Limits
+	}
+	L.PHPWorkers, L.PHPMemoryMB = lim.phpWorkers(), lim.phpMemoryMB()
 	// Status page: the website's own copy if it has one, else the server-wide page.
 	if L.Status != StatusActive {
 		L.StatusPage = filepath.Join(m.cfg.PagesDir, L.Status+".html")

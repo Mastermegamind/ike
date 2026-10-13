@@ -28,8 +28,12 @@ func (e Exec) Run(ctx context.Context, name string, args ...string) ([]byte, err
 }
 
 func (Exec) RunInput(ctx context.Context, stdin string, name string, args ...string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-	defer cancel()
+	// Callers with long work (package upgrades) pass their own deadline.
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 5*time.Minute)
+		defer cancel()
+	}
 	cmd := exec.CommandContext(ctx, name, args...)
 	if stdin != "" {
 		cmd.Stdin = strings.NewReader(stdin)

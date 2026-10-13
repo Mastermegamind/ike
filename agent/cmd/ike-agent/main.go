@@ -20,8 +20,10 @@ import (
 	"github.com/YOUR-ORG/ike/agent/internal/api"
 	"github.com/YOUR-ORG/ike/agent/internal/config"
 	"github.com/YOUR-ORG/ike/agent/internal/firewall"
+	"github.com/YOUR-ORG/ike/agent/internal/jobs"
 	"github.com/YOUR-ORG/ike/agent/internal/runner"
 	"github.com/YOUR-ORG/ike/agent/internal/sites"
+	"github.com/YOUR-ORG/ike/agent/internal/updates"
 )
 
 func main() {
@@ -73,7 +75,10 @@ func run(socket, cfgPath, root, group string, dryRun bool) error {
 		slog.Warn("could not write default status/error pages", "err", err)
 	}
 	fw := &firewall.Manager{Run: r, StateFile: filepath.Join(root, cfg.FirewallState), Protected: cfg.ProtectedPorts}
-	srv := &api.Server{Sites: mgr, Firewall: fw, Runner: r, Config: cfg,
+	jm := jobs.NewManager()
+	up := &updates.Manager{Run: r, Jobs: jm, Root: root, DryRun: dryRun, Version: api.Version, Repo: cfg.Repo,
+		APIBase: "https://api.github.com", DownloadBase: "https://github.com", BinDir: "/usr/local/bin"}
+	srv := &api.Server{Sites: mgr, Updates: up, Jobs: jm, Firewall: fw, Runner: r, Config: cfg,
 		AuditPath: filepath.Join(root, "var/log/ike/agent-audit.log")}
 	_ = os.MkdirAll(filepath.Dir(srv.AuditPath), 0o750)
 
@@ -106,6 +111,9 @@ func run(socket, cfgPath, root, group string, dryRun bool) error {
 		defer cancel()
 		_ = hs.Shutdown(shutdown)
 	}()
+
+	go mgr.RunHealthMonitor(ctx)
+	go mgr.RunUsageSampler(ctx)
 
 	slog.Info("ike-agent listening", "version", api.Version, "socket", socket)
 	if err := hs.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {

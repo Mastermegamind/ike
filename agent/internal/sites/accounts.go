@@ -24,6 +24,8 @@ type Account struct {
 	PreviousStatus map[string]string `json:"previous_status,omitempty"` // website statuses before suspension
 	Cron           []CronJob         `json:"cron"`
 	Databases      []Database        `json:"databases"`
+	Limits         Limits            `json:"limits"`
+	QuotaNote      string            `json:"quota_note,omitempty"`
 	Sites          int               `json:"sites"`
 	CreatedAt      time.Time         `json:"created_at"`
 }
@@ -129,6 +131,7 @@ func (m *Manager) DeleteAccount(ctx context.Context, name string, withSites bool
 	A := m.accountLayout(name)
 	_ = removeIfExists(m.keysFile(name))
 	_ = m.disableCron(name)
+	_ = removeIfExists(m.p(m.sliceFile(name)))
 	for _, d := range acctDBs(m, name) {
 		_ = m.deleteDatabase(ctx, name, d.Name)
 	}
