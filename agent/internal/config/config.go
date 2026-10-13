@@ -41,6 +41,30 @@ type Config struct {
 	DefaultWebServer string `json:"default_web_server"` // for new websites on a hybrid stack
 	ApacheSitesDir   string `json:"apache_sites_dir"`
 	ApacheListen     string `json:"apache_listen"` // "*:80" (apache stack) or "127.0.0.1:8080" (hybrid)
+
+	// HTTPS
+	AcmeDir        string `json:"acme_dir"`        // webroot for Let's Encrypt HTTP-01 challenges
+	LetsEncryptDir string `json:"letsencrypt_dir"` // /etc/letsencrypt
+	SSLDir         string `json:"ssl_dir"`         // uploaded certificates
+	AdminEmail     string `json:"admin_email"`     // default Let's Encrypt account email
+
+	// PHP tooling
+	ComposerPath string `json:"composer_path"`
+
+	// Git deployments
+	GitDir        string `json:"git_dir"`         // bare mirrors of deployed repositories (root only)
+	GitSecretsDir string `json:"git_secrets_dir"` // deploy keys and tokens (root only)
+	DeployDir     string `json:"deploy_dir"`      // deployment history
+	DeployLogDir  string `json:"deploy_log_dir"`
+	DeployTmpDir  string `json:"deploy_tmp_dir"`
+
+	// Containers
+	DockerSocket      string `json:"docker_socket"`
+	DockerForAccounts bool   `json:"docker_for_accounts"` // let account owners run containers
+	StacksDir         string `json:"stacks_dir"`
+	RegistriesFile    string `json:"registries_file"`
+	PackPath          string `json:"pack_path"` // Cloud Native Buildpacks CLI
+	K3sPath           string `json:"k3s_path"`  // optional Kubernetes (k3s)
 }
 
 // WebServers lists the per-website choices this stack allows, default first.
@@ -81,6 +105,20 @@ func Default() Config {
 		WebStack:       "nginx",
 		ApacheSitesDir: "/etc/apache2/ike/sites",
 		ApacheListen:   "127.0.0.1:8080",
+		AcmeDir:        "/var/lib/ike/acme",
+		LetsEncryptDir: "/etc/letsencrypt",
+		SSLDir:         "/etc/ike/ssl",
+		ComposerPath:   "/usr/local/bin/composer",
+		GitDir:         "/var/lib/ike/git",
+		GitSecretsDir:  "/etc/ike/git",
+		DeployDir:      "/var/lib/ike/deploys",
+		DeployLogDir:   "/var/log/ike/deploys",
+		DeployTmpDir:   "/var/lib/ike/deploy-tmp",
+		DockerSocket:   "/var/run/docker.sock",
+		StacksDir:      "/var/lib/ike/stacks",
+		RegistriesFile: "/etc/ike/registries.json",
+		PackPath:       "/usr/local/bin/pack",
+		K3sPath:        "/usr/local/bin/k3s",
 	}
 }
 

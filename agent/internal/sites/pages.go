@@ -206,12 +206,18 @@ func (m *Manager) setStatus(ctx context.Context, site *Site, status string, allo
 		return nil, err
 	}
 	// Suspended apps stop using resources; reactivated ones start again.
-	if L.IsApp {
+	if L.IsApp || site.Runtime == RuntimeDocker {
 		action := "start"
 		if status == StatusSuspended {
 			action = "stop"
 		}
-		if _, err := m.run.Run(ctx, "systemctl", action, L.UnitName); err != nil {
+		var err error
+		if site.Runtime == RuntimeDocker {
+			err = m.containerAction(ctx, site, action)
+		} else {
+			_, err = m.run.Run(ctx, "systemctl", action, L.ActiveUnit)
+		}
+		if err != nil {
 			slog.Warn("app state change failed", "domain", site.Domain, "action", action, "err", err)
 		}
 	}

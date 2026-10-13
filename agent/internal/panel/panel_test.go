@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/hmac"
+	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/hex"
 	"encoding/json"
@@ -341,5 +342,52 @@ func TestSecretsAreMasked(t *testing.T) {
 	e.st.View(func(d *store.Data) { kept = d.Billing.Providers["bachs"].SecretKey })
 	if kept != "sk_live_secret" {
 		t.Errorf("secret lost: %q", kept)
+	}
+}
+
+func TestGitWebhookThroughPanel(t *testing.T) {
+	e := setup(t)
+	b := e.browser(e.admin)
+	if b.login("andre", "admin-password-1", "") != 200 {
+		t.Fatal("login")
+	}
+	if c := b.do("POST", "/api/v1/accounts", map[string]string{"name": "gitty"}, nil); c != 201 {
+		t.Fatalf("account %d", c)
+	}
+	if c := b.do("POST", "/api/v1/sites", map[string]string{"domain": "gitty.ng", "account": "gitty"}, nil); c != 201 {
+		t.Fatalf("site %d", c)
+	}
+	var info struct {
+		WebhookSecret string `json:"webhook_secret"`
+		WebhookPath   string `json:"webhook_path"`
+	}
+	if c := b.do("PUT", "/api/v1/sites/gitty.ng/deploy", map[string]any{"type": "native",
+		"git": map[string]any{"url": "https://github.com/gitty/site.git", "ref": "main"}}, &info); c != 200 || info.WebhookSecret == "" {
+		t.Fatalf("deploy setup %d %+v", c, info)
+	}
+	post := func(sig string) (int, map[string]any) {
+		body := []byte(`{"ref":"refs/heads/main","after":"3333333333333333333333333333333333333333"}`)
+		req, _ := http.NewRequest("POST", e.panel.URL+info.WebhookPath, bytes.NewReader(body))
+		req.Header.Set("X-GitHub-Event", "push")
+		if sig == "" {
+			mac := hmac.New(sha256.New, []byte(info.WebhookSecret))
+			mac.Write(body)
+			sig = "sha256=" + hex.EncodeToString(mac.Sum(nil))
+		}
+		req.Header.Set("X-Hub-Signature-256", sig)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var out map[string]any
+		_ = json.NewDecoder(resp.Body).Decode(&out)
+		return resp.StatusCode, out
+	}
+	if c, out := post(""); c != 200 || out["action"] != "ignored" { // auto deploy is off
+		t.Errorf("signed push: %d %v", c, out)
+	}
+	if c, _ := post("sha256=00"); c != 401 {
+		t.Errorf("bad signature: %d", c)
 	}
 }

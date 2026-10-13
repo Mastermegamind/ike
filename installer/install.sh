@@ -24,6 +24,14 @@ DEFAULT_PHP=""
 NODE_VERSIONS="22"
 PYTHON_VERSIONS="3.12"
 PMA_CHANNEL="stable"        # stable | 6 | none
+JAVA_VERSIONS=""            # e.g. "17 21"
+GO_VERSIONS=""              # e.g. "1.24"
+DART_VERSIONS=""            # e.g. "latest" or "3.9.4"
+INSTALL_MAVEN=0
+INSTALL_DOCKER=0
+DOCKER_FOR_ACCOUNTS=0
+INSTALL_PACK=0
+INSTALL_K3S=0
 INSTALL_MARIADB=1
 FORCE=0
 AGENT_BINARY=""
@@ -94,6 +102,16 @@ Languages
   --default-php 8.3           PHP version for new websites (default: newest installed)
   --node "20 22 24"           Node.js major versions, or "none" (default: "${NODE_VERSIONS}")
   --python "3.12 3.13"        Python versions, or "none" (default: "${PYTHON_VERSIONS}")
+  --java "17 21"              OpenJDK versions (default: none)
+  --maven                     Also install Maven for Java builds
+  --go "1.24 1.25"            Go versions (default: none)
+  --dart "latest"             Dart SDK: latest or an exact version like 3.9.4 (default: none)
+
+Containers
+  --docker                    Install Docker Engine with Compose and Buildx
+  --docker-for-accounts       Let account owners run containers and Compose stacks (not just admins)
+  --buildpacks                Install the Cloud Native Buildpacks tool (pack) for Git deploys without a Dockerfile
+  --k3s                       Install Kubernetes (k3s, single node) for server admins
 
 Databases
   --no-mariadb                Do not install MariaDB
@@ -121,6 +139,14 @@ while [ $# -gt 0 ]; do
 		--default-php) DEFAULT_PHP="${2:?}"; shift 2 ;;
 		--node) NODE_VERSIONS="${2:?}"; shift 2 ;;
 		--python) PYTHON_VERSIONS="${2:?}"; shift 2 ;;
+		--java) JAVA_VERSIONS="${2:?}"; shift 2 ;;
+		--maven) INSTALL_MAVEN=1; shift ;;
+		--go) GO_VERSIONS="${2:?}"; shift 2 ;;
+		--dart) DART_VERSIONS="${2:?}"; shift 2 ;;
+		--docker) INSTALL_DOCKER=1; shift ;;
+		--docker-for-accounts) INSTALL_DOCKER=1; DOCKER_FOR_ACCOUNTS=1; shift ;;
+		--buildpacks) INSTALL_DOCKER=1; INSTALL_PACK=1; shift ;;
+		--k3s) INSTALL_K3S=1; shift ;;
 		--no-mariadb) INSTALL_MARIADB=0; shift ;;
 		--phpmyadmin) PMA_CHANNEL="${2:?}"; shift 2 ;;
 		--force) FORCE=1; shift ;;
@@ -155,6 +181,19 @@ run_wizard() {
 	ask "PHP versions" "$PHP_VERSIONS"; PHP_VERSIONS="$REPLY"
 	ask "Node.js versions (or none)" "$NODE_VERSIONS"; NODE_VERSIONS="$REPLY"
 	ask "Python versions (or none)" "$PYTHON_VERSIONS"; PYTHON_VERSIONS="$REPLY"
+	ask "Java versions, e.g. 21 (or none)" "${JAVA_VERSIONS:-none}"; JAVA_VERSIONS="$REPLY"
+	ask "Go versions, e.g. 1.24 (or none)" "${GO_VERSIONS:-none}"; GO_VERSIONS="$REPLY"
+	ask "Dart SDK (latest, a version, or none)" "${DART_VERSIONS:-none}"; DART_VERSIONS="$REPLY"
+	ask "Install Docker for containers and Compose (yes/no)" "no"
+	if [ "$REPLY" = "yes" ]; then
+		INSTALL_DOCKER=1
+		ask "Let account owners run containers too (yes/no)" "no"
+		[ "$REPLY" = "yes" ] && DOCKER_FOR_ACCOUNTS=1
+		ask "Install buildpacks for deploys without a Dockerfile (yes/no)" "no"
+		[ "$REPLY" = "yes" ] && INSTALL_PACK=1
+	fi
+	ask "Install Kubernetes (k3s) for admins (yes/no)" "no"
+	[ "$REPLY" = "yes" ] && INSTALL_K3S=1
 	ask "Install MariaDB (yes/no)" "yes"
 	if [ "$REPLY" = "no" ]; then INSTALL_MARIADB=0; fi
 	if [ "$INSTALL_MARIADB" -eq 1 ]; then
@@ -171,6 +210,12 @@ if [ "$WIZARD" -eq 1 ]; then run_wizard; fi
 [ "$PHP_VERSIONS" = "all" ] && PHP_VERSIONS="$ALL_PHP"
 [ "$NODE_VERSIONS" = "none" ] && NODE_VERSIONS=""
 [ "$PYTHON_VERSIONS" = "none" ] && PYTHON_VERSIONS=""
+[ "$JAVA_VERSIONS" = "none" ] && JAVA_VERSIONS=""
+[ "$GO_VERSIONS" = "none" ] && GO_VERSIONS=""
+[ "$DART_VERSIONS" = "none" ] && DART_VERSIONS=""
+for v in $JAVA_VERSIONS; do case "$v" in 8|1[1-9]|2[0-9]) ;; *) die "--java takes major versions like \"17 21\"" ;; esac; done
+for v in $GO_VERSIONS; do case "$v" in 1.[2-9][0-9]) ;; *) die "--go takes versions like 1.24" ;; esac; done
+for v in $DART_VERSIONS; do case "$v" in latest|[3-9].[0-9]*.[0-9]*) ;; *) die "--dart takes latest or a version like 3.9.4" ;; esac; done
 
 case "$WEB_STACK" in nginx|apache|hybrid) ;; *) die "--web must be nginx, apache or hybrid" ;; esac
 case "$DEFAULT_WEB_SERVER" in
@@ -254,7 +299,8 @@ install_base() {
 	apt-get update -q >>"$LOG_FILE" 2>&1
 	info "Installing base packages"
 	apt_install ca-certificates curl gnupg software-properties-common lsb-release \
-		ufw fail2ban unzip xz-utils acl openssl cron logrotate python3 rsync unattended-upgrades quota
+		ufw fail2ban unzip xz-utils acl openssl cron logrotate python3 rsync unattended-upgrades quota \
+		git certbot
 	systemctl enable --now cron >>"$LOG_FILE" 2>&1
 }
 
@@ -309,7 +355,7 @@ install_apache() {
 	info "Installing Apache (${WEB_STACK} mode)"
 	apt_install apache2
 	a2dismod -q php* mpm_prefork >>"$LOG_FILE" 2>&1 || true
-	a2enmod -q mpm_event proxy proxy_fcgi proxy_http proxy_wstunnel rewrite headers remoteip setenvif alias >>"$LOG_FILE" 2>&1
+	a2enmod -q mpm_event proxy proxy_fcgi proxy_http proxy_wstunnel rewrite headers remoteip setenvif alias ssl http2 socache_shmcb >>"$LOG_FILE" 2>&1
 	a2dissite -q 000-default >>"$LOG_FILE" 2>&1 || true
 	mkdir -p "$APACHE_SITES_DIR"
 
@@ -318,7 +364,7 @@ install_apache() {
 		echo "Listen 127.0.0.1:8080" >/etc/apache2/ports.conf
 	else
 		APACHE_LISTEN="*:80"
-		echo "Listen 80" >/etc/apache2/ports.conf
+		printf 'Listen 80\n<IfModule ssl_module>\n    Listen 443\n</IfModule>\n' >/etc/apache2/ports.conf
 	fi
 	cat >/etc/apache2/conf-available/${PANEL_NAME}.conf <<EOF
 # Managed by ${PANEL_NAME}
@@ -472,6 +518,205 @@ install_python() {
 		ln -sfn "$(dirname "$(dirname "$bin")")" "${RUNTIMES_DIR}/python/${v}"
 		PYTHON_INSTALLED="${PYTHON_INSTALLED:-} ${v}"
 	done
+}
+
+# Composer, the PHP package manager, checked against its published SHA-256.
+install_composer() {
+	[ -n "${PHP_INSTALLED:-}" ] || return 0
+	info "Installing Composer"
+	local tmp
+	tmp=$(mktemp -d)
+	if download https://getcomposer.org/download/latest-stable/composer.phar.sha256sum "${tmp}/sum" \
+		&& download https://getcomposer.org/download/latest-stable/composer.phar "${tmp}/composer.phar" "$(cut -d' ' -f1 "${tmp}/sum")"; then
+		install -m 0755 "${tmp}/composer.phar" /usr/local/bin/composer
+		COMPOSER_INSTALLED=1
+	else
+		warn "Could not download Composer; Git deploys of PHP projects won't run composer install."
+	fi
+	rm -rf "$tmp"
+}
+
+# Java from Ubuntu's OpenJDK packages (security updates come with the OS).
+install_java() {
+	[ -n "$JAVA_VERSIONS" ] || return 0
+	info "Installing Java ${JAVA_VERSIONS}"
+	local v home
+	mkdir -p "${RUNTIMES_DIR}/java"
+	for v in $JAVA_VERSIONS; do
+		if ! pkg_available "openjdk-${v}-jdk-headless"; then
+			warn "OpenJDK ${v} isn't available on Ubuntu ${OS_VERSION}; skipping."
+			continue
+		fi
+		apt_install "openjdk-${v}-jdk-headless"
+		home="/usr/lib/jvm/java-${v}-openjdk-${ARCH}"
+		[ -x "${home}/bin/java" ] || { warn "Java ${v} installed but not found in ${home}; skipping."; continue; }
+		ln -sfn "$home" "${RUNTIMES_DIR}/java/${v}"
+		JAVA_INSTALLED="${JAVA_INSTALLED:-} ${v}"
+	done
+	[ "$INSTALL_MAVEN" -eq 1 ] && apt_install maven
+	return 0
+}
+
+# Go from go.dev, checked against the SHA-256 go.dev publishes.
+install_go() {
+	[ -n "$GO_VERSIONS" ] || return 0
+	info "Installing Go ${GO_VERSIONS}"
+	local index v line ver sha file tmp
+	index=$(mktemp)
+	download "https://go.dev/dl/?mode=json&include=all" "$index" || { warn "Could not reach go.dev; skipping Go."; return 0; }
+	for v in $GO_VERSIONS; do
+		line=$(python3 -c 'import json,sys
+v,arch=sys.argv[2],sys.argv[3]
+for r in json.load(open(sys.argv[1])):
+    if r["stable"] and (r["version"]=="go"+v or r["version"].startswith("go"+v+".")):
+        for f in r["files"]:
+            if f["os"]=="linux" and f["arch"]==arch and f["kind"]=="archive":
+                print(r["version"], f["sha256"], f["filename"]); sys.exit()' "$index" "$v" "$ARCH")
+		[ -n "$line" ] || { warn "Go ${v} not found on go.dev; skipping."; continue; }
+		read -r ver sha file <<<"$line"
+		tmp=$(mktemp -d)
+		download "https://go.dev/dl/${file}" "${tmp}/${file}" "$sha" || { warn "Go ${ver} download failed; skipping."; rm -rf "$tmp"; continue; }
+		rm -rf "${RUNTIMES_DIR}/go/${v}"
+		mkdir -p "${RUNTIMES_DIR}/go/${v}"
+		tar -xzf "${tmp}/${file}" -C "${RUNTIMES_DIR}/go/${v}" --strip-components=1 --no-same-owner
+		rm -rf "$tmp"
+		GO_INSTALLED="${GO_INSTALLED:-} ${v}(${ver})"
+	done
+	rm -f "$index"
+}
+
+# Dart SDK from Google's archive, checked against its .sha256sum file.
+install_dart() {
+	[ -n "$DART_VERSIONS" ] || return 0
+	info "Installing Dart ${DART_VERSIONS}"
+	local v ver arch base file tmp minor
+	mkdir -p "${RUNTIMES_DIR}/dart"
+	arch="x64"; [ "$ARCH" = "arm64" ] && arch="arm64"
+	for v in $DART_VERSIONS; do
+		ver="$v"
+		if [ "$v" = "latest" ]; then
+			tmp=$(mktemp)
+			download https://storage.googleapis.com/dart-archive/channels/stable/release/latest/VERSION "$tmp" \
+				|| { warn "Could not reach the Dart archive; skipping Dart."; continue; }
+			ver=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$tmp")
+			rm -f "$tmp"
+		fi
+		base="https://storage.googleapis.com/dart-archive/channels/stable/release/${ver}/sdk"
+		file="dartsdk-linux-${arch}-release.zip"
+		tmp=$(mktemp -d)
+		if ! download "${base}/${file}.sha256sum" "${tmp}/sum" \
+			|| ! download "${base}/${file}" "${tmp}/${file}" "$(cut -d' ' -f1 "${tmp}/sum")"; then
+			warn "Dart ${ver} download failed; skipping."
+			rm -rf "$tmp"
+			continue
+		fi
+		minor="${ver%.*}"
+		rm -rf "${RUNTIMES_DIR}/dart/${minor}"
+		unzip -q "${tmp}/${file}" -d "$tmp"
+		mv "${tmp}/dart-sdk" "${RUNTIMES_DIR}/dart/${minor}"
+		rm -rf "$tmp"
+		DART_INSTALLED="${DART_INSTALLED:-} ${minor}(${ver})"
+	done
+}
+
+# Docker Engine from Docker's repository (key fingerprint checked), with
+# Compose and Buildx. Falls back to Ubuntu's packages for brand-new releases.
+install_docker() {
+	[ "$INSTALL_DOCKER" -eq 1 ] || return 0
+	info "Installing Docker"
+	local key=/etc/apt/keyrings/docker.asc fpr want="9DC858229FC7DD38854AE2D88D81803C0EBFCD88"
+	install -m 0755 -d /etc/apt/keyrings
+	if curl -fsS --max-time 15 "https://download.docker.com/linux/ubuntu/dists/${OS_CODENAME}/Release" -o /dev/null 2>>"$LOG_FILE" \
+		&& download https://download.docker.com/linux/ubuntu/gpg "$key"; then
+		fpr=$(gpg --show-keys --with-colons "$key" 2>/dev/null | awk -F: '/^fpr/ {print $10; exit}')
+		[ "$fpr" = "$want" ] || die "Docker's signing key has an unexpected fingerprint (${fpr}). Not installing."
+		echo "deb [arch=${ARCH} signed-by=${key}] https://download.docker.com/linux/ubuntu ${OS_CODENAME} stable" >/etc/apt/sources.list.d/docker.list
+		apt-get update -q >>"$LOG_FILE" 2>&1
+		apt_install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+	else
+		warn "Docker has no packages for Ubuntu ${OS_VERSION} yet; using Ubuntu's docker.io."
+		rm -f /etc/apt/sources.list.d/docker.list
+		apt_install docker.io docker-compose-v2 docker-buildx
+	fi
+	mkdir -p /etc/docker
+	[ -f /etc/docker/daemon.json ] || cat >/etc/docker/daemon.json <<'JSON'
+{
+  "log-driver": "json-file",
+  "log-opts": { "max-size": "10m", "max-file": "3" },
+  "live-restore": true
+}
+JSON
+	systemctl enable --now docker >>"$LOG_FILE" 2>&1
+	systemctl restart docker
+	DOCKER_INSTALLED="$(docker version --format '{{.Server.Version}}' 2>/dev/null || echo installed)"
+}
+
+# Cloud Native Buildpacks CLI from GitHub, checked against its .sha256 file.
+install_pack() {
+	[ "$INSTALL_PACK" -eq 1 ] || return 0
+	info "Installing buildpacks (pack)"
+	local tag file tmp
+	tag=$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/buildpacks/pack/releases/latest 2>>"$LOG_FILE" | sed 's#.*/tag/##')
+	[ -n "$tag" ] || { warn "Could not find the latest pack release; skipping."; return 0; }
+	file="pack-${tag}-linux.tgz"
+	[ "$ARCH" = "arm64" ] && file="pack-${tag}-linux-arm64.tgz"
+	tmp=$(mktemp -d)
+	if download "https://github.com/buildpacks/pack/releases/download/${tag}/${file}.sha256" "${tmp}/sum" \
+		&& download "https://github.com/buildpacks/pack/releases/download/${tag}/${file}" "${tmp}/${file}" "$(cut -d' ' -f1 "${tmp}/sum")"; then
+		tar -xzf "${tmp}/${file}" -C "$tmp"
+		install -m 0755 "${tmp}/pack" /usr/local/bin/pack
+		PACK_INSTALLED="$tag"
+	else
+		warn "pack download failed; buildpack deploys won't be available."
+	fi
+	rm -rf "$tmp"
+}
+
+# Kubernetes (k3s) as a single-node cluster. Its own ingress and load
+# balancer are off: Nginx keeps ports 80 and 443 and proxies to services.
+install_k3s() {
+	[ "$INSTALL_K3S" -eq 1 ] || return 0
+	info "Installing Kubernetes (k3s)"
+	local tag enc bin sums tmp
+	tag=$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/k3s-io/k3s/releases/latest 2>>"$LOG_FILE" | sed 's#.*/tag/##')
+	[ -n "$tag" ] || { warn "Could not find the latest k3s release; skipping."; return 0; }
+	enc="${tag//+/%2B}"
+	bin="k3s"; sums="sha256sum-amd64.txt"
+	[ "$ARCH" = "arm64" ] && { bin="k3s-arm64"; sums="sha256sum-arm64.txt"; }
+	tmp=$(mktemp -d)
+	if ! download "https://github.com/k3s-io/k3s/releases/download/${enc}/${sums}" "${tmp}/sums" \
+		|| ! download "https://github.com/k3s-io/k3s/releases/download/${enc}/${bin}" "${tmp}/k3s" "$(awk -v f="$bin" '$2==f {print $1}' "${tmp}/sums")"; then
+		warn "k3s download failed; skipping Kubernetes."
+		rm -rf "$tmp"
+		return 0
+	fi
+	install -m 0755 "${tmp}/k3s" /usr/local/bin/k3s
+	rm -rf "$tmp"
+	cat >/etc/systemd/system/k3s.service <<'EOF'
+[Unit]
+Description=Kubernetes (k3s), managed by Ike
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+ExecStart=/usr/local/bin/k3s server --disable traefik --disable servicelb --write-kubeconfig-mode 0600
+KillMode=process
+Delegate=yes
+LimitNOFILE=1048576
+LimitNPROC=infinity
+LimitCORE=infinity
+TasksMax=infinity
+TimeoutStartSec=0
+Restart=always
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
+EOF
+	systemctl daemon-reload
+	systemctl enable --now k3s >>"$LOG_FILE" 2>&1 || warn "k3s didn't start; check: journalctl -u k3s"
+	K3S_INSTALLED="$tag"
 }
 
 install_mariadb() {
@@ -704,7 +949,12 @@ install_agent() {
 	install -d -m 0755 -o root -g root "$CONF_DIR" "${CONF_DIR}/pages" "${OPT_DIR}" "$RUNTIMES_DIR" \
 		"${RUNTIMES_DIR}/node" "${RUNTIMES_DIR}/python"
 	install -d -m 0711 -o root -g root "$STATE_DIR"
-	install -d -m 0700 -o root -g root "${CONF_DIR}/apps" "$STATE_DIR/sites" "$STATE_DIR/accounts" "$STATE_DIR/imports"
+	install -d -m 0700 -o root -g root "${CONF_DIR}/apps" "$STATE_DIR/sites" "$STATE_DIR/accounts" "$STATE_DIR/imports" \
+		"$STATE_DIR/git" "${CONF_DIR}/git" "${CONF_DIR}/ssl" "$STATE_DIR/deploys" "$STATE_DIR/stacks"
+	install -d -m 0711 -o root -g root "$STATE_DIR/deploy-tmp"
+	install -d -m 0755 -o root -g root "$STATE_DIR/acme" "$STATE_DIR/acme/.well-known" "$STATE_DIR/acme/.well-known/acme-challenge"
+	install -d -m 0750 -o root -g adm "${PANEL_LOG_DIR}/deploys"
+	install -d -m 0755 -o root -g root "${RUNTIMES_DIR}/java" "${RUNTIMES_DIR}/go" "${RUNTIMES_DIR}/dart"
 	install -d -m 0750 -o root -g adm "$PANEL_LOG_DIR"
 
 	fetch_binary "$AGENT_NAME" "/usr/local/bin/${AGENT_NAME}" "$AGENT_BINARY"
@@ -731,6 +981,8 @@ install_agent() {
   "imports_dir": "${STATE_DIR}/imports",
   "repo": "${REPO}",
   "default_php": "${DEFAULT_PHP}",
+  "admin_email": "${ADMIN_EMAIL}",
+  "docker_for_accounts": $( [ "$DOCKER_FOR_ACCOUNTS" -eq 1 ] && echo true || echo false ),
   "protected_ports": [${protected%, }]
 }
 EOF
@@ -850,12 +1102,18 @@ ${C_BLD}${C_GRN}${PANEL_NAME} installed successfully${C_RST}
   PHP           ${PHP_INSTALLED} (default ${DEFAULT_PHP})
   Node.js       ${NODE_INSTALLED:- none}
   Python        ${PYTHON_INSTALLED:- none}
+  Java          ${JAVA_INSTALLED:- none}
+  Go            ${GO_INSTALLED:- none}
+  Dart          ${DART_INSTALLED:- none}
+  Composer      $( [ -n "${COMPOSER_INSTALLED:-}" ] && echo installed || echo "not installed" )
+  Docker        ${DOCKER_INSTALLED:-not installed}$( [ -n "${PACK_INSTALLED:-}" ] && echo ", buildpacks ${PACK_INSTALLED}" )$( [ "$DOCKER_FOR_ACCOUNTS" -eq 1 ] && echo " (account owners can run containers)" )
+  Kubernetes    ${K3S_INSTALLED:-not installed}
   MariaDB       $( [ "$INSTALL_MARIADB" -eq 1 ] && echo installed || echo skipped )
   phpMyAdmin    ${PMA_INSTALLED:-not installed}$( [ -n "${PMA_INSTALLED:-}" ] && echo " — ssh -L ${PMA_PORT}:127.0.0.1:${PMA_PORT} root@${ip}, then open http://localhost:${PMA_PORT}" )
   Server IP     ${ip}
   Install log   ${LOG_FILE}
 
-${C_BLD}Sign in to the panel${C_RST} (browsers warn about the self-signed certificate until SSL is set up):
+${C_BLD}Sign in to the panel${C_RST} (browsers warn about the panel's self-signed certificate; websites get free Let's Encrypt certificates from their HTTPS tab):
 
   Admin panel       https://${ip}:2087
   Reseller panel    https://${ip}:2086
@@ -892,12 +1150,19 @@ main() {
 	detect_web_user
 	install_php
 	install_wpcli
+	install_composer
 	install_node
 	install_python
+	install_java
+	install_go
+	install_dart
 	install_mariadb
 	install_phpmyadmin
 	configure_ssh
 	configure_firewall
+	install_docker
+	install_pack
+	install_k3s
 	install_agent
 	install_panel
 	summary

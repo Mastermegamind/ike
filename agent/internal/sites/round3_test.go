@@ -174,7 +174,7 @@ func TestDriftDetectAndReconcile(t *testing.T) {
 	}
 	vh := filepath.Join(root, "etc/nginx/ike/sites/drift.ng.conf")
 	orig, _ := os.ReadFile(vh)
-	_ = os.WriteFile(vh, bytes.Replace(orig, []byte("client_max_body_size 64m;"), []byte("client_max_body_size 2g;"), 1), 0o644)
+	_ = os.WriteFile(vh, bytes.Replace(orig, []byte("client_max_body_size 65m;"), []byte("client_max_body_size 2g;"), 1), 0o644)
 	_ = os.Remove(filepath.Join(root, "etc/php/8.3/fpm/pool.d/ike-drift-"+siteID("drift.ng")+".conf"))
 	d := m.DetectDrift()
 	if len(d) != 2 {
@@ -186,7 +186,7 @@ func TestDriftDetectAndReconcile(t *testing.T) {
 			diff = x.Diff
 		}
 	}
-	has(t, "diff", diff, "-     client_max_body_size 64m;", "+     client_max_body_size 2g;")
+	has(t, "diff", diff, "-     client_max_body_size 65m;", "+     client_max_body_size 2g;")
 	fixed, err := m.Reconcile(ctx, nil)
 	if err != nil || len(fixed) != 2 {
 		t.Fatalf("%v %+v", err, fixed)

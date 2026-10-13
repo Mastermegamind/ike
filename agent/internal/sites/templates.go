@@ -7,21 +7,89 @@ import "text/template"
 // The only free-form value, StartCommand, is single-line and only ever runs as
 // the account's own user.
 
-// Nginx vhost. Three shapes:
-//   - app:          proxy everything to the Node.js/Python process
+// Nginx vhost. The website body has three shapes:
+//   - proxied:      forward everything to an app, container or local port
 //   - nginx+apache: serve static files, proxy the rest to Apache (.htaccess works)
 //   - nginx:        serve files and PHP directly
+//
+// Around it: an optional server block that redirects other names to the main
+// one, the port 80 server (or a redirect to HTTPS), and the HTTPS server.
 var nginxTmpl = template.Must(template.New("nginx").Parse(`# Managed by Ike. Manual changes will be overwritten.
+{{- if .RedirectNames}}
+
+# Other names for this website go to {{.CanonicalHost}}.
 server {
     listen 80;
     listen [::]:80;
-    server_name {{.Domain}} www.{{.Domain}};
+{{- if .TLS}}
+{{template "tlsListen" .}}
+{{- end}}
+    server_name {{.RedirectNames}};
 
+    location ^~ /.well-known/acme-challenge/ {
+        root {{.AcmeDir}};
+    }
+    location / {
+        return 301 {{if .ForceHTTPS}}https{{else}}$scheme{{end}}://{{.CanonicalHost}}$request_uri;
+    }
+}
+{{- end}}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name {{.ServerNames}};
+{{- if and .TLS .ForceHTTPS}}
+
+    access_log {{.LogDir}}/access.log;
+    error_log  {{.LogDir}}/error.log;
+
+    location ^~ /.well-known/acme-challenge/ {
+        root {{.AcmeDir}};
+    }
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+{{- else}}
+{{template "site" .}}
+}
+{{- end}}
+{{- if .TLS}}
+
+server {
+{{template "tlsListen" .}}
+    server_name {{.ServerNames}};
+{{- if .HSTS}}
+    add_header Strict-Transport-Security "max-age=31536000" always;
+{{- end}}
+{{- if .HTTP3}}
+    add_header Alt-Svc 'h3=":443"; ma=86400' always;
+{{- end}}
+{{template "site" .}}
+}
+{{- end}}
+{{define "tlsListen"}}    listen 443 ssl{{if and .HTTP2 (not .H2Directive)}} http2{{end}};
+    listen [::]:443 ssl{{if and .HTTP2 (not .H2Directive)}} http2{{end}};
+{{- if .HTTP3}}
+    listen 443 quic;
+    listen [::]:443 quic;
+{{- end}}
+{{- if .H2Directive}}
+    http2 {{if .HTTP2}}on{{else}}off{{end}};
+{{- end}}
+    ssl_certificate     {{.CertFile}};
+    ssl_certificate_key {{.KeyFile}};
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_cache shared:ike_ssl:10m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;{{end}}
+{{define "site"}}
     # Logs live outside the user's home so a user cannot point them at system files.
     access_log {{.LogDir}}/access.log;
     error_log  {{.LogDir}}/error.log;
 
-    client_max_body_size 64m;
+    client_max_body_size {{.BodyLimitMB}}m;
 {{- if .Staging}}
 
     # Staging copy: keep it out of search results.
@@ -29,9 +97,17 @@ server {
 {{- end}}
 
     location ^~ /.well-known/acme-challenge/ {
-        root {{.DocRoot}};
+        root {{.AcmeDir}};
         allow all;
     }
+{{- if .NginxRedirects}}
+
+    # Redirects
+{{- range .NginxRedirects}}
+    {{.}}
+{{- end}}
+{{- end}}
+
     # Block dotfiles (.git, .env, .htaccess ...)
     location ~ /\. {
         deny all;
@@ -61,16 +137,23 @@ server {
         try_files {{.StatusPage}} =503;
     }
 {{- end}}
-{{- if .IsApp}}
+{{- if .NginxRewrites}}
 
-    # {{.Runtime}} app on 127.0.0.1:{{.Port}}
+    # Rewrites
+{{- range .NginxRewrites}}
+    {{.}}
+{{- end}}
+{{- end}}
+{{- if .Proxied}}
+
+    # {{.Runtime}} on 127.0.0.1:{{.ActivePort}}
     location / {
-        proxy_pass http://127.0.0.1:{{.Port}};
+        proxy_pass http://127.0.0.1:{{.ActivePort}};
 {{template "proxyHeaders"}}
     }
 {{- else if eq .WebServer "nginx+apache"}}
 
-    root {{.DocRoot}};
+    root {{.Root}};
 
     # Static files straight from Nginx; everything else goes to Apache.
     location ~* \.(css|js|mjs|jpg|jpeg|png|gif|webp|avif|svg|ico|woff2?|ttf|mp4|webm|pdf|zip)$ {
@@ -88,7 +171,7 @@ server {
     }
 {{- else}}
 
-    root {{.DocRoot}};
+    root {{.Root}};
     index{{if eq .Runtime "php"}} index.php{{end}} index.html index.htm;
 
     location / {
@@ -101,9 +184,11 @@ server {
         fastcgi_pass unix:{{.PHPSocket}};
         fastcgi_index index.php;
         include fastcgi_params;
-        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        # realpath: a deployment switches releases atomically under PHP's cache.
+        fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
+        fastcgi_param DOCUMENT_ROOT $realpath_root;
         fastcgi_param HTTPS $https if_not_empty;
-        fastcgi_read_timeout 300;
+        fastcgi_read_timeout {{.PHPReadTimeout}};
     }
 {{- end}}
 
@@ -112,7 +197,7 @@ server {
         access_log off;
     }
 {{- end}}
-}
+{{- end}}
 {{define "proxyHeaders"}}        proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -122,15 +207,88 @@ server {
         proxy_set_header Connection $connection_upgrade_ike;
         proxy_read_timeout 300;{{end}}`))
 
-// Apache vhost, used for "apache" (Apache alone on port 80) and "nginx+apache"
-// (Apache behind Nginx on 127.0.0.1:8080).
+// Apache vhost, used for "apache" (Apache alone on port 80, and 443 with a
+// certificate) and "nginx+apache" (Apache behind Nginx on 127.0.0.1:8080,
+// where Nginx handles HTTPS).
 var apacheTmpl = template.Must(template.New("apache").Parse(`# Managed by Ike. Manual changes will be overwritten.
+{{- if .RedirectNames}}
+{{- range .ApacheRedirectListens}}
+
+# Other names for this website go to {{$.CanonicalHost}}.
+<VirtualHost {{.}}>
+    ServerName {{index $.RedirectList 0}}
+{{- range slice $.RedirectList 1}}
+    ServerAlias {{.}}
+{{- end}}
+{{- if eq . "*:443"}}
+    SSLEngine on
+    SSLCertificateFile {{$.CertFile}}
+    SSLCertificateKeyFile {{$.KeyFile}}
+{{- end}}
+    Alias /.well-known/acme-challenge/ {{$.AcmeDir}}/.well-known/acme-challenge/
+    <Directory {{$.AcmeDir}}>
+        Require all granted
+    </Directory>
+    RewriteEngine On
+    RewriteCond %{REQUEST_URI} !^/\.well-known/acme-challenge/
+    RewriteRule ^ {{if $.ForceHTTPS}}https{{else}}%{REQUEST_SCHEME}{{end}}://{{$.CanonicalHost}}%{REQUEST_URI} [R=301,L]
+</VirtualHost>
+{{- end}}
+{{- end}}
+
 <VirtualHost {{.ApacheListen}}>
-    ServerName {{.Domain}}
-    ServerAlias www.{{.Domain}}
+{{template "names" .}}
+{{- if and .ApacheTLS .ForceHTTPS}}
 
     ErrorLog {{.LogDir}}/apache-error.log
     CustomLog {{.LogDir}}/apache-access.log combined
+    Alias /.well-known/acme-challenge/ {{.AcmeDir}}/.well-known/acme-challenge/
+    <Directory {{.AcmeDir}}>
+        Require all granted
+    </Directory>
+    RewriteEngine On
+    RewriteCond %{REQUEST_URI} !^/\.well-known/acme-challenge/
+    RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [R=301,L]
+{{- else}}
+{{template "body" .}}
+{{- end}}
+</VirtualHost>
+{{- if .ApacheTLS}}
+
+<VirtualHost *:443>
+{{template "names" .}}
+    SSLEngine on
+    SSLCertificateFile {{.CertFile}}
+    SSLCertificateKeyFile {{.KeyFile}}
+{{- if .HTTP2}}
+    Protocols h2 http/1.1
+{{- end}}
+{{- if .HSTS}}
+    Header always set Strict-Transport-Security "max-age=31536000"
+{{- end}}
+{{template "body" .}}
+</VirtualHost>
+{{- end}}
+{{define "names"}}    ServerName {{index .ServerList 0}}
+{{- range slice .ServerList 1}}
+    ServerAlias {{.}}
+{{- end}}{{end}}
+{{define "body"}}
+    ErrorLog {{.LogDir}}/apache-error.log
+    CustomLog {{.LogDir}}/apache-access.log combined
+{{- if not .ApacheTLS}}
+
+    # HTTPS ends at Nginx in front; tell PHP the original scheme.
+    SetEnvIf X-Forwarded-Proto "^https$" HTTPS=on
+{{- end}}
+{{- if .Staging}}
+    Header always set X-Robots-Tag "noindex, nofollow"
+{{- end}}
+
+    Alias /.well-known/acme-challenge/ {{.AcmeDir}}/.well-known/acme-challenge/
+    <Directory {{.AcmeDir}}>
+        Require all granted
+    </Directory>
 
     # Error pages from the website's own errors/ folder.
     Alias /__ike_error/ {{.ErrorsDir}}/
@@ -140,13 +298,13 @@ var apacheTmpl = template.Must(template.New("apache").Parse(`# Managed by Ike. M
 {{- range .ErrorCodeList}}
     ErrorDocument {{.}} /__ike_error/{{.}}.html
 {{- end}}
+    RewriteEngine On
 {{- if ne .Status "active"}}
 
     # Website is {{.Status}}.
     Alias /__ike_status.html {{.StatusPage}}
     ErrorDocument 503 /__ike_status.html
     Header always set Retry-After "3600" "expr=%{REQUEST_STATUS} == 503"
-    RewriteEngine On
     RewriteCond %{REQUEST_URI} !^/\.well-known/acme-challenge/
     RewriteCond %{REQUEST_URI} !^/__ike_status\.html$
 {{- range .AllowIPsRegex}}
@@ -154,18 +312,24 @@ var apacheTmpl = template.Must(template.New("apache").Parse(`# Managed by Ike. M
 {{- end}}
     RewriteRule ^ - [R=503,L]
 {{- end}}
-{{- if .IsApp}}
+{{- if and .ApacheRules (eq .WebServer "apache")}}
+
+    # Redirects and rewrites
+{{- range .ApacheRules}}
+    {{.}}
+{{- end}}
+{{- end}}
+{{- if .Proxied}}
 
     ProxyPreserveHost On
     ProxyPass /.well-known/acme-challenge/ !
-    Alias /.well-known/acme-challenge/ {{.DocRoot}}/.well-known/acme-challenge/
-    ProxyPass / http://127.0.0.1:{{.Port}}/ upgrade=websocket
-    ProxyPassReverse / http://127.0.0.1:{{.Port}}/
-    RequestHeader set X-Forwarded-Proto "http"
+    ProxyPass / http://127.0.0.1:{{.ActivePort}}/ upgrade=websocket
+    ProxyPassReverse / http://127.0.0.1:{{.ActivePort}}/
+    RequestHeader set X-Forwarded-Proto expr=%{REQUEST_SCHEME}
 {{- else}}
 
-    DocumentRoot {{.DocRoot}}
-    <Directory {{.DocRoot}}>
+    DocumentRoot {{.Root}}
+    <Directory {{.Root}}>
         Options -Indexes +SymLinksIfOwnerMatch
         AllowOverride All
         Require all granted
@@ -183,7 +347,7 @@ var apacheTmpl = template.Must(template.New("apache").Parse(`# Managed by Ike. M
     <LocationMatch "/\.(?!well-known/)">
         Require all denied
     </LocationMatch>
-</VirtualHost>
+{{- end}}
 `))
 
 var poolTmpl = template.Must(template.New("pool").Parse(`; Managed by Ike. Manual changes will be overwritten.
@@ -196,10 +360,17 @@ listen.owner = {{.WebUser}}
 listen.group = {{.WebGroup}}
 listen.mode = 0660
 
-pm = ondemand
-pm.max_children = {{.PHPWorkers}}
+pm = {{.PHP.PM}}
+pm.max_children = {{.PHP.MaxChildren}}
+{{- if eq .PHP.PM "dynamic"}}
+pm.start_servers = {{.PHP.StartServers}}
+pm.min_spare_servers = {{.PHP.MinSpareServers}}
+pm.max_spare_servers = {{.PHP.MaxSpareServers}}
+{{- end}}
+{{- if eq .PHP.PM "ondemand"}}
 pm.process_idle_timeout = 30s
-pm.max_requests = 500
+{{- end}}
+pm.max_requests = {{.PHP.MaxRequests}}
 
 chdir = /
 php_admin_value[open_basedir] = {{.SiteDir}}:{{.TmpDir}}
@@ -208,13 +379,21 @@ php_admin_value[session.save_path] = {{.TmpDir}}
 php_admin_value[sys_temp_dir] = {{.TmpDir}}
 php_admin_value[error_log] = {{.SiteDir}}/logs/php-error.log
 php_admin_flag[log_errors] = on
+php_admin_flag[display_errors] = {{if .PHP.DisplayErrors}}on{{else}}off{{end}}
+{{- if not .PHP.AllowShellFunctions}}
 php_admin_value[disable_functions] = exec,passthru,shell_exec,system,proc_open,popen,pcntl_exec
-php_admin_value[upload_max_filesize] = 64M
-php_admin_value[post_max_size] = 64M
-php_admin_value[memory_limit] = {{.PHPMemoryMB}}M
+{{- end}}
+php_admin_value[upload_max_filesize] = {{.PHP.UploadMaxMB}}M
+php_admin_value[post_max_size] = {{.PHP.PostMaxMB}}M
+php_admin_value[memory_limit] = {{.PHP.MemoryLimitMB}}M
+php_admin_value[max_execution_time] = {{.PHP.MaxExecutionTime}}
+php_admin_value[max_input_vars] = {{.PHP.MaxInputVars}}
+{{- if .PHP.Timezone}}
+php_admin_value[date.timezone] = {{.PHP.Timezone}}
+{{- end}}
 `))
 
-// Root-owned launcher for Node.js/Python apps. Runs as the account user.
+// Root-owned launcher for apps. Runs as the account user.
 var startScriptTmpl = template.Must(template.New("start").Parse(`#!/bin/bash
 # Managed by Ike. Change the start command in the panel, not here.
 set -a
@@ -222,14 +401,10 @@ if [ -f "{{.SiteDir}}/.env" ]; then . "{{.SiteDir}}/.env"; fi
 set +a
 export PORT={{.Port}}
 export HOST=127.0.0.1
-{{- if eq .Runtime "node"}}
-export NODE_ENV="${NODE_ENV:-production}"
-export PATH="{{.AppDir}}/node_modules/.bin:{{.RuntimeBin}}:/usr/local/bin:/usr/bin:/bin"
-{{- else}}
-export VIRTUAL_ENV="{{.AppDir}}/.venv"
-export PYTHONUNBUFFERED=1
-export PATH="{{.AppDir}}/.venv/bin:{{.RuntimeBin}}:/usr/local/bin:/usr/bin:/bin"
+{{- range .AppEnvExtra}}
+export {{.}}
 {{- end}}
+export PATH="{{.AppPath}}"
 cd "{{.AppDir}}" || exit 1
 exec {{.StartCommand}}
 `))
@@ -264,8 +439,8 @@ ProtectKernelModules=yes
 ProtectControlGroups=yes
 RestrictSUIDSGID=yes
 LockPersonality=yes
-MemoryMax=1G
-TasksMax=256
+MemoryMax={{if eq .Runtime "java"}}2G{{else}}1G{{end}}
+TasksMax={{if eq .Runtime "java"}}512{{else}}256{{end}}
 
 [Install]
 WantedBy=multi-user.target

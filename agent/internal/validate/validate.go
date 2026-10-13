@@ -69,3 +69,34 @@ func PHPVersion(v string) error {
 	}
 	return nil
 }
+
+// Hostname accepts a domain, or a wildcard like "*.example.com" when
+// allowWildcard is set. The wildcard may only be the whole leftmost label.
+func Hostname(h string, allowWildcard bool) error {
+	if rest, ok := strings.CutPrefix(h, "*."); ok {
+		if !allowWildcard {
+			return fmt.Errorf("wildcards aren't allowed here")
+		}
+		if strings.Count(rest, ".") < 1 {
+			return fmt.Errorf("a wildcard needs a domain under it, like *.example.com")
+		}
+		return Domain(rest)
+	}
+	return Domain(h)
+}
+
+var relPathRe = regexp.MustCompile(`^[A-Za-z0-9._@+-]+(/[A-Za-z0-9._@+-]+)*$`)
+
+// RelPath accepts a relative path inside a project, like "public" or
+// "storage/app". No "..", no leading slash, no hidden tricks.
+func RelPath(p string) error {
+	if p == "" || len(p) > 200 || !relPathRe.MatchString(p) {
+		return fmt.Errorf("%q must be a relative path like public or storage/app", p)
+	}
+	for _, part := range strings.Split(p, "/") {
+		if part == "." || part == ".." {
+			return fmt.Errorf("%q can't contain . or .. segments", p)
+		}
+	}
+	return nil
+}

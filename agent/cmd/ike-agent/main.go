@@ -114,6 +114,11 @@ func run(socket, cfgPath, root, group string, dryRun bool) error {
 
 	go mgr.RunHealthMonitor(ctx)
 	go mgr.RunUsageSampler(ctx)
+	if !cfg.DryRun {
+		f := mgr.DetectWebFeatures(ctx)
+		slog.Info("web server features", "nginx", f.NginxVersion, "http2_directive", f.H2Directive, "http3", f.HTTP3)
+	}
+	go mgr.RunImageUpdateChecks(ctx)
 
 	slog.Info("ike-agent listening", "version", api.Version, "socket", socket)
 	if err := hs.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {

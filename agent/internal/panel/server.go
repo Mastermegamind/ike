@@ -53,10 +53,11 @@ type Server struct {
 	// Providers overrides billing providers (tests); nil = from settings.
 	Providers func() map[string]billing.Provider
 
-	throttle *auth.Throttle
-	mu       sync.Mutex
-	sessions map[string]*session // key: hash of token
-	siteAcct sync.Map            // domain -> account (cache)
+	throttle       *auth.Throttle
+	mu             sync.Mutex
+	sessions       map[string]*session // key: hash of token
+	siteAcct       sync.Map            // domain -> account (cache)
+	webhookLimiter rateLimiter
 }
 
 type ctxKey int
@@ -103,6 +104,7 @@ func (s *Server) Handler(l Listener) http.Handler {
 	mux.HandleFunc("POST /api/v1/billing/invoices/{id}/void", s.authed(s.voidInvoice))
 	mux.HandleFunc("POST /api/v1/billing/invoices/{id}/mark-paid", s.authed(s.adminOnly(s.markPaid)))
 	mux.HandleFunc("POST /webhooks/{provider}", s.webhook)
+	mux.HandleFunc("POST /webhooks/git/{domain}", s.gitWebhook)
 
 	mux.HandleFunc("GET /api/v1/alerts/settings", s.authed(s.adminOnly(s.getAlertSettings)))
 	mux.HandleFunc("PUT /api/v1/alerts/settings", s.authed(s.adminOnly(s.putAlertSettings)))

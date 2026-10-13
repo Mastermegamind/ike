@@ -8,8 +8,11 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/YOUR-ORG/ike/agent/internal/panel/store"
+	"github.com/YOUR-ORG/ike/agent/internal/validate"
 )
 
 // access describes which hosting accounts a person may manage.
@@ -119,6 +122,9 @@ func (s *Server) authorize(ctx context.Context, p *store.Person, method, apiPath
 				return nil, nil, errForbidden
 			}
 		}
+		if len(parts) >= 5 && parts[3] == "stacks" && (method == "PUT" || method == "POST") {
+			return nil, s.recordJobOwner(p.Username), nil
+		}
 		if method == "DELETE" && len(parts) == 3 {
 			name := parts[2]
 			return nil, func(status int, _ []byte) {
@@ -160,7 +166,7 @@ func (s *Server) authorize(ctx context.Context, p *store.Person, method, apiPath
 			domain := parts[2]
 			after = func(int, []byte) { s.siteAcct.Delete(domain) }
 		}
-		if method == "POST" && len(parts) == 4 && (parts[3] == "staging" || parts[3] == "push") {
+		if method == "POST" && len(parts) == 4 && (parts[3] == "staging" || parts[3] == "push" || parts[3] == "composer" || parts[3] == "ssl") {
 			after = s.recordJobOwner(p.Username)
 		}
 		return nil, after, nil
@@ -243,6 +249,7 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request) {
 		actor = "reseller:" + p.Username
 	}
 	req.Header.Set("X-Ike-Actor", actor)
+	req.Header.Set("X-Ike-Role", string(p.Role))
 	resp, err := s.Agent.HTTP.Do(req)
 	if err != nil {
 		fail(w, 502, "The server agent isn't answering. Check that ike-agent is running.")
@@ -260,4 +267,72 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(resp.StatusCode)
 	_, _ = w.Write(data)
+}
+
+// gitWebhook forwards a Git host's push or pull request event to the agent,
+// which checks the signature against the website's webhook secret. It is
+// public: anyone can call it, but only a correctly signed body does anything.
+func (s *Server) gitWebhook(w http.ResponseWriter, r *http.Request) {
+	domain := r.PathValue("domain")
+	if validate.Domain(domain) != nil {
+		fail(w, 404, "Unknown website.")
+		return
+	}
+	if !s.webhookLimiter.allow(clientIP(r)) {
+		fail(w, 429, "Too many webhook calls; slow down.")
+		return
+	}
+	body, err := readAll(r, 2<<20)
+	if err != nil {
+		fail(w, 413, "Webhook body too large.")
+		return
+	}
+	req, _ := http.NewRequestWithContext(r.Context(), "POST", s.Agent.BaseURL+"/v1/git/webhook/"+domain, bytes.NewReader(body))
+	for _, k := range []string{"X-Hub-Signature-256", "X-Hub-Signature", "X-GitHub-Event", "X-Gitlab-Token", "X-Gitlab-Event",
+		"X-Event-Key", "X-Ike-Signature", "Content-Type"} {
+		if v := r.Header.Get(k); v != "" {
+			req.Header.Set(k, v)
+		}
+	}
+	req.Header.Set("X-Ike-Actor", "git")
+	resp, err := s.Agent.HTTP.Do(req)
+	if err != nil {
+		fail(w, 502, "The server agent isn't answering.")
+		return
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(resp.StatusCode)
+	_, _ = w.Write(data)
+}
+
+// rateLimiter allows a number of calls per minute per key.
+type rateLimiter struct {
+	mu   sync.Mutex
+	hits map[string][]time.Time
+}
+
+func (l *rateLimiter) allow(key string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.hits == nil {
+		l.hits = map[string][]time.Time{}
+	}
+	now := time.Now()
+	kept := l.hits[key][:0]
+	for _, t := range l.hits[key] {
+		if now.Sub(t) < time.Minute {
+			kept = append(kept, t)
+		}
+	}
+	if len(kept) >= 120 {
+		l.hits[key] = kept
+		return false
+	}
+	l.hits[key] = append(kept, now)
+	if len(l.hits) > 10000 { // forget everyone rather than grow without bound
+		l.hits = map[string][]time.Time{}
+	}
+	return true
 }

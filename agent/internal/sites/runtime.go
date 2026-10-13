@@ -14,18 +14,50 @@ const (
 	RuntimePHP    = "php"
 	RuntimeNode   = "node"
 	RuntimePython = "python"
+	RuntimeJava   = "java"
+	RuntimeGo     = "go"
+	RuntimeDart   = "dart"
 	RuntimeStatic = "static"
+	// RuntimeProxy forwards the website to a port on this server (a container,
+	// a Compose stack or a Kubernetes service). Ike runs no process for it.
+	RuntimeProxy = "proxy"
+	// RuntimeDocker runs the website as a container built by a deployment
+	// (Dockerfile, buildpack or a registry image).
+	RuntimeDocker = "docker"
 )
 
+// AppRuntimes run as a long-lived process under systemd, behind the proxy.
+var AppRuntimes = []string{RuntimeNode, RuntimePython, RuntimeJava, RuntimeGo, RuntimeDart}
+
 var (
-	nodeVersionRe   = regexp.MustCompile(`^[1-9][0-9]?$`)   // major: 20, 22, 24
-	pythonVersionRe = regexp.MustCompile(`^3\.[0-9]{1,2}$`) // 3.12
-	phpVersionRe    = regexp.MustCompile(`^[5-9]\.[0-9]$`)  // 5.6 ... 8.5
+	nodeVersionRe   = regexp.MustCompile(`^[1-9][0-9]?$`)           // major: 20, 22, 24
+	pythonVersionRe = regexp.MustCompile(`^3\.[0-9]{1,2}$`)         // 3.12
+	phpVersionRe    = regexp.MustCompile(`^[5-9]\.[0-9]$`)          // 5.6 ... 8.5
+	javaVersionRe   = regexp.MustCompile(`^(8|1[1-9]|[2-9][0-9])$`) // 17, 21, 25
+	goVersionRe     = regexp.MustCompile(`^1\.[2-9][0-9]$`)         // 1.24
+	dartVersionRe   = regexp.MustCompile(`^[3-9]\.[0-9]{1,2}$`)     // 3.9
 	appActions      = map[string]bool{"start": true, "stop": true, "restart": true}
+	versionRes      = map[string]*regexp.Regexp{RuntimeNode: nodeVersionRe, RuntimePython: pythonVersionRe,
+		RuntimeJava: javaVersionRe, RuntimeGo: goVersionRe, RuntimeDart: dartVersionRe}
+	// The program checked to confirm a runtime version is installed.
+	runtimeProbe = map[string]string{RuntimeNode: "node", RuntimePython: "python3", RuntimeJava: "java", RuntimeGo: "go", RuntimeDart: "dart"}
+	runtimeNames = map[string]string{RuntimeNode: "Node.js", RuntimePython: "Python", RuntimeJava: "Java", RuntimeGo: "Go", RuntimeDart: "Dart"}
 )
 
 // IsApp reports whether the runtime runs as a long-lived process behind a proxy.
-func IsApp(runtime string) bool { return runtime == RuntimeNode || runtime == RuntimePython }
+func IsApp(runtime string) bool {
+	for _, r := range AppRuntimes {
+		if r == runtime {
+			return true
+		}
+	}
+	return false
+}
+
+// IsProxied reports whether Nginx forwards the website to a local port.
+func IsProxied(runtime string) bool {
+	return IsApp(runtime) || runtime == RuntimeProxy || runtime == RuntimeDocker
+}
 
 func defaultStartCommand(runtime string) string {
 	switch runtime {
@@ -33,6 +65,12 @@ func defaultStartCommand(runtime string) string {
 		return "node server.js"
 	case RuntimePython:
 		return "python app.py"
+	case RuntimeJava:
+		return "java Main.java"
+	case RuntimeGo:
+		return "./app"
+	case RuntimeDart:
+		return "dart run bin/server.dart"
 	}
 	return ""
 }
@@ -65,23 +103,20 @@ func (m *Manager) checkRuntime(runtime, version string) error {
 		if _, err := os.Stat(m.p(filepath.Join("/etc/php", version, "fpm"))); err != nil {
 			return fmt.Errorf("PHP %s is not installed on this server", version)
 		}
-	case RuntimeNode:
-		if !nodeVersionRe.MatchString(version) {
-			return fmt.Errorf("invalid Node.js version %q (use the major version, e.g. 22)", version)
+	case RuntimeNode, RuntimePython, RuntimeJava, RuntimeGo, RuntimeDart:
+		if !versionRes[runtime].MatchString(version) {
+			return fmt.Errorf("invalid %s version %q", runtimeNames[runtime], version)
 		}
-		if _, err := os.Stat(m.p(filepath.Join(m.runtimeBin(runtime, version), "node"))); err != nil {
-			return fmt.Errorf("Node.js %s is not installed on this server", version)
+		if _, err := os.Stat(m.p(filepath.Join(m.runtimeBin(runtime, version), runtimeProbe[runtime]))); err != nil {
+			return fmt.Errorf("%s %s is not installed on this server", runtimeNames[runtime], version)
 		}
-	case RuntimePython:
-		if !pythonVersionRe.MatchString(version) {
-			return fmt.Errorf("invalid Python version %q (e.g. 3.12)", version)
+	case RuntimeStatic, RuntimeProxy:
+	case RuntimeDocker:
+		if _, err := os.Stat(m.p(m.cfg.DockerSocket)); err != nil {
+			return fmt.Errorf("Docker isn't installed on this server")
 		}
-		if _, err := os.Stat(m.p(filepath.Join(m.runtimeBin(runtime, version), "python3"))); err != nil {
-			return fmt.Errorf("Python %s is not installed on this server", version)
-		}
-	case RuntimeStatic:
 	default:
-		return fmt.Errorf("runtime must be php, node, python or static")
+		return fmt.Errorf("runtime must be one of php, node, python, java, go, dart, static, proxy or docker")
 	}
 	return nil
 }
@@ -95,7 +130,7 @@ func (m *Manager) defaultVersion(runtime string) string {
 	switch runtime {
 	case RuntimePHP:
 		return m.cfg.DefaultPHP
-	case RuntimeNode, RuntimePython:
+	case RuntimeNode, RuntimePython, RuntimeJava, RuntimeGo, RuntimeDart:
 		v := InstalledRuntimes(m.cfg.Root, m.cfg.RuntimesDir)[runtime]
 		if len(v) > 0 {
 			return v[len(v)-1]
@@ -106,12 +141,12 @@ func (m *Manager) defaultVersion(runtime string) string {
 
 // InstalledRuntimes lists versions found under the runtimes directory, oldest first.
 func InstalledRuntimes(root, runtimesDir string) map[string][]string {
-	out := map[string][]string{"node": {}, "python": {}}
-	for _, rt := range []string{"node", "python"} {
+	out := map[string][]string{}
+	for _, rt := range AppRuntimes {
+		out[rt] = []string{}
 		entries, _ := os.ReadDir(filepath.Join(root, runtimesDir, rt))
 		for _, e := range entries {
-			name := e.Name()
-			if (rt == "node" && nodeVersionRe.MatchString(name)) || (rt == "python" && pythonVersionRe.MatchString(name)) {
+			if name := e.Name(); versionRes[rt].MatchString(name) {
 				out[rt] = append(out[rt], name)
 			}
 		}
@@ -141,7 +176,12 @@ func (m *Manager) nextPort() int {
 	used := map[int]bool{}
 	sites, _ := m.List()
 	for _, s := range sites {
-		used[s.Port] = true
+		if s.Runtime != RuntimeProxy { // a proxy's port belongs to something else
+			used[s.Port] = true
+			if s.Deploy != nil {
+				used[s.Deploy.AltPort] = true
+			}
+		}
 	}
 	for p := m.cfg.AppPortStart; p < m.cfg.AppPortStart+5000; p++ {
 		if !used[p] {
@@ -161,12 +201,15 @@ func (m *Manager) AppAction(ctx context.Context, domain, action string) error {
 		return err
 	}
 	if !IsApp(site.Runtime) {
+		if site.Runtime == RuntimeDocker {
+			return m.containerAction(ctx, site, action)
+		}
 		return fmt.Errorf("%s is a %s site and has no app process", domain, site.Runtime)
 	}
 	if action != "stop" && statusOf(site.Status) == StatusSuspended {
 		return fmt.Errorf("%s is suspended; reactivate it first", domain)
 	}
-	_, err = m.run.Run(ctx, "systemctl", action, m.layout(site).UnitName)
+	_, err = m.run.Run(ctx, "systemctl", action, m.layout(site).ActiveUnit)
 	return err
 }
 
@@ -176,10 +219,13 @@ func (m *Manager) AppStatus(ctx context.Context, domain string) (string, error) 
 	if err != nil {
 		return "", err
 	}
+	if site.Runtime == RuntimeDocker {
+		return m.containerState(ctx, site), nil
+	}
 	if !IsApp(site.Runtime) {
 		return "n/a", nil
 	}
-	out, _ := m.run.Run(ctx, "systemctl", "is-active", m.layout(site).UnitName)
+	out, _ := m.run.Run(ctx, "systemctl", "is-active", m.layout(site).ActiveUnit)
 	state := strings.TrimSpace(string(out))
 	if state == "" {
 		state = "unknown"
@@ -193,13 +239,16 @@ func (m *Manager) AppLogs(ctx context.Context, domain string, lines int) (string
 	if err != nil {
 		return "", err
 	}
-	if !IsApp(site.Runtime) {
-		return "", fmt.Errorf("%s has no app process; check its web logs instead", domain)
-	}
 	if lines <= 0 || lines > 1000 {
 		lines = 200
 	}
-	out, err := m.run.Run(ctx, "journalctl", "--unit", m.layout(site).UnitName+".service",
+	if site.Runtime == RuntimeDocker {
+		return m.containerLogs(ctx, site, lines)
+	}
+	if !IsApp(site.Runtime) {
+		return "", fmt.Errorf("%s has no app process; check its web logs instead", domain)
+	}
+	out, err := m.run.Run(ctx, "journalctl", "--unit", m.layout(site).ActiveUnit+".service",
 		"--lines", fmt.Sprint(lines), "--no-pager", "--output", "short-iso")
 	return string(out), err
 }

@@ -31,8 +31,17 @@ type Site struct {
 	AllowIPs     []string     `json:"allow_ips,omitempty"`  // see the real site during maintenance
 	Staging      bool         `json:"staging,omitempty"`    // a staging copy, hidden from search engines
 	StagingOf    string       `json:"staging_of,omitempty"` // the live domain it was copied from
-	Health       *HealthCheck `json:"health,omitempty"`     // Node.js/Python only
+	Health       *HealthCheck `json:"health,omitempty"`     // apps only
 	CreatedAt    time.Time    `json:"created_at"`
+
+	// Domains: extra names served by this website.
+	Aliases         []string     `json:"aliases,omitempty"`          // other domains, subdomains or *.wildcards
+	WWW             string       `json:"www,omitempty"`              // both (default) | www | root | none
+	RedirectAliases bool         `json:"redirect_aliases,omitempty"` // aliases 301 to the main domain
+	Redirects       []Redirect   `json:"redirects,omitempty"`
+	PHP             *PHPSettings `json:"php,omitempty"`
+	SSL             *SSLSettings `json:"ssl,omitempty"`
+	Deploy          *DeployState `json:"deploy,omitempty"`
 }
 
 // CreateRequest adds a website to an existing account.
@@ -43,6 +52,7 @@ type CreateRequest struct {
 	Version      string `json:"version,omitempty"`    // default: server default / newest installed
 	WebServer    string `json:"web_server,omitempty"` // default: the admin's choice for this server
 	StartCommand string `json:"start_command,omitempty"`
+	Port         int    `json:"port,omitempty"` // proxy runtime: the local port to forward to
 }
 
 // UpdateRequest changes a website's runtime version, web server or start command.
@@ -54,20 +64,45 @@ type UpdateRequest struct {
 
 type layout struct {
 	Domain, User, Runtime, Version, WebServer string
-	Home, SiteDir, DocRoot, AppDir            string
-	TmpDir, LogDir, ErrorsDir, PagesDir       string
-	Status, StatusPage, ErrorCodes            string
-	AllowIPs, AllowIPsRegex                   []string
-	ErrorCodeList                             []int
-	PoolName, PHPSocket                       string
-	WebUser, WebGroup, ApacheListen           string
-	VhostFile, ApacheFile, PoolFile           string
-	StateFile, UnitName, UnitFile             string
-	StartScript, RuntimeBin, StartCommand     string
-	Port                                      int
-	IsApp, Staging                            bool
-	Slice                                     string
-	PHPWorkers, PHPMemoryMB                   int
+	// Root is the folder the web server serves: public_html, or the live
+	// release (current/<public dir>) for deployed websites.
+	Root                                  string
+	ActivePort                            int    // the port Nginx forwards to (blue-green switches it)
+	ActiveUnit                            string // the systemd unit serving now
+	Proxied                               bool
+	ServerNames                           string // main server block
+	RedirectNames                         string // names that redirect to CanonicalHost
+	CanonicalHost                         string
+	NginxRedirects                        []string // rendered location blocks
+	NginxRewrites                         []string // rendered server-level rewrite lines
+	ApacheRules                           []string // rendered RewriteRule lines
+	AcmeDir                               string
+	TLS                                   bool
+	CertFile, KeyFile                     string
+	ForceHTTPS, HSTS                      bool
+	HTTP2, HTTP3, H2Directive             bool
+	PHP                                   PHPSettings // effective values (defaults filled in)
+	PHPReadTimeout                        int
+	BodyLimitMB                           int
+	AppEnvExtra                           []string // extra exports for the start script
+	AppPath                               string
+	ServerList, RedirectList              []string
+	ApacheTLS                             bool // Apache serves HTTPS itself (Apache-only stack)
+	ApacheRedirectListens                 []string
+	Home, SiteDir, DocRoot, AppDir        string
+	TmpDir, LogDir, ErrorsDir, PagesDir   string
+	Status, StatusPage, ErrorCodes        string
+	AllowIPs, AllowIPsRegex               []string
+	ErrorCodeList                         []int
+	PoolName, PHPSocket                   string
+	WebUser, WebGroup, ApacheListen       string
+	VhostFile, ApacheFile, PoolFile       string
+	StateFile, UnitName, UnitFile         string
+	StartScript, RuntimeBin, StartCommand string
+	Port                                  int
+	IsApp, Staging                        bool
+	Slice                                 string
+	PHPWorkers, PHPMemoryMB               int
 }
 
 // siteID is a short, stable, filename-safe id for a domain.
@@ -103,6 +138,8 @@ func (m *Manager) layout(s *Site) layout {
 		Port:         s.Port,
 		StartCommand: s.StartCommand,
 		IsApp:        IsApp(s.Runtime),
+		Proxied:      IsProxied(s.Runtime),
+		AcmeDir:      m.cfg.AcmeDir,
 		Staging:      s.Staging,
 		Slice:        "ike-acct-" + s.Account + ".slice",
 		PoolName:     key,
@@ -113,6 +150,16 @@ func (m *Manager) layout(s *Site) layout {
 		lim = a.Limits
 	}
 	L.PHPWorkers, L.PHPMemoryMB = lim.phpWorkers(), lim.phpMemoryMB()
+	m.applyDeployLayout(s, &L)
+	m.applyDomainLayout(s, &L)
+	m.applySSLLayout(s, &L)
+	L.applyPHP(s.PHP, lim)
+	if L.RedirectNames != "" && L.WebServer == "apache" {
+		L.ApacheRedirectListens = []string{L.ApacheListen}
+		if L.ApacheTLS {
+			L.ApacheRedirectListens = append(L.ApacheRedirectListens, "*:443")
+		}
+	}
 	// Status page: the website's own copy if it has one, else the server-wide page.
 	if L.Status != StatusActive {
 		L.StatusPage = filepath.Join(m.cfg.PagesDir, L.Status+".html")
@@ -125,12 +172,12 @@ func (m *Manager) layout(s *Site) layout {
 	// Nginx answers these itself. Behind a proxy only its own gateway errors are
 	// replaced, so an app's or Apache's own 404 pages still show.
 	codes := ErrorCodes
-	if L.IsApp || L.WebServer == "nginx+apache" {
+	if L.Proxied || L.WebServer == "nginx+apache" {
 		codes = []int{502, 504}
 	}
 	// Apache serves the website itself, so it gets the full set (gateway errors only for apps).
 	L.ErrorCodeList = ErrorCodes
-	if L.IsApp {
+	if L.Proxied {
 		L.ErrorCodeList = []int{502, 503, 504}
 	}
 	for _, ip := range L.AllowIPs {
@@ -147,6 +194,8 @@ func (m *Manager) layout(s *Site) layout {
 	}
 	if L.IsApp {
 		L.RuntimeBin = m.runtimeBin(s.Runtime, s.Version)
+		L.AppEnvExtra = m.runtimeEnv(L)
+		L.AppPath = runtimePath(L, L.AppDir)
 	}
 	return L
 }
@@ -159,8 +208,8 @@ func (m *Manager) checkWebServer(ws, runtime string) error {
 	allowed := m.cfg.WebServers()
 	for _, a := range allowed {
 		if a == ws {
-			if ws == "nginx+apache" && IsApp(runtime) {
-				return fmt.Errorf("Node.js and Python apps are served by Nginx directly; use web_server \"nginx\"")
+			if ws == "nginx+apache" && IsProxied(runtime) {
+				return fmt.Errorf("apps and proxied websites are served by Nginx directly; use web_server \"nginx\"")
 			}
 			return nil
 		}
@@ -181,7 +230,7 @@ func (m *Manager) Create(ctx context.Context, req CreateRequest) (*Site, error) 
 	}
 	if req.WebServer == "" {
 		req.WebServer = m.cfg.WebServers()[0]
-		if IsApp(req.Runtime) && req.WebServer == "nginx+apache" {
+		if IsProxied(req.Runtime) && req.WebServer == "nginx+apache" {
 			req.WebServer = "nginx"
 		}
 	}
@@ -190,6 +239,13 @@ func (m *Manager) Create(ctx context.Context, req CreateRequest) (*Site, error) 
 	}
 	if err := validate.Username(req.Account); err != nil {
 		return nil, fmt.Errorf("account: %w", err)
+	}
+	if req.Runtime == RuntimeProxy {
+		if req.Port < 1 || req.Port > 65535 {
+			return nil, fmt.Errorf("give the local port to forward to (1-65535)")
+		}
+	} else {
+		req.Port = 0
 	}
 	if err := m.checkRuntime(req.Runtime, req.Version); err != nil {
 		return nil, err
@@ -214,11 +270,15 @@ func (m *Manager) Create(ctx context.Context, req CreateRequest) (*Site, error) 
 	if _, err := m.getAccount(req.Account); err != nil {
 		return nil, err
 	}
+	if owner := m.hostOwner(req.Domain, ""); owner != "" {
+		return nil, fmt.Errorf("%s is already served by %s", req.Domain, owner)
+	}
 	site := &Site{
 		Domain: req.Domain, Account: req.Account, Runtime: req.Runtime, Version: req.Version,
 		WebServer: req.WebServer, StartCommand: req.StartCommand, Status: StatusActive, CreatedAt: time.Now().UTC(),
+		Port: req.Port,
 	}
-	if IsApp(req.Runtime) {
+	if IsApp(req.Runtime) || req.Runtime == RuntimeDocker {
 		if site.Port = m.nextPort(); site.Port == 0 {
 			return nil, fmt.Errorf("no free local ports left for apps")
 		}
@@ -227,6 +287,9 @@ func (m *Manager) Create(ctx context.Context, req CreateRequest) (*Site, error) 
 	site.DocRoot = L.DocRoot
 	if L.IsApp {
 		site.DocRoot = L.AppDir
+	}
+	if req.Runtime == RuntimeProxy || req.Runtime == RuntimeDocker {
+		site.DocRoot = L.SiteDir
 	}
 	if _, err := os.Stat(m.p(L.StateFile)); err == nil {
 		return nil, fmt.Errorf("website %s %w", req.Domain, ErrExists)
@@ -262,20 +325,21 @@ func (m *Manager) Create(ctx context.Context, req CreateRequest) (*Site, error) 
 	if err := m.mkdirs(req.Account, dirs); err != nil {
 		return fail("create folders", err)
 	}
-	starter := map[string]struct {
-		path string
-		body []byte
-	}{
-		RuntimePHP:    {filepath.Join(L.DocRoot, "index.php"), m.starterPage("index.php", req.Domain)},
-		RuntimeStatic: {filepath.Join(L.DocRoot, "index.html"), m.starterPage("index.html", req.Domain)},
-		RuntimeNode:   {filepath.Join(L.AppDir, "server.js"), []byte(sampleNodeApp)},
-		RuntimePython: {filepath.Join(L.AppDir, "app.py"), []byte(samplePythonApp)},
-	}[req.Runtime]
-	if err := writeFile(m.p(starter.path), starter.body, 0o640); err != nil {
-		return fail("write starter file", err)
-	}
-	if err := m.chown(starter.path, req.Account, !L.IsApp); err != nil {
-		return fail("set ownership", err)
+	for _, f := range m.starterFiles(L) {
+		if err := os.MkdirAll(filepath.Dir(m.p(f.path)), 0o750); err != nil {
+			return fail("write starter file", err)
+		}
+		if err := writeFile(m.p(f.path), f.body, 0o640); err != nil {
+			return fail("write starter file", err)
+		}
+		if err := m.chown(f.path, req.Account, !L.IsApp); err != nil {
+			return fail("set ownership", err)
+		}
+		if dir := filepath.Dir(f.path); dir != L.AppDir && dir != L.DocRoot {
+			if err := m.chown(dir, req.Account, false); err != nil {
+				return fail("set ownership", err)
+			}
+		}
 	}
 	if err := m.copyErrorPages(L); err != nil {
 		return fail("write error pages", err)
@@ -295,12 +359,8 @@ func (m *Manager) Create(ctx context.Context, req CreateRequest) (*Site, error) 
 			return fail("set up PHP-FPM", err)
 		}
 	case L.IsApp:
-		if req.Runtime == RuntimePython {
-			// A private virtualenv, created as the account user, so pip installs stay in the app.
-			if _, err := m.run.Run(ctx, "runuser", "-u", req.Account, "--",
-				filepath.Join(L.RuntimeBin, "python3"), "-m", "venv", filepath.Join(L.AppDir, ".venv")); err != nil {
-				return fail("create Python virtualenv", err)
-			}
+		if err := m.prepareApp(ctx, L); err != nil {
+			return fail("prepare the "+runtimeNames[req.Runtime]+" app", err)
 		}
 		undo.push(func() { m.removeApp(context.Background(), L) })
 		if err := m.writeApp(ctx, L, true); err != nil {
@@ -361,7 +421,7 @@ func (m *Manager) Update(ctx context.Context, domain string, req UpdateRequest) 
 	}
 	if req.StartCommand != "" {
 		if !IsApp(site.Runtime) {
-			return nil, fmt.Errorf("only Node.js and Python websites have a start command")
+			return nil, fmt.Errorf("only app websites (Node.js, Python, Java, Go, Dart) have a start command")
 		}
 		if err := validateStartCommand(req.StartCommand); err != nil {
 			return nil, err
@@ -456,6 +516,7 @@ func (m *Manager) deleteSite(ctx context.Context, site *Site, removeFiles bool) 
 	case L.IsApp:
 		m.removeApp(ctx, L)
 	}
+	m.cleanupExtras(ctx, site, L)
 	if removeFiles {
 		// os.RemoveAll never follows symlinks, so a planted link can't redirect the delete.
 		if err := os.RemoveAll(m.p(L.SiteDir)); err != nil {

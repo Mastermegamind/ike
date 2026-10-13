@@ -83,6 +83,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -97,7 +98,7 @@ import (
 	"github.com/YOUR-ORG/ike/agent/internal/updates"
 )
 
-const Version = "0.3.0"
+const Version = "0.4.0"
 
 type Server struct {
 	Sites     *sites.Manager
@@ -150,9 +151,14 @@ func (s *Server) Handler() http.Handler {
 	})
 	h("GET /v1/runtimes", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
 		rt := s.runtimes()
+		exists := func(p string) bool { _, err := os.Stat(filepath.Join(s.Config.Root, p)); return err == nil }
 		return ok(map[string]any{
 			"php": sysinfo.PHPVersions(s.Config.Root), "node": rt["node"], "python": rt["python"],
+			"java": rt["java"], "go": rt["go"], "dart": rt["dart"],
 			"default_php": s.Config.DefaultPHP, "web_stack": s.Config.WebStack, "web_servers": s.Config.WebServers(),
+			"composer": exists(s.Config.ComposerPath), "docker": exists(s.Config.DockerSocket),
+			"docker_for_accounts": s.Config.DockerForAccounts, "buildpacks": exists(s.Config.PackPath),
+			"kubernetes": exists(s.Config.K3sPath), "web": s.Sites.Features(),
 		}, nil)
 	})
 
@@ -536,6 +542,12 @@ func (s *Server) Handler() http.Handler {
 		return ok(map[string]string{"unbanned": q.Get("ip")}, s.Firewall.Unban(r.Context(), q.Get("jail"), q.Get("ip")))
 	})
 
+	s.moreRoutes(func(p string, fn handler) { h(p, fn) })
+	if s.Firewall != nil {
+		sites.SetPublicPortHook(func(ctx context.Context, port int, proto string) {
+			_, _ = s.Firewall.OpenPort(ctx, strconv.Itoa(port), proto, "container")
+		})
+	}
 	return s.audit(logRequests(mux))
 }
 

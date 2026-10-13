@@ -8,6 +8,7 @@ package sites
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -31,10 +32,25 @@ type Manager struct {
 	cfg config.Config
 	run runner.Runner
 	mu  sync.Mutex // serializes every change to accounts and sites
+	web WebFeatures
+
+	histMu sync.Mutex // deployment history files
+	dq     *deployQueue
+	// healthy checks a freshly started app or container before traffic moves
+	// to it. Tests replace it.
+	healthy func(ctx context.Context, port int, host, path string) error
+	// notify posts deployment events; tests replace it.
+	notify func(ctx context.Context, url, secret string, body []byte) error
 }
 
 func NewManager(cfg config.Config, r runner.Runner) *Manager {
-	return &Manager{cfg: cfg, run: r}
+	m := &Manager{cfg: cfg, run: r, dq: newDeployQueue()}
+	m.healthy, m.notify = waitHealthy, postSigned
+	if cfg.DryRun {
+		m.healthy = func(context.Context, int, string, string) error { return nil }
+		m.notify = func(context.Context, string, string, []byte) error { return nil }
+	}
+	return m
 }
 
 // p maps an absolute system path into the configured root.

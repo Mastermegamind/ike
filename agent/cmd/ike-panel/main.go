@@ -177,8 +177,9 @@ func background(ctx context.Context, srv *panel.Server, st *store.Store, agent *
 	tick := time.NewTicker(time.Minute)
 	defer overdue.Stop()
 	defer tick.Stop()
-	var lastUptime time.Time
+	var lastUptime, lastDaily time.Time
 	lastEvent := time.Now()
+	told := map[string]bool{} // certificate problems and image updates already announced
 	for {
 		select {
 		case <-ctx.Done():
@@ -191,6 +192,10 @@ func background(ctx context.Context, srv *panel.Server, st *store.Store, agent *
 			if every > 0 && now.Sub(lastUptime) >= time.Duration(every)*time.Minute {
 				lastUptime = now
 				srv.Monitor.Check(ctx)
+			}
+			if now.Sub(lastDaily) >= 6*time.Hour {
+				lastDaily = now
+				dailyChecks(ctx, srv, agent, told)
 			}
 			var events []struct {
 				Time   time.Time `json:"time"`
@@ -289,4 +294,39 @@ func createAdmin(args []string) error {
 		fmt.Printf("Created admin %s.\n", *username)
 	}
 	return nil
+}
+
+// dailyChecks alerts once about certificates that are expiring or failing to
+// renew, and about newer container images.
+func dailyChecks(ctx context.Context, srv *panel.Server, agent *client.Client, told map[string]bool) {
+	var certs []struct {
+		Domain   string `json:"domain"`
+		DaysLeft int    `json:"days_left"`
+		Problem  string `json:"problem"`
+	}
+	if agent.Get(ctx, "/v1/ssl", &certs) == nil {
+		for _, c := range certs {
+			key := "cert:" + c.Domain + ":" + c.Problem
+			if c.Problem != "" && !told[key] {
+				told[key] = true
+				srv.Notifier.Send(ctx, c.Domain+": HTTPS certificate", fmt.Sprintf("%s (%d days left)", c.Problem, c.DaysLeft))
+			}
+		}
+	}
+	var images []struct {
+		Image           string   `json:"image"`
+		RemoteDigest    string   `json:"remote_digest"`
+		UpdateAvailable bool     `json:"update_available"`
+		Containers      []string `json:"containers"`
+	}
+	if agent.Get(ctx, "/v1/docker/updates", &images) == nil {
+		for _, im := range images {
+			key := "img:" + im.Image + ":" + im.RemoteDigest
+			if im.UpdateAvailable && !told[key] {
+				told[key] = true
+				srv.Notifier.Send(ctx, "Container image update: "+im.Image,
+					"A newer "+im.Image+" is available. Used by: "+strings.Join(im.Containers, ", "))
+			}
+		}
+	}
 }

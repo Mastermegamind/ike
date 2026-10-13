@@ -156,6 +156,7 @@ func (m *Manager) layoutWith(s *Site, a *Account) layout {
 	if a != nil { // the account may not be saved yet
 		L.PHPWorkers = a.Limits.phpWorkers()
 		L.PHPMemoryMB = a.Limits.phpMemoryMB()
+		L.applyPHP(s.PHP, a.Limits)
 	}
 	return L
 }
