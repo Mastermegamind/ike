@@ -143,11 +143,12 @@ export function AiAgents() {
         </section>
       </div>
       <section className="panel">
-        <div className="panel-head"><h2>What an agent can do</h2><Badge>37 tools</Badge></div>
+        <div className="panel-head"><h2>What an agent can do</h2><Badge>47 tools</Badge></div>
         <div className="panel-body" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 8 }}>
           {["Read server health and services", "List accounts, websites and runtimes", "Create accounts and websites", "Switch PHP, Node.js or Python versions",
             "Put a site in maintenance", "Start, stop and restart apps", "Read access, error and app logs", "Add cron jobs", "Create databases",
-            "Install WordPress", "Fix file permissions", "Manage SSH keys", "Open ports and block IPs", "Suspend and reactivate accounts"].map((t) => (
+            "Install WordPress", "Fix file permissions", "Manage SSH keys", "Open ports and block IPs", "Suspend and reactivate accounts",
+            "Diagnose a broken website", "Check and install updates", "Create staging copies", "Run the security scan", "Find and undo config drift", "Read usage and set limits"].map((t) => (
             <div key={t} className="row small" style={{ gap: 8 }}><Bot size={15} className="uli-line" aria-hidden />{t}</div>
           ))}
         </div>

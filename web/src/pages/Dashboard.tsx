@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Bot, Clock, Cpu, HardDrive, MemoryStick, Plus, UserRound } from "lucide-react";
+import { useAppearance } from "../theme/appearance";
 import { api } from "../api/client";
 import type { AuditEntry, Site, SystemInfo } from "../api/types";
 import { Badge, Meter, Skeleton, timeAgo, useAsync } from "../components/ui";
@@ -43,13 +44,15 @@ export function Dashboard({ user }: { user: string }) {
   const sites = useAsync(() => api.sites());
   const activity = useAsync(() => api.audit());
 
+  const { saving } = useAppearance();
   useEffect(() => {
     let alive = true;
     const tick = () => api.system().then((s) => alive && setSys(s));
     tick();
-    const t = setInterval(tick, 5000);
+    // Live vitals refresh every 5 seconds, except in data saver mode.
+    const t = saving ? undefined : setInterval(tick, 5000);
     return () => { alive = false; clearInterval(t); };
-  }, []);
+  }, [saving]);
 
   const memUsed = sys ? sys.memory_total_mb - sys.memory_available_mb : 0;
   const memPct = sys ? (memUsed / sys.memory_total_mb) * 100 : 0;

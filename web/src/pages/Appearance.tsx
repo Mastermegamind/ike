@@ -1,6 +1,6 @@
-import { Laptop, Moon, Sun } from "lucide-react";
+import { Feather, Laptop, Moon, Sun, Wifi, WifiLow } from "lucide-react";
 import { themes, type Theme } from "../theme/themes";
-import { useAppearance, type Mode, type TemplateId } from "../theme/appearance";
+import { browserSavesData, useAppearance, type DataSaver, type Mode, type TemplateId } from "../theme/appearance";
 import { PageHead } from "../components/common";
 
 function ThemePreview({ t, mode }: { t: Theme; mode: "light" | "dark" }) {
@@ -40,6 +40,12 @@ const templates: { id: TemplateId; name: string; text: string; wire: JSX.Element
     id: "rail", name: "Rail", text: "Icon rail and dense tables, for admins with many accounts.",
     wire: <div className="wire" style={{ gridTemplateColumns: "12% 1fr", gridTemplateRows: "10px 1fr 1fr" }}><i className="a" style={{ gridRow: "span 3" }} /><i /><i /><i /></div>,
   },
+];
+
+const savers: { id: DataSaver; label: string; text: string; icon: JSX.Element }[] = [
+  { id: "auto", label: "Automatic", text: "On when your phone or browser is saving data, or the connection is 2G.", icon: <WifiLow size={18} /> },
+  { id: "on", label: "Always on", text: "The lightest panel, on any connection.", icon: <Feather size={18} /> },
+  { id: "off", label: "Off", text: "Full fonts, motion and live refresh.", icon: <Wifi size={18} /> },
 ];
 
 export function Appearance() {
@@ -87,6 +93,22 @@ export function Appearance() {
           ))}
         </div>
         <p className="small muted">On phones every layout becomes a top bar with tabs at the bottom.</p>
+      </section>
+
+      <section className="stack" aria-labelledby="saver-h">
+        <div>
+          <h2 id="saver-h">Data saver</h2>
+          <p className="muted" style={{ marginTop: 4 }}>For slow or metered connections. Skips web fonts (about 150 KB), turns off animations, and stops pages from refreshing in the background. Refresh buttons still work.</p>
+        </div>
+        <div className="mode-options" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
+          {savers.map((m) => (
+            <button key={m.id} type="button" className="mode-option" aria-pressed={a.dataSaver === m.id} onClick={() => a.set({ dataSaver: m.id })}>
+              {m.icon}<strong>{m.label}</strong><span className="small muted">{m.text}</span>
+            </button>
+          ))}
+        </div>
+        <p className="small muted">{a.saving ? "Data saver is on for this browser." : "Data saver is off for this browser."}
+          {a.dataSaver === "auto" ? (browserSavesData() ? " Your browser asked for it." : " Your browser hasn't asked for it.") : ""}</p>
       </section>
     </div>
   );

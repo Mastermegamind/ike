@@ -1,7 +1,10 @@
+import { TwoFactorRequired } from "./errors";
 import type {
-  Account, Api, AuditEntry, Ban, CatalogApp, CreateSiteRequest, CronJob, Database, DnsCheck, FirewallBlock,
-  FirewallPort, Forwarder, LogKind, MailDomain, Mailbox, NewDatabase, Runtimes, SSHKey, SSHMode, ServiceStatus,
-  Site, SiteStatus, SmtpSettings, SystemInfo, WebServer, WordPressResult,
+  Account, AccountUsage, AlertEvent, AlertSettings, Api, AuditEntry, AutoUpdates, Ban, BillingSettings, CatalogApp,
+  CreateSiteRequest, CronJob, Database, Diagnosis, DnsCheck, Drift, EnvVar, FirewallBlock, FirewallPort, Forwarder,
+  HealthCheck, IkeRelease, ImportPlan, Invoice, Job, Limits, LogKind, MailDomain, Mailbox, NewDatabase, PaymentProvider,
+  Person, Role, Runtimes, SSHKey, SSHMode, SecurityReport, ServiceStatus, Site, SiteStatus, SmtpSettings, SystemInfo,
+  UpdateStatus, WebServer, WordPressResult,
 } from "./types";
 
 // Same rules as agent/internal/validate, so demo errors match the real server.
@@ -152,10 +155,26 @@ export class DemoApi implements Api {
     return s;
   }
 
-  async login(username: string, password: string) {
+  async login(username: string, password: string, code?: string) {
     await wait(500);
     if (!username || !password) throw new Error("Enter your username and password.");
-    return { name: username };
+    // The preview account has 2FA on, so the second step can be tried out.
+    if (this.people_.find((p) => p.username === username)?.totp_enabled) {
+      if (!code) throw new TwoFactorRequired("Enter the 6-digit code from your authenticator app.");
+      if (!/^\d{6}$|^[0-9a-f]{4}-[0-9a-f]{4}$/i.test(code.trim())) throw new Error("That code isn't right. Codes are 6 digits, or a recovery code like 3f9a-0c21.");
+    }
+    return { name: username, role: "admin" as Role };
+  }
+  async logout() { await wait(100); }
+  async setup2fa() {
+    await wait(300);
+    const secret = Array.from(crypto.getRandomValues(new Uint8Array(20)), (b) => "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"[b % 32]).join("");
+    return { secret, otpauth_url: `otpauth://totp/Ike:andre?secret=${secret}&issuer=Ike` };
+  }
+  async enable2fa(code: string) {
+    await wait(400);
+    if (!/^\d{6}$/.test(code)) throw new Error("Enter the 6-digit code from your authenticator app.");
+    return { recovery_codes: Array.from({ length: 8 }, () => hex(2) + "-" + hex(2)) };
   }
 
   async system(): Promise<SystemInfo> {
@@ -437,6 +456,294 @@ export class DemoApi implements Api {
   async unban(jail: string, ip: string) { await wait(300); this.bans_ = this.bans_.filter((b) => !(b.jail === jail && b.ip === ip)); this.record("DELETE", "/v1/firewall/bans"); }
 
   async audit() { await wait(150); return [...this.log]; }
+
+  // ------------------------------------------------- updates and health
+  private jobs_: Record<string, Job> = {};
+  private auto: AutoUpdates = { security_updates: true, auto_reboot: false, reboot_time: "03:30" };
+  private pending = [
+    { name: "openssl", from: "3.0.13-0ubuntu3.4", to: "3.0.13-0ubuntu3.5", security: true },
+    { name: "linux-image-generic", from: "6.8.0-48.48", to: "6.8.0-50.51", security: true },
+    { name: "libxml2", from: "2.9.14+dfsg-1.3ubuntu3", to: "2.9.14+dfsg-1.3ubuntu3.1", security: true },
+    { name: "nginx", from: "1.26.2-1~noble", to: "1.28.0-1~noble", security: false },
+    { name: "php8.4-fpm", from: "8.4.12-1+ubuntu24.04.1", to: "8.4.13-1+ubuntu24.04.1", security: false },
+    { name: "mariadb-server", from: "1:10.11.13-0ubuntu0.24.04.1", to: "1:10.11.14-0ubuntu0.24.04.1", security: false },
+  ];
+  private reboot = false;
+
+  private startJob(kind: string, title: string, steps: string[], onDone?: () => void): Job {
+    const j: Job = { id: hex(6), kind, title, status: "running", log: [], started_at: now() };
+    this.jobs_[j.id] = j;
+    steps.forEach((line, i) => setTimeout(() => {
+      j.log.push(line);
+      if (i === steps.length - 1) { j.status = "done"; j.finished_at = now(); onDone?.(); }
+    }, 700 * (i + 1)));
+    this.record("POST", `/v1/jobs/${kind}`, 202);
+    return { ...j };
+  }
+  async job(id: string) { await wait(100); const j = this.jobs_[id]; if (!j) throw new Error("Job not found."); return { ...j, log: [...j.log] }; }
+
+  async updates(): Promise<UpdateStatus> {
+    await wait(900);
+    return { checked_at: now(), packages: [...this.pending], security_count: this.pending.filter((p) => p.security).length,
+      reboot_required: this.reboot, reboot_packages: this.reboot ? ["linux-image-6.8.0-50-generic"] : [], auto: { ...this.auto } };
+  }
+  async applyUpdates(securityOnly: boolean) {
+    await wait(300);
+    const take = this.pending.filter((p) => !securityOnly || p.security);
+    return this.startJob("os-upgrade", securityOnly ? "Install security updates" : "Install all updates",
+      ["Refreshing package lists", ...take.map((p) => `Unpacking ${p.name} (${p.to})`), "Setting up packages", "A reboot is needed to finish (linux-image-6.8.0-50-generic)."],
+      () => { this.pending = this.pending.filter((p) => !take.includes(p)); this.reboot = take.some((p) => p.name.startsWith("linux-image")); });
+  }
+  async setAutoUpdates(a: AutoUpdates) {
+    await wait(300);
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(a.reboot_time)) throw new Error("Reboot time must look like 03:30.");
+    this.auto = { ...a };
+    this.record("PUT", "/v1/updates/auto");
+    return { ...this.auto };
+  }
+  async scheduleReboot(minutes: number) { await wait(300); if (minutes < 1) throw new Error("Pick a delay of at least a minute."); this.record("POST", "/v1/server/reboot"); }
+  async ikeRelease(): Promise<IkeRelease> {
+    await wait(500);
+    return { current: "0.3.0", latest: "0.3.1", update_available: true, url: "https://github.com/YOUR-ORG/ike/releases/tag/v0.3.1",
+      notes: "Fixes: PHP 8.5 pools on Ubuntu 26.04, faster usage sampling. New: Paystack split payments." };
+  }
+  async updateIke() { await wait(300); return this.startJob("ike-update", "Update Ike to 0.3.1", ["Downloading ike-agent 0.3.1", "Checksum verified", "Downloading ike-mcp 0.3.1", "Checksum verified", "Restarting Ike in 3 seconds"]); }
+
+  async diagnose(domain: string): Promise<Diagnosis> {
+    await wait(1100);
+    const s = this.find(domain);
+    const f: Diagnosis["findings"] = [];
+    if (s.status === "maintenance") f.push({ severity: "warn", title: "The website is in maintenance mode", detail: "Visitors see the “Back soon” page.", fix: "Set its status back to Active when you're done." });
+    if (s.status === "suspended") f.push({ severity: "bad", title: "The website is suspended", fix: "Set its status to Active, or reactivate the account." });
+    if (s.runtime === "php" && s.version && phpEol(s.version)) f.push({ severity: "warn", title: `PHP ${s.version} no longer gets security fixes`, fix: "Test the site on PHP 8.3 or newer. A staging copy is the safe way." });
+    if (domain === "naijabites.ng") f.unshift({ severity: "bad", title: "PHP crashed in the WordPress plugin “naira-pay”",
+      fix: "Update or disable the plugin (rename its folder over SFTP), or switch to the PHP version it supports.",
+      evidence: "PHP Fatal error:  Uncaught TypeError: number_format(): Argument #1 must be of type float, string given in /home/naijabites/web/naijabites.ng/public_html/wp-content/plugins/naira-pay/checkout.php:88" });
+    if (domain === "api.kelechi.dev") f.push({ severity: "bad", title: "Node.js can't find the module “dotenv”", fix: "Run npm install in the app folder, then restart the app.", evidence: "Error: Cannot find module 'dotenv'" });
+    const bad = f.find((x) => x.severity === "bad");
+    return { domain, summary: bad ? bad.title + "." : f.length ? "The website is up, with a few things to look at." : "Everything looks healthy.",
+      findings: f.length ? f : [{ severity: "ok", title: "No problems found", detail: "Services are running and the logs show no errors." }] };
+  }
+  async createStaging(domain: string) {
+    await wait(300);
+    const live = this.find(domain);
+    if (live.staging) throw new Error(`${domain} is already a staging copy.`);
+    const stage = "staging." + domain;
+    if (this.sites_.some((x) => x.domain === stage)) throw new Error(`${stage} already exists.`);
+    return this.startJob("staging", "Create a staging copy of " + domain,
+      [`Creating ${stage}`, "Copying files", ...(live.runtime === "php" ? ["Exporting the live database", "Importing the database copy", `Replacing ${domain} with ${stage} in the copy`] : []), `Staging copy ready at ${stage}`],
+      () => this.sites_.push({ ...live, domain: stage, staging: true, staging_of: domain, status: "active", created_at: now(), doc_root: live.doc_root.replace(domain, stage) }));
+  }
+  async pushStaging(domain: string) {
+    await wait(300);
+    const s = this.find(domain);
+    if (!s.staging) throw new Error(`${domain} isn't a staging copy.`);
+    return this.startJob("push", `Push ${domain} to live`, [`Backing up the live files of ${s.staging_of}`, `Copying staging files to ${s.staging_of} (keeping its wp-config.php and .env)`, "Done."]);
+  }
+  async setHealthCheck(domain: string, hc: HealthCheck | null) {
+    await wait(300);
+    const s = this.find(domain);
+    if (hc && !/^\/[A-Za-z0-9._~/-]*$/.test(hc.path)) throw new Error("The path must start with / and contain only letters, numbers and ._~/-");
+    s.health = hc ?? undefined;
+    this.record("PUT", `/v1/sites/${domain}/healthcheck`);
+    return { ...s };
+  }
+  private envs: Record<string, EnvVar[]> = {
+    "api.kelechi.dev": [{ key: "NODE_ENV", value: "production" }, { key: "DATABASE_URL", value: "postgres://kelechi:••••@localhost/api" }, { key: "PAYSTACK_SECRET", value: "sk_live_••••••••" }],
+    "lagosrentals.com.ng": [{ key: "APP_ENV", value: "production" }, { key: "APP_KEY", value: "base64:7d0a••••" }, { key: "DB_DATABASE", value: "lagosrentals_app" }],
+  };
+  async env(domain: string) { await wait(200); this.find(domain); return [...(this.envs[domain] || [])]; }
+  async setEnv(domain: string, vars: EnvVar[]) {
+    await wait(400);
+    const seen = new Set<string>();
+    for (const v of vars) {
+      if (!/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(v.key)) throw new Error(`“${v.key}” isn't a valid name. Use letters, numbers and _, not starting with a number.`);
+      if (["PORT", "HOST", "PATH"].includes(v.key)) throw new Error(`${v.key} is set by Ike and can't be changed here.`);
+      if (seen.has(v.key)) throw new Error(`${v.key} appears twice.`);
+      seen.add(v.key);
+    }
+    this.envs[domain] = vars;
+    this.record("PUT", `/v1/sites/${domain}/env`);
+  }
+  async setLimits(account: string, l: Limits) {
+    await wait(400);
+    if (l.memory_mb && l.memory_mb < 64) throw new Error("Memory limit must be at least 64 MB, or 0 for none.");
+    const a = this.acct(account);
+    a.limits = { ...l };
+    this.record("PUT", `/v1/accounts/${account}/limits`);
+    return { ...a };
+  }
+  async usage(): Promise<AccountUsage[]> {
+    await wait(300);
+    const base: Record<string, [number, number, number, number]> = {
+      naijabites: [38, 612, 4210, 820], adaeze: [6, 180, 940, 96], lagosrentals: [72, 1430, 11800, 1410], kelechi: [21, 890, 2300, 310], oldclient: [0, 0, 1800, 0],
+    };
+    const t0 = Date.now();
+    return this.accounts_.map((a) => {
+      const [cpu, mem, disk, bw] = base[a.name] || [3, 90, 300, 12];
+      const history = Array.from({ length: 96 }, (_, i) => {
+        const wave = Math.sin(i / 7 + a.name.length) * 0.35 + Math.sin(i / 2.3) * 0.12;
+        const spike = a.name === "lagosrentals" && i > 70 && i < 76 ? 1.6 : 1;
+        return { t: new Date(t0 - (95 - i) * 15 * 60_000).toISOString(), cpu: Math.max(0, +(cpu * (1 + wave) * spike).toFixed(1)), mem: Math.max(0, +(mem * (1 + wave / 3)).toFixed(0)) };
+      });
+      return { account: a.name, cpu_percent: cpu, memory_mb: mem, processes: Math.round(cpu / 3) + 2, disk_mb: disk, bandwidth_today_mb: bw,
+        limits: a.limits || { cpu_percent: a.name === "lagosrentals" ? 100 : 0, memory_mb: a.name === "lagosrentals" ? 2048 : 0, max_processes: 0, disk_mb: a.plan === "Starter" ? 5120 : 20480, php_workers: 5 }, history };
+    });
+  }
+  async security(): Promise<SecurityReport> {
+    await wait(1000);
+    const checks: SecurityReport["checks"] = [
+      { id: "ssh-root", area: "ssh", severity: "ok", title: "Root can only log in with an SSH key" },
+      { id: "ssh-passwords", area: "ssh", severity: "warn", title: "SSH accepts passwords", fix: "Turn off PasswordAuthentication once everyone uses keys. fail2ban limits guessing meanwhile." },
+      { id: "firewall", area: "firewall", severity: "ok", title: "The firewall is on" },
+      { id: "fail2ban", area: "firewall", severity: "ok", title: "Repeated failed logins are banned automatically" },
+      { id: "updates", area: "updates", severity: this.pending.some((p) => p.security) ? "bad" : "ok",
+        title: this.pending.some((p) => p.security) ? `${this.pending.filter((p) => p.security).length} security updates are waiting` : "No security updates are waiting", fix: "Install security updates on the Updates page." },
+      { id: "exposed", area: "network", severity: "ok", title: "Databases and caches only listen on this server" },
+      { id: "php-eol", area: "websites", severity: "warn", title: "2 websites use PHP versions without security fixes", fix: "Move them to PHP 8.3 or newer: legacy.adaeze.com (PHP 5.6), lagosrentals.com.ng (PHP 7.4)" },
+      { id: "https", area: "websites", severity: "warn", title: `${this.sites_.length} websites don't have HTTPS yet`, fix: "Let's Encrypt certificates arrive in the next phase." },
+      { id: "secrets-readable", area: "files", severity: "bad", title: "Config files with passwords can be read by other users", fix: "Run Fix permissions on: lagosrentals.com.ng" },
+    ];
+    let score = 100;
+    checks.forEach((c) => { score -= c.severity === "bad" ? 15 : c.severity === "warn" ? 5 : 0; });
+    return { score, checks };
+  }
+  private drifts: Drift[] = [
+    { path: "/etc/nginx/ike/sites/lagosrentals.com.ng.conf", kind: "nginx", owner: "lagosrentals.com.ng", state: "changed",
+      diff: "-     client_max_body_size 64m;\n+     client_max_body_size 2g;\n+     location /old-listings { return 301 /listings; }\n" },
+    { path: "/etc/php/8.3/fpm/pool.d/ike-naijabites-1f3a9c20.conf", kind: "php-pool", owner: "naijabites.ng", state: "changed",
+      diff: "- pm.max_children = 5\n+ pm.max_children = 40\n" },
+  ];
+  async drift() { await wait(600); return [...this.drifts]; }
+  async reconcile(paths: string[]) {
+    await wait(800);
+    const fixed = this.drifts.filter((d) => !paths.length || paths.includes(d.path));
+    this.drifts = this.drifts.filter((d) => !fixed.includes(d));
+    this.record("POST", "/v1/drift/reconcile");
+    return fixed;
+  }
+  async inspectImport(file: string): Promise<ImportPlan> {
+    await wait(1200);
+    if (!/^[A-Za-z0-9._-]+\.tar(\.gz)?$/.test(file)) throw new Error("Give the backup's file name, e.g. cpmove-adaeze.tar.gz");
+    if (file !== "cpmove-tundeprops.tar.gz") throw new Error(`${file} isn't in /var/lib/ike/imports. Upload it there first (SFTP as root), then try again.`);
+    return { file, cpanel_user: "tundeprops", account: "tundeprops", main_domain: "tundeproperties.ng", cron_jobs: 3, home_size_mb: 4382,
+      databases: ["tundeprops_wp", "tundeprops_crm"], mailboxes: ["info@tundeproperties.ng", "sales@tundeproperties.ng", "tunde@tundeproperties.ng"],
+      websites: [
+        { domain: "tundeproperties.ng", kind: "main", php: "8.1", php_installed: true },
+        { domain: "lekkihomes.com.ng", kind: "addon", php: "7.3", php_installed: false },
+        { domain: "blog.tundeproperties.ng", kind: "subdomain", php_installed: true },
+        { domain: "tundeproperties.com", kind: "alias", php_installed: true },
+      ],
+      warnings: ["lekkihomes.com.ng uses PHP 7.3, which isn't installed here", "Mailboxes are listed; importing mail arrives with the email phase"] };
+  }
+
+  // -------------------------------------------------- people and billing
+  private people_: Person[] = [
+    { username: "andre", email: "andre@megamind.ng", name: "Andre", role: "admin", totp_enabled: true, accounts: [], disabled: false, created_at: ago(90 * day), last_login_at: ago(2) },
+    { username: "webafrica", email: "ops@webafrica.ng", name: "WebAfrica Hosting", role: "reseller", totp_enabled: true, accounts: [], max_accounts: 25, disabled: false, created_at: ago(60 * day), last_login_at: ago(300) },
+    { username: "ada", email: "ada@shop.adaeze.com", name: "Adaeze Okafor", role: "user", totp_enabled: false, reseller: "webafrica", accounts: ["adaeze"], disabled: false, created_at: ago(12 * day), last_login_at: ago(1500) },
+    { username: "kelechi", email: "kelechi@kelechi.dev", role: "user", totp_enabled: true, accounts: ["kelechi"], disabled: false, created_at: ago(5 * day) },
+  ];
+  async people() { await wait(200); return [...this.people_]; }
+  async createPerson(p: { username: string; email: string; name?: string; role: Role; password: string; accounts?: string[]; max_accounts?: number }) {
+    await wait(500);
+    if (!/^[a-z][a-z0-9._-]{2,31}$/.test(p.username)) throw new Error("Username must be 3–32 lowercase letters, numbers, dots, dashes or underscores.");
+    if (!/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(p.email)) throw new Error("Enter a valid email address.");
+    if (p.password.length < 10) throw new Error("Use a password of at least 10 characters.");
+    if (this.people_.some((x) => x.username === p.username)) throw new Error(`${p.username} already exists.`);
+    const n: Person = { username: p.username, email: p.email, name: p.name, role: p.role, totp_enabled: false, accounts: p.accounts || [], max_accounts: p.max_accounts, disabled: false, created_at: now() };
+    this.people_.push(n);
+    return n;
+  }
+  async updatePerson(username: string, patch: Partial<{ disabled: boolean; accounts: string[]; max_accounts: number; role: Role }>) {
+    await wait(300);
+    const p = this.people_.find((x) => x.username === username);
+    if (!p) throw new Error("Person not found.");
+    if (patch.disabled && p.role === "admin" && this.people_.filter((x) => x.role === "admin" && !x.disabled).length <= 1) throw new Error("This is the last server admin and can't be disabled.");
+    Object.assign(p, patch);
+    return { ...p };
+  }
+  private billing: BillingSettings = { currency: "NGN", grace_days: 7, auto_suspend: true, providers: {
+    bachs: { enabled: true, secret_key: "••••••••", webhook_secret: "••••••••", sandbox: false },
+    paystack: { enabled: true, secret_key: "••••••••" },
+    flutterwave: { enabled: false },
+  } };
+  private webhookUrls = { bachs: "https://vps-lagos-1.ike.host:2083/webhooks/bachs", paystack: "https://vps-lagos-1.ike.host:2083/webhooks/paystack", flutterwave: "https://vps-lagos-1.ike.host:2083/webhooks/flutterwave" };
+  async billingSettings() { await wait(200); return { settings: JSON.parse(JSON.stringify(this.billing)), webhook_urls: this.webhookUrls }; }
+  async saveBillingSettings(set: BillingSettings) {
+    await wait(500);
+    if (!/^[A-Z]{3}$/.test(set.currency)) throw new Error("Currency must be a 3-letter code like NGN, GHS, KES or USD.");
+    for (const [k, p] of Object.entries(set.providers)) {
+      if (p?.enabled && !p.secret_key) throw new Error(`Enter the secret key for ${k}.`);
+      if (p?.enabled && k !== "paystack" && !p.webhook_secret) throw new Error(`Enter the webhook secret for ${k}, so payments can be verified.`);
+      if (p?.secret_key && p.secret_key !== "••••••••") p.secret_key = "••••••••";
+      if (p?.webhook_secret && p.webhook_secret !== "••••••••") p.webhook_secret = "••••••••";
+    }
+    this.billing = set;
+    this.record("PUT", "/v1/billing/settings");
+    return this.billingSettings();
+  }
+  private invoices_: Invoice[] = [
+    { id: "INV-000014", account: "lagosrentals", description: "Business plan, October", currency: "NGN", amount: 2500000, status: "unpaid", due_at: ago(-3 * day), created_at: ago(4 * day) },
+    { id: "INV-000013", account: "naijabites", description: "Business plan, October", currency: "NGN", amount: 2500000, status: "paid", provider: "paystack", due_at: ago(5 * day), created_at: ago(12 * day), paid_at: ago(6 * day) },
+    { id: "INV-000012", account: "kelechi", description: "Developer plan, October", currency: "USD", amount: 1500, status: "paid", provider: "bachs", due_at: ago(8 * day), created_at: ago(13 * day), paid_at: ago(9 * day) },
+    { id: "INV-000011", account: "oldclient", description: "Starter plan, August", currency: "NGN", amount: 800000, status: "unpaid", due_at: ago(48 * day), created_at: ago(55 * day) },
+    { id: "INV-000010", account: "adaeze", description: "Starter plan, October", currency: "NGN", amount: 800000, status: "unpaid", due_at: ago(-6 * day), created_at: ago(1 * day) },
+  ];
+  private seq = 15;
+  async invoices() { await wait(250); return [...this.invoices_]; }
+  async createInvoice(r: { account: string; description: string; amount: string; currency?: string; due_in_days: number }) {
+    await wait(400);
+    const cur = (r.currency || this.billing.currency).toUpperCase();
+    const n = Math.round(parseFloat(r.amount) * 100);
+    if (!n || n <= 0) throw new Error("Enter an amount greater than zero, like 15000.00.");
+    if (!r.description.trim()) throw new Error("Add a short description.");
+    const inv: Invoice = { id: `INV-${String(this.seq++).padStart(6, "0")}`, account: r.account, description: r.description.trim(), currency: cur, amount: n,
+      status: "unpaid", due_at: new Date(Date.now() + r.due_in_days * 86400_000).toISOString(), created_at: now() };
+    this.invoices_.unshift(inv);
+    return inv;
+  }
+  async payInvoice(id: string, provider: PaymentProvider) {
+    await wait(700);
+    if (!this.billing.providers[provider]?.enabled) throw new Error("That payment method isn't set up on this server.");
+    const host = { bachs: "pay.bachs.io/c/chk_" + hex(6), paystack: "checkout.paystack.com/" + hex(6), flutterwave: "checkout.flutterwave.com/v3/hosted/pay/" + hex(6) }[provider];
+    return { checkout_url: "https://" + host + "#" + id };
+  }
+  async voidInvoice(id: string) { await wait(300); const i = this.invoices_.find((x) => x.id === id); if (i) i.status = "void"; }
+  async markPaid(id: string) {
+    await wait(400);
+    const i = this.invoices_.find((x) => x.id === id);
+    if (!i) throw new Error("Invoice not found.");
+    i.status = "paid"; i.paid_at = now();
+    const a = this.accounts_.find((x) => x.name === i.account);
+    if (a?.suspended) { a.suspended = false; this.sites_.filter((s) => s.account === a.name).forEach((s) => (s.status = "active")); }
+  }
+  private alerts: AlertSettings = {
+    telegram: { enabled: true, bot_token: "••••••••", chat_id: "-1002233445566" },
+    whatsapp: { enabled: false, phone_number_id: "", to: "" },
+    email: { enabled: true, host: "smtp-relay.brevo.com", port: 587, username: "alerts@megamind.ng", password: "••••••••", from: "alerts@megamind.ng", to: "andre@megamind.ng" },
+    uptime_interval_min: 5,
+  };
+  async alertSettings() { await wait(200); return JSON.parse(JSON.stringify(this.alerts)); }
+  async saveAlertSettings(a: AlertSettings) { await wait(400); this.alerts = a; return this.alertSettings(); }
+  async testAlert() {
+    await wait(900);
+    const r: Record<string, string> = {};
+    if (this.alerts.telegram.enabled) r.telegram = "sent";
+    if (this.alerts.whatsapp.enabled) r.whatsapp = this.alerts.whatsapp.to ? "sent" : "token, phone number id and recipient are required";
+    if (this.alerts.email.enabled) r.email = "sent";
+    if (!Object.keys(r).length) throw new Error("Turn on at least one channel first.");
+    return r;
+  }
+  async alertEvents(): Promise<AlertEvent[]> {
+    await wait(200);
+    return [
+      { time: ago(95), domain: "api.kelechi.dev", kind: "up", detail: "Back up after 6m" },
+      { time: ago(101), domain: "api.kelechi.dev", kind: "down", detail: "HTTP 502" },
+      { time: ago(60 * 26), domain: "lagosrentals.com.ng", kind: "up", detail: "Back up after 2m" },
+      { time: ago(60 * 26 + 2), domain: "lagosrentals.com.ng", kind: "down", detail: "context deadline exceeded" },
+    ];
+  }
 
   // ------------------------------------------------------------------ email
   private boxes: Mailbox[] = [

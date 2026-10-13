@@ -7,6 +7,8 @@ export type SiteStatus = "active" | "maintenance" | "suspended";
 export type Role = "admin" | "reseller" | "user";
 
 export interface Account {
+  limits?: Limits;
+  quota_note?: string;
   name: string;
   ssh: SSHMode;
   suspended: boolean;
@@ -18,6 +20,9 @@ export interface Account {
 }
 
 export interface Site {
+  staging?: boolean;
+  staging_of?: string;
+  health?: HealthCheck;
   domain: string;
   account: string;
   runtime: Runtime;
@@ -110,8 +115,54 @@ export interface SmtpSettings {
 }
 export interface MailDomain { domain: string; webmail_url: string }
 
+// ---- Updates, jobs, health, staging, limits, usage, security, drift, imports
+
+export interface Job { id: string; kind: string; title: string; status: "running" | "done" | "failed"; error?: string; log: string[]; started_at: string; finished_at?: string }
+export interface PendingPackage { name: string; from: string; to: string; security: boolean }
+export interface AutoUpdates { security_updates: boolean; auto_reboot: boolean; reboot_time: string }
+export interface UpdateStatus { checked_at: string; packages: PendingPackage[]; security_count: number; reboot_required: boolean; reboot_packages?: string[]; auto: AutoUpdates }
+export interface IkeRelease { current: string; latest: string; update_available: boolean; url: string; notes: string }
+export interface Finding { severity: "ok" | "info" | "warn" | "bad"; title: string; detail?: string; fix?: string; evidence?: string }
+export interface Diagnosis { domain: string; summary: string; findings: Finding[] }
+export interface HealthCheck { path: string; interval_sec: number; fail_threshold: number; action: "restart" | "notify" }
+export interface EnvVar { key: string; value: string }
+export interface Limits { cpu_percent: number; memory_mb: number; max_processes: number; disk_mb: number; php_workers: number }
+export interface UsagePoint { t: string; cpu: number; mem: number }
+export interface AccountUsage { account: string; cpu_percent: number; memory_mb: number; processes: number; disk_mb: number; bandwidth_today_mb: number; limits: Limits; history: UsagePoint[] }
+export interface SecurityCheck { id: string; area: string; severity: "ok" | "warn" | "bad"; title: string; fix?: string }
+export interface SecurityReport { score: number; checks: SecurityCheck[] }
+export interface Drift { path: string; kind: string; owner: string; state: "changed" | "missing"; diff?: string }
+export interface ImportPlan {
+  file: string; cpanel_user: string; account: string; main_domain: string; databases: string[]; mailboxes: string[]; cron_jobs: number; home_size_mb: number; warnings: string[];
+  websites: { domain: string; kind: "main" | "addon" | "subdomain" | "alias"; php?: string; php_installed: boolean }[];
+}
+
+// ---- Control plane: people, billing, alerts
+
+export interface Person {
+  username: string; email: string; name?: string; role: Role; totp_enabled: boolean; reseller?: string;
+  accounts: string[]; max_accounts?: number; disabled: boolean; created_at: string; last_login_at?: string;
+}
+export type PaymentProvider = "bachs" | "paystack" | "flutterwave";
+export interface Invoice {
+  id: string; account: string; description: string; currency: string; amount: number; status: "unpaid" | "paid" | "void";
+  due_at: string; created_at: string; paid_at?: string; provider?: PaymentProvider;
+}
+export interface ProviderSettings { enabled: boolean; secret_key?: string; webhook_secret?: string; sandbox?: boolean }
+export interface BillingSettings { currency: string; grace_days: number; auto_suspend: boolean; providers: Partial<Record<PaymentProvider, ProviderSettings>> }
+export interface AlertSettings {
+  telegram: { enabled: boolean; bot_token?: string; chat_id: string };
+  whatsapp: { enabled: boolean; token?: string; phone_number_id: string; to: string; template?: string };
+  email: { enabled: boolean; host: string; port: number; username: string; password?: string; from: string; to: string };
+  uptime_interval_min: number;
+}
+export interface AlertEvent { time: string; domain: string; kind: "down" | "up"; detail: string }
+
 export interface Api {
-  login(username: string, password: string): Promise<{ name: string }>;
+  login(username: string, password: string, code?: string): Promise<{ name: string; role: Role }>;
+  logout(): Promise<void>;
+  setup2fa(): Promise<{ secret: string; otpauth_url: string }>;
+  enable2fa(code: string): Promise<{ recovery_codes: string[] }>;
   system(): Promise<SystemInfo>;
   services(): Promise<ServiceStatus[]>;
   runtimes(): Promise<Runtimes>;
@@ -154,6 +205,41 @@ export interface Api {
   unban(jail: string, ip: string): Promise<void>;
 
   audit(): Promise<AuditEntry[]>;
+
+  updates(): Promise<UpdateStatus>;
+  applyUpdates(securityOnly: boolean): Promise<Job>;
+  setAutoUpdates(a: AutoUpdates): Promise<AutoUpdates>;
+  scheduleReboot(minutes: number): Promise<void>;
+  ikeRelease(): Promise<IkeRelease>;
+  updateIke(): Promise<Job>;
+  job(id: string): Promise<Job>;
+  diagnose(domain: string): Promise<Diagnosis>;
+  createStaging(domain: string): Promise<Job>;
+  pushStaging(domain: string): Promise<Job>;
+  setHealthCheck(domain: string, hc: HealthCheck | null): Promise<Site>;
+  env(domain: string): Promise<EnvVar[]>;
+  setEnv(domain: string, vars: EnvVar[]): Promise<void>;
+  setLimits(account: string, l: Limits): Promise<Account>;
+  usage(): Promise<AccountUsage[]>;
+  security(): Promise<SecurityReport>;
+  drift(): Promise<Drift[]>;
+  reconcile(paths: string[]): Promise<Drift[]>;
+  inspectImport(file: string): Promise<ImportPlan>;
+
+  people(): Promise<Person[]>;
+  createPerson(p: { username: string; email: string; name?: string; role: Role; password: string; accounts?: string[]; max_accounts?: number }): Promise<Person>;
+  updatePerson(username: string, patch: Partial<{ disabled: boolean; accounts: string[]; max_accounts: number; role: Role }>): Promise<Person>;
+  billingSettings(): Promise<{ settings: BillingSettings; webhook_urls: Record<PaymentProvider, string> }>;
+  saveBillingSettings(s: BillingSettings): Promise<{ settings: BillingSettings; webhook_urls: Record<PaymentProvider, string> }>;
+  invoices(): Promise<Invoice[]>;
+  createInvoice(r: { account: string; description: string; amount: string; currency?: string; due_in_days: number }): Promise<Invoice>;
+  payInvoice(id: string, provider: PaymentProvider): Promise<{ checkout_url: string }>;
+  voidInvoice(id: string): Promise<void>;
+  markPaid(id: string): Promise<void>;
+  alertSettings(): Promise<AlertSettings>;
+  saveAlertSettings(a: AlertSettings): Promise<AlertSettings>;
+  testAlert(): Promise<Record<string, string>>;
+  alertEvents(): Promise<AlertEvent[]>;
 
   mailDomains(): Promise<MailDomain[]>;
   mailboxes(domain: string): Promise<Mailbox[]>;

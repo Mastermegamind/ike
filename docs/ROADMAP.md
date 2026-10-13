@@ -1,6 +1,6 @@
 # Roadmap
 
-## Phase 1 — Foundation (current)
+## Phase 1 — Foundation (nearly done)
 - [x] Installer for Ubuntu 22.04 / 24.04 / 26.04 with OS, KVM, RAM and fresh-server checks
 - [x] nginx.org and ondrej/php repos with fallback to Ubuntu packages; Ubuntu's MariaDB
 - [x] ike-agent daemon on a root-only unix socket
@@ -8,10 +8,14 @@
 - [x] Site deletion, system info, service status
 - [x] SSH per site: none / SFTP-only (chroot) / shell, panel-managed keys
 - [x] MCP server (stdio, works over SSH): read-only default, `--allow-write`, delete confirmation, audit log
-- [ ] Let's Encrypt SSL (issue, renew, force HTTPS)
-- [ ] Database + DB user creation (MariaDB)
-- [ ] Control-plane API (auth, roles: admin / reseller / user, audit log)
-- [ ] Web UI: login, dashboard, sites list, create site
+- [x] Database + DB user creation (MariaDB), phpMyAdmin
+- [x] Control-plane API (ike-panel): sign-in, TOTP 2FA, roles on separate ports, audit log
+- [x] Web UI: every screen, embedded in ike-panel, data saver mode
+- [x] Updates (OS + Ike self-update), health assistant, security scan, drift detection
+- [x] Staging sites, env vars, app health checks, resource limits + usage graphs
+- [x] Billing (Bachs, Paystack, Flutterwave), uptime alerts (WhatsApp, Telegram, email)
+- [x] One-line installer (`installer.sh`) with checksum verification
+- [ ] Let's Encrypt SSL (issue, renew, force HTTPS) ← next
 
 ## Phase 2 — Hosting essentials
 - DNS with PowerDNS, cron jobs, log viewer, bandwidth/disk stats
@@ -37,4 +41,4 @@
 - MCP over Streamable HTTP with per-user API tokens and scopes
 - Create VPSes through Hetzner / DigitalOcean / Vultr / Linode APIs
 - Server-to-server migration (e.g. 22.04 → 24.04 before end of support)
-- cPanel backup importer
+- cPanel backup importer: reading backups done; restoring next

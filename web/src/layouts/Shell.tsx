@@ -73,12 +73,12 @@ function TopRight({ user, role, onRole, onLogout }: Pick<Props, "user" | "role" 
   const [open, setOpen] = useState(false);
   return (
     <>
-      <label className="desktop-only" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      {isDemo ? <label className="desktop-only" style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <span className="small muted">View as</span>
         <select className="select" style={{ height: 34, width: "auto" }} value={role} onChange={(e) => onRole(e.target.value as Role)}>
           {(Object.keys(roleLabel) as Role[]).map((r) => <option key={r} value={r}>{roleLabel[r]}</option>)}
         </select>
-      </label>
+      </label> : null}
       <button
         className="btn ghost icon"
         type="button"
@@ -97,13 +97,14 @@ function TopRight({ user, role, onRole, onLogout }: Pick<Props, "user" | "role" 
               <strong>{user}</strong>
               <div className="small muted">{roleLabel[role]}</div>
             </div>
-            <label className="mobile-only" style={{ display: "grid", gap: 4, padding: "6px 10px" }}>
+            {isDemo ? <label className="mobile-only" style={{ display: "grid", gap: 4, padding: "6px 10px" }}>
               <span className="small muted">View as</span>
               <select className="select" value={role} onChange={(e) => { onRole(e.target.value as Role); setOpen(false); }}>
                 {(Object.keys(roleLabel) as Role[]).map((r) => <option key={r} value={r}>{roleLabel[r]}</option>)}
               </select>
-            </label>
+            </label> : null}
             <a className="nav-link" href={href("/appearance")} onClick={() => setOpen(false)}>Appearance</a>
+            <a className="nav-link" href={href("/profile")} onClick={() => setOpen(false)}>Sign-in security</a>
             <button className="nav-link" type="button" onClick={onLogout}>Sign out</button>
           </div>
         )}

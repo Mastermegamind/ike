@@ -27,13 +27,13 @@ With `restrict` and a forced command, that key can only ever start the MCP serve
 
 ## Tools
 
-37 tools. Read-only tools are always available; the rest need `--allow-write`.
+47 tools. Read-only tools are always available; the rest need `--allow-write`.
 
 | Area | Read | Write |
 |---|---|---|
-| Server | `get_system_info`, `get_service_status`, `list_runtimes`, `get_audit_log` | — |
-| Accounts | `list_accounts`, `list_ssh_keys`, `list_cron_jobs`, `list_databases` | `create_account`, `set_ssh_access`, `add_ssh_key`, `remove_ssh_key`, `add_cron_job`, `delete_cron_job`, `create_database`, `suspend_account`, `unsuspend_account`, `delete_account` |
-| Websites | `list_sites`, `get_site`, `get_site_log`, `get_app_logs`, `list_apps` | `create_site`, `update_site`, `set_site_status`, `app_action`, `install_wordpress`, `fix_permissions`, `delete_site` |
+| Server | `get_system_info`, `get_service_status`, `list_runtimes`, `get_audit_log`, `check_updates`, `get_job`, `get_usage`, `security_scan`, `detect_drift` | `install_updates`, `reconcile_drift` |
+| Accounts | `list_accounts`, `list_ssh_keys`, `list_cron_jobs`, `list_databases` | `create_account`, `set_limits`, `set_ssh_access`, `add_ssh_key`, `remove_ssh_key`, `add_cron_job`, `delete_cron_job`, `create_database`, `suspend_account`, `unsuspend_account`, `delete_account` |
+| Websites | `list_sites`, `get_site`, `get_site_log`, `get_app_logs`, `list_apps`, `diagnose_site` | `create_site`, `update_site`, `set_site_status`, `app_action`, `install_wordpress`, `fix_permissions`, `create_staging`, `delete_site` |
 | Firewall | `get_firewall`, `list_bans` | `open_port`, `close_port`, `block_address`, `unblock_address`, `unban_ip` |
 
 ## Safety
@@ -47,4 +47,4 @@ With `restrict` and a forced command, that key can only ever start the MCP serve
 
 ## Coming later
 
-When the control-plane API lands, MCP will also be served over **Streamable HTTP** with per-user API tokens and scopes (e.g. a reseller's token can only see that reseller's sites).
+MCP will also be served over **Streamable HTTP** with per-user API tokens and scopes (e.g. a reseller's token can only see that reseller's sites).

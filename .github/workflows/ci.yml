@@ -34,7 +34,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - run: shellcheck installer/install.sh
+      - run: shellcheck installer/install.sh installer/installer.sh
 
   web:
     runs-on: ubuntu-24.04

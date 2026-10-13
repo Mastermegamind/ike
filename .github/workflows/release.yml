@@ -20,7 +20,7 @@ jobs:
           node-version: "22"
       - name: Build the web panel
         working-directory: web
-        run: npm ci && npm run build && rm -rf ../agent/internal/panel/ui/dist && cp -r dist ../agent/internal/panel/ui/dist
+        run: npm ci && VITE_IKE_API=http npm run build && rm -rf ../agent/internal/panel/ui/dist && cp -r dist ../agent/internal/panel/ui/dist
       - name: Test
         working-directory: agent
         run: go test ./...
@@ -35,7 +35,11 @@ jobs:
               (cd dist && sha256sum $bin-linux-$arch > $bin-linux-$arch.sha256)
             done
           done
+      - name: Installer checksums
+        run: |
+          cp installer/install.sh installer/installer.sh agent/dist/
+          (cd agent/dist && sha256sum install.sh > install.sh.sha256 && sha256sum installer.sh > installer.sh.sha256)
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" agent/dist/* installer/install.sh --generate-notes
+        run: gh release create "$GITHUB_REF_NAME" agent/dist/* --generate-notes

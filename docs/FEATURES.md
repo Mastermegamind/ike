@@ -2,12 +2,13 @@
 
 Ike's full scope, grouped by area. Pick anything marked *planned* and open a PR — see [CONTRIBUTING.md](../CONTRIBUTING.md).
 
-**33 done · 20 in the UI · 123 planned** (of 176)
+**55 done · 9 partly done · 8 screen only · 104 planned** (of 176)
 
 | Mark | Meaning |
 |---|---|
-| ✅ | Done in the agent/installer |
-| 🖥️ | In the web panel (demo data until the control-plane API ships) |
+| ✅ | Done: works end to end on a server |
+| 🟡 | Partly done (the notes say which part) |
+| 🖥️ | Screen is in the web panel; the server side is still planned |
 | 🔜 | Planned — phase number from [ROADMAP.md](ROADMAP.md) |
 
 
@@ -16,17 +17,17 @@ Ike's full scope, grouped by area. Pick anything marked *planned* and open a PR 
 | | Feature | Notes |
 |---|---|---|
 | ✅ | Linux server installation and initial configuration | installer |
-| 🖥️ | CPU, RAM, disk, swap and network monitoring | CPU/RAM/disk live; swap & network planned |
+| ✅ | CPU, RAM, disk, swap and network monitoring | CPU/RAM/disk live, 24 h graphs per account; swap & network planned |
 | 🖥️ | Service management with systemd | status done; start/stop planned |
-| 🔜 2 | Process manager and resource limits |  |
-| 🔜 2 | System package installation and updates |  |
+| ✅ | Process manager and resource limits | systemd unit per app; CPU, memory and process limits per account |
+| ✅ | System package installation and updates | apt updates, security-only option, job log |
 | ✅ | Linux user and group management | accounts = Linux users |
 | ✅ | SSH keys, SSH terminal and SFTP | SSH/SFTP + keys; web terminal in UI |
 | ✅ | Cron jobs and scheduled commands |  |
 | ✅ | Firewall, ports and network interfaces | ports & IP blocks; interfaces planned |
-| 🖥️ | Server reboot, shutdown and maintenance mode | website maintenance mode done |
+| ✅ | Server reboot, shutdown and maintenance mode | scheduled restart; website maintenance mode |
 | 🔜 2 | Multi-server administration |  |
-| 🔜 2 | OS security updates and vulnerability alerts |  |
+| ✅ | OS security updates and vulnerability alerts | unattended security updates, security scan, alerts |
 
 ## Websites and web servers
 
@@ -41,9 +42,9 @@ Ike's full scope, grouped by area. Pick anything marked *planned* and open a PR 
 | 🔜 2 | URL redirects and rewrite rules |  |
 | ✅ | Custom error pages and password protection | error pages; password protection planned |
 | ✅ | PHP-FPM pools per website |  |
-| 🔜 2 | Website staging and cloning |  |
+| ✅ | Website staging and cloning | staging copy with database, push to live |
 | ✅ | One-click WordPress installation | WP-CLI |
-| 🔜 2 | Website migration and import |  |
+| 🟡 | Website migration and import | cPanel backups are read and planned; restore next |
 
 ## PHP and runtime environments
 
@@ -51,16 +52,16 @@ Ike's full scope, grouped by area. Pick anything marked *planned* and open a PR 
 |---|---|---|
 | ✅ | Multiple PHP versions installed side by side | 5.6 → 8.5 |
 | ✅ | Per-site PHP version selection |  |
-| 🔜 2 | PHP-FPM pool configuration |  |
+| 🟡 | PHP-FPM pool configuration | PHP workers and memory per website; raw pool editor planned |
 | 🔜 2 | PHP extensions management |  |
 | 🔜 2 | Composer integration |  |
 | ✅ | Node.js and npm/pnpm/yarn management | Node versions; package managers via shell |
 | ✅ | Python virtual environments and pip | venv per app |
 | 🔜 2 | Java runtime and build tooling |  |
 | 🔜 2 | Go runtime support |  |
-| 🖥️ | Environment variable and secrets management | .env per site; UI editor planned |
+| ✅ | Environment variable and secrets management | editor per website; apps restart on save |
 | ✅ | Process management for long-running applications | systemd unit per app |
-| 🔜 2 | Runtime-specific health checks |  |
+| ✅ | Runtime-specific health checks | HTTP health check per app, restart or alert |
 
 ## Git, CI/CD and deployment
 
@@ -124,15 +125,15 @@ Ike's full scope, grouped by area. Pick anything marked *planned* and open a PR 
 | 🔜 2 | Certificate expiration monitoring |  |
 | ✅ | UFW, nftables and firewalld integration | UFW |
 | ✅ | Fail2ban or CrowdSec integration | fail2ban |
-| 🔜 2 | Two-factor authentication and passkeys |  |
-| 🖥️ | Role-based access control | Admin / Reseller / Account roles in UI |
+| ✅ | Two-factor authentication and passkeys | TOTP + recovery codes; passkeys planned |
+| ✅ | Role-based access control | admin / reseller / account owner, each on its own port |
 | ✅ | SSH hardening | key-only, jailed SFTP, root-owned keys |
 | ✅ | Security audit logs | agent + MCP audit logs |
 | 🔜 2 | Malware scanning and quarantine |  |
 | 🔜 2 | WAF integration such as ModSecurity |  |
 | ✅ | Rate limiting and brute-force protection | fail2ban jails |
 | 🔜 2 | Secret encryption and rotation |  |
-| 🔜 2 | Security notifications |  |
+| ✅ | Security notifications | Telegram, WhatsApp and email |
 
 ## Email hosting
 
@@ -180,9 +181,9 @@ Ike's full scope, grouped by area. Pick anything marked *planned* and open a PR 
 | ✅ | File permission and ownership editor | fix-permissions; per-file editor planned |
 | 🔜 2 | Code/text editor |  |
 | ✅ | SFTP account management | per account; per-website SFTP users planned |
-| 🔜 2 | Disk quota enforcement |  |
+| 🟡 | Disk quota enforcement | set per account; needs a quota-enabled filesystem |
 | 🔜 2 | S3-compatible object storage integration |  |
-| 🔜 2 | Storage usage breakdown |  |
+| 🟡 | Storage usage breakdown | disk per account; per-folder breakdown planned |
 | 🔜 2 | File search |  |
 | 🔜 2 | Snapshot and versioning integrations |  |
 | 🔜 2 | Secure file sharing |  |
@@ -208,26 +209,26 @@ Ike's full scope, grouped by area. Pick anything marked *planned* and open a PR 
 
 | | Feature | Notes |
 |---|---|---|
-| 🖥️ | Administrator, reseller, customer and developer roles |  |
-| 🔜 4 | Hosting packages and resource limits |  |
+| ✅ | Administrator, reseller, customer and developer roles | admin, reseller, account owner; developer role planned |
+| 🟡 | Hosting packages and resource limits | limits per account; named packages next |
 | ✅ | Customer account provisioning |  |
 | 🔜 4 | Domain and website quotas |  |
-| 🔜 4 | Bandwidth and disk quotas |  |
+| 🟡 | Bandwidth and disk quotas | disk quota; bandwidth measured, not capped yet |
 | ✅ | Customer isolation | Linux users, chroot SFTP, open_basedir, systemd sandbox |
-| 🔜 4 | Subscription and billing integration |  |
-| 🔜 4 | Invoice and payment gateway integration |  |
-| 🔜 4 | Paystack and Flutterwave integration |  |
+| 🟡 | Subscription and billing integration | invoices, overdue suspension; recurring billing next |
+| ✅ | Invoice and payment gateway integration | invoices in naira or any currency, Bachs gateway |
+| ✅ | Paystack and Flutterwave integration | signed webhooks, amount verified with the provider |
 | 🔜 4 | WHMCS/Blesta or custom billing API |  |
 | ✅ | Suspension and reactivation |  |
 | 🔜 4 | White-label branding |  |
-| 🔜 4 | Usage reporting |  |
+| ✅ | Usage reporting | CPU, memory, disk, bandwidth per account |
 
 ## Advanced infrastructure and automation
 
 | | Feature | Notes |
 |---|---|---|
 | 🔜 6 | Multiple server nodes and server grouping |  |
-| 🖥️ | Remote agents with secure communication | local socket today; mTLS planned |
+| 🟡 | Remote agents with secure communication | local socket today; mTLS between servers planned |
 | 🔜 6 | Infrastructure templates |  |
 | ✅ | API-first administration | agent JSON API + MCP |
 | 🔜 6 | CLI for automation |  |
@@ -235,27 +236,38 @@ Ike's full scope, grouped by area. Pick anything marked *planned* and open a PR 
 | 🔜 6 | Infrastructure as code integration |  |
 | 🔜 6 | Load balancer configuration |  |
 | 🔜 6 | Redis and database service clusters |  |
-| 🔜 6 | Monitoring and alert routing |  |
+| ✅ | Monitoring and alert routing | uptime + app health to Telegram, WhatsApp, email |
 | 🔜 6 | Scheduled maintenance workflows |  |
 | 🔜 6 | Server inventory and asset tracking |  |
-| ✅ | Audit trails and configuration history | audit trail |
+| ✅ | Audit trails and configuration history | audit trail, config drift detection and restore |
 
 ## UI/UX and administration
 
 | | Feature | Notes |
 |---|---|---|
-| 🖥️ | Responsive desktop, tablet and mobile interface |  |
-| 🖥️ | Light and dark themes |  |
-| 🖥️ | Custom branding and theme colors | 5 themes; admin branding planned |
+| ✅ | Responsive desktop, tablet and mobile interface |  |
+| ✅ | Light and dark themes | plus a data saver mode for slow connections |
+| 🟡 | Custom branding and theme colors | 5 themes, 3 layouts; admin branding planned |
 | 🔜 1 | Global search and command palette |  |
-| 🖥️ | Role-aware navigation |  |
+| ✅ | Role-aware navigation |  |
 | 🔜 1 | Notification center |  |
-| 🔜 1 | Interactive setup wizards |  |
+| ✅ | Interactive setup wizards | guided installer wizard |
 | 🔜 1 | Contextual documentation |  |
 | 🔜 1 | Keyboard shortcuts |  |
-| 🖥️ | Accessible forms and dashboards |  |
-| 🖥️ | Real-time activity feed |  |
+| ✅ | Accessible forms and dashboards |  |
+| ✅ | Real-time activity feed | agent + panel audit log |
 | 🔜 1 | Multi-language readiness |  |
+
+## Also built (beyond the checklist)
+
+- ✅ One-line installer: `curl -fsSL https://ike.megamindtechnologies.com/installer.sh | sudo bash` (see [INSTALLER.md](INSTALLER.md))
+- ✅ Health assistant: diagnoses a website from its services and logs and says what to do
+- ✅ Security baseline scanner with a score
+- ✅ Configuration drift detection with diff and one-click restore
+- ✅ Uptime alerts by WhatsApp, Telegram and email
+- ✅ Naira-first billing with Bachs, Paystack and Flutterwave
+- ✅ Data saver mode for slow or metered connections
+- ✅ Update Ike itself from the panel, with checksums
 
 ## Also planned
 

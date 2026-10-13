@@ -7,3 +7,8 @@ web/node_modules/
 web/dist/
 web/dist-single/
 dist/
+
+# The panel embeds the built UI; keep the folder so a fresh clone compiles.
+!agent/internal/panel/ui/dist/
+agent/internal/panel/ui/dist/*
+!agent/internal/panel/ui/dist/.keep

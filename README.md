@@ -20,7 +20,17 @@ An open-source, all-in-one hosting control panel for Linux VPS servers. It combi
 - **Cron jobs, MariaDB databases, phpMyAdmin (stable or 6.0 preview), one-click WordPress**
 - **Firewall:** open ports, block IPs and ranges, see and lift fail2ban bans
 - **Detailed logs:** access, error, PHP, Apache and app logs, plus an audit log of every change
-- **Modern web panel:** responsive, light/dark, 5 themes, 3 layout templates, role-aware (admin, reseller, account owner)
+- **Modern web panel:** responsive, light/dark, 5 themes, 3 layout templates, role-aware (admin, reseller, account owner), and a data saver mode for slow connections
+- **Sign-in:** separate ports for account owners (2083), resellers (2086) and admins (2087), two-factor codes with recovery codes
+- **Billing in naira first:** invoices in NGN or any currency, paid through **Bachs**, **Paystack** or **Flutterwave**, confirmed by signed webhooks; overdue accounts are suspended and reactivated on payment
+- **Alerts:** uptime and app-health alerts by **WhatsApp**, **Telegram** and email
+- **Server care:** OS updates (security-only or all), automatic security updates, scheduled restarts, and one-click Ike updates with checksums
+- **Health assistant:** reads a website's services and logs and explains what's wrong and how to fix it
+- **Security scan and drift detection:** a scored baseline check, plus every hand-edited config file Ike manages, with a diff and one-click restore
+- **Staging sites:** copy a website (and its database) to staging, then push it live without touching the live config
+- **Resource limits and graphs:** CPU, memory, processes, disk and PHP workers per account, with 24-hour graphs
+- **Environment variables** per website, and HTTP health checks that restart a failing app
+- **cPanel migration:** reads a cPanel full backup and shows what will come across (restore is next)
 
 - **SSH per account**: none, SFTP-only (chrooted to the account's home) or full shell, with keys managed by the panel
 - **AI-ready**: built-in [MCP server](docs/MCP.md) so AI agents (Claude, Cursor, VS Code…) can manage the server safely, read-only by default, with an audit log
@@ -39,16 +49,20 @@ Requirements: a **fresh** KVM VPS (OpenVZ/LXC is not supported), root access, at
 ## Install
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/YOUR-ORG/ike/main/installer/install.sh | sudo bash
+curl -fsSL https://ike.megamindtechnologies.com/installer.sh | sudo bash
 ```
 
-Or download it first and read it (recommended):
+A guided wizard asks what to install. To skip it, pass options: `... | sudo bash -s -- --web hybrid --php all`. The one-liner downloads `install.sh` from the latest release and checks its SHA-256 before running it. See [docs/INSTALLER.md](docs/INSTALLER.md), including how the domain is set up.
+
+Or download the installer and read it first:
 
 ```bash
-wget https://raw.githubusercontent.com/YOUR-ORG/ike/main/installer/install.sh
+wget https://github.com/YOUR-ORG/ike/releases/latest/download/install.sh
 less install.sh
 sudo bash install.sh
 ```
+
+When it finishes, open `https://SERVER-IP:2087` and sign in as the admin it created.
 
 Installer options:
 
@@ -63,6 +77,9 @@ Installer options:
 | `--force` | Install even if the server doesn't look fresh |
 | `--agent-binary PATH` | Use a locally built agent instead of downloading a release |
 | `--mcp-binary PATH` | Use a locally built MCP server instead of downloading a release |
+| `--panel-binary PATH` | Use a locally built web panel instead of downloading a release |
+| `--admin-user NAME --admin-email EMAIL` | The first admin sign-in |
+| `--wizard` | Ask for each choice interactively |
 
 What it sets up, per your choices: Nginx and/or Apache, PHP-FPM, Node.js, Python, MariaDB, phpMyAdmin, WP-CLI, OpenSSH with SFTP jail rules, ufw (SSH, 80, 443), fail2ban, and the `ike-agent` service. Run `install.sh --help` for every option.
 
@@ -92,7 +109,8 @@ It is read-only unless you add `--allow-write`. See [docs/MCP.md](docs/MCP.md).
 
 ```
 ┌────────────────────────────────────────────┐
-│  Control plane:  Web UI → API → Job queue  │   (coming next)
+│  ike-panel: web UI, sign-in + 2FA, roles,  │   runs as the unprivileged user "ike"
+│  billing, alerts  (ports 2083/2086/2087)   │
 └───────────────────┬────────────────────────┘
                     │  unix socket today, gRPC + mTLS for remote nodes later
               ┌─────▼──────┐
@@ -101,22 +119,23 @@ It is read-only unless you add `--allow-write`. See [docs/MCP.md](docs/MCP.md).
                 Nginx · PHP-FPM · MariaDB · Linux users
 ```
 
-The agent exposes a **small, fixed set of validated actions** (create site, delete site, system info…). It never runs arbitrary shell commands sent by the panel. This is the core security rule of the project.
+The panel checks who you are and what your role allows, then forwards the request to the agent. The agent exposes a **small, fixed set of validated actions** (create site, delete site, system info…). It never runs arbitrary shell commands sent by the panel. This is the core security rule of the project.
 
 ## Repository layout
 
 ```
-agent/        Go source: ike-agent (root daemon) and ike-mcp (MCP server)
-web/          React web panel (themes, layout templates, demo data)
-installer/    install.sh for Ubuntu 22.04 / 24.04 / 26.04
+agent/        Go source: ike-agent (root daemon), ike-mcp (MCP server), ike-panel (web panel server)
+web/          React web panel (embedded into ike-panel; runs on demo data in the preview)
+installer/    installer.sh (one-liner bootstrap) and install.sh for Ubuntu 22.04 / 24.04 / 26.04
+deploy/       nginx config for serving the one-line installer
 docs/         Design notes and roadmap
 .github/      CI (Go tests, ShellCheck)
 ```
 
 ## Roadmap
 
-1. **Foundation** — installer, agent, sites (Nginx + PHP-FPM per user), SSH/SFTP, MCP, SSL, databases ← *in progress*
-2. Hosting essentials — DNS (PowerDNS), cron, logs, quotas/plans, backups (restic), WordPress toolkit
+1. **Foundation** — installer, agent, web panel, sites, SSH/SFTP, MCP, databases, billing, alerts — *done except SSL*
+2. Hosting essentials — **SSL (Let's Encrypt) next**, DNS (PowerDNS), backups (restic), file manager, plans
 3. Email — Postfix, Dovecot, Rspamd, DKIM, SMTP relay option (many VPS providers block port 25)
 4. Reseller layer — reseller accounts, branding, billing hooks (WHMCS, Paystack, Flutterwave, Stripe)
 5. App platform — Git deploys, Docker apps, one-click app catalog
@@ -142,11 +161,17 @@ curl --unix-socket /tmp/ike.sock -X POST http://agent/v1/sites -d '{"domain":"ex
 ./ike-mcp --socket /tmp/ike.sock --audit-log ""   # then type JSON-RPC messages
 ```
 
-Releases: push a tag like `v0.1.0` and GitHub Actions builds `ike-agent` and `ike-mcp` for amd64/arm64 with checksums, which the installer downloads.
+The web panel: `cd web && npm install && npm run dev` runs it on demo data. `make panel` builds it in live mode and embeds it into `ike-panel`.
+
+Releases: push a tag like `v0.3.0` and GitHub Actions builds `ike-agent`, `ike-mcp` and `ike-panel` for amd64/arm64, and attaches them with `install.sh`, `installer.sh` and SHA-256 checksums.
 
 ## Before publishing
 
-Replace `YOUR-ORG` with your GitHub user or organization in: this README, `installer/install.sh` (`REPO=`), `agent/go.mod` and the Go import paths, and `SECURITY.md`.
+Replace `YOUR-ORG` with your GitHub user or organization in: this README, `installer/install.sh` and `installer/installer.sh` (`IKE_REPO` default), `deploy/*.conf`, `agent/go.mod` and the Go import paths, `docs/`, the web panel links, and `SECURITY.md`:
+
+```bash
+grep -rl YOUR-ORG --exclude-dir=node_modules --exclude-dir=.git . | xargs sed -i 's/YOUR-ORG/your-github-name/g'
+```
 
 ## License
 

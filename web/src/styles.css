@@ -437,3 +437,9 @@ dialog.modal[open] { animation: pop 0.18s cubic-bezier(.2,.8,.2,1); }
 @media (max-width: 640px) { .dns-row { grid-template-columns: 1fr auto; } .dns-tag { grid-column: 1 / -1; } }
 
 .demo-ribbon { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 7px 16px; background: var(--accent-soft); color: var(--ink); font-size: 0.84rem; text-align: center; }
+
+/* Data saver: no motion, and the system font stack stands in for web fonts. */
+:root[data-saver="on"] *, :root[data-saver="on"] *::before, :root[data-saver="on"] *::after { animation: none !important; transition: none !important; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }
+button.link { background: none; border: 0; padding: 0; font: inherit; color: var(--ink); cursor: pointer; text-align: left; }
+button.link:hover { text-decoration: underline; text-underline-offset: 3px; }

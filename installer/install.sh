@@ -11,7 +11,8 @@ set -euo pipefail
 PANEL_NAME="ike"
 AGENT_NAME="ike-agent"
 MCP_NAME="ike-mcp"
-REPO="YOUR-ORG/ike"
+REPO="${IKE_REPO:-YOUR-ORG/ike}"          # override with IKE_REPO=owner/name
+IKE_VERSION="${IKE_VERSION:-latest}"     # or a tag such as v0.3.0
 SUPPORTED_UBUNTU="22.04 24.04 26.04"
 ALL_PHP="5.6 7.0 7.1 7.2 7.3 7.4 8.0 8.1 8.2 8.3 8.4 8.5"
 
@@ -684,7 +685,11 @@ fetch_binary() { # name dest local_path
 		install -m 0755 "$local_path" "$dest"
 		return
 	fi
-	url="https://github.com/${REPO}/releases/latest/download/${name}-linux-${ARCH}"
+	if [ "$IKE_VERSION" = "latest" ]; then
+		url="https://github.com/${REPO}/releases/latest/download/${name}-linux-${ARCH}"
+	else
+		url="https://github.com/${REPO}/releases/download/${IKE_VERSION}/${name}-linux-${ARCH}"
+	fi
 	tmp=$(mktemp)
 	download "${url}.sha256" "${tmp}.sha256" \
 		|| die "Could not download ${name} from ${url}. Build it and pass --agent-binary / --mcp-binary."

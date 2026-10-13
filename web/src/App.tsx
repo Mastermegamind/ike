@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { api } from "./api/client";
 import { Construction } from "lucide-react";
 import { useRoute, href } from "./router";
 import { Shell } from "./layouts/Shell";
@@ -12,6 +13,9 @@ import { Email } from "./pages/Email";
 import { Cron, Databases } from "./pages/AccountTools";
 import { ActivityPage, AiAgents, AppInstaller, Firewall, Software, Terminal } from "./pages/ServerPages";
 import { Appearance } from "./pages/Appearance";
+import { Migration, Security, Updates, Usage } from "./pages/Operations";
+import { Alerts, Billing, People } from "./pages/Business";
+import { Profile } from "./pages/Profile";
 import { Empty } from "./components/ui";
 import { PageHead } from "./components/common";
 import type { Role } from "./api/types";
@@ -20,7 +24,7 @@ const soonText: Record<string, [string, string]> = {
   ssl: ["SSL certificates", "Free Let's Encrypt certificates for every website and mail domain, renewed automatically, plus wildcard and custom certificates."],
   dns: ["DNS zones", "A zone editor for every record type, DNSSEC, and Cloudflare sync, powered by PowerDNS."],
   backups: ["Backups", "Scheduled, encrypted, incremental backups of websites, databases and email to S3, Backblaze B2 or another server, with one-click restore."],
-  plans: ["Plans & resellers", "Hosting plans with disk, bandwidth and website limits, reseller accounts with their own branding, and Paystack, Flutterwave or WHMCS billing."],
+  plans: ["Hosting plans", "Named plans that bundle disk, bandwidth, website and email limits, with recurring invoices and reseller branding. Invoices, payments and limits already work on their own."],
   phpmyadmin: ["phpMyAdmin", "phpMyAdmin opens here with single sign-on once the control-plane API ships. Until then, reach it through an SSH tunnel on port 8090."],
 };
 
@@ -65,8 +69,14 @@ function saveSession(s: { user: string; role: Role } | null) {
 export function App() {
   const route = useRoute();
   const [session, setSession] = useState(loadSession);
+  // The panel answers 401 when a session expires; go back to sign-in.
+  useEffect(() => {
+    const out = () => { saveSession(null); setSession(null); };
+    window.addEventListener("ike:signed-out", out);
+    return () => window.removeEventListener("ike:signed-out", out);
+  }, []);
   if (!session) {
-    return <Login onLogin={(user) => { const s = { user, role: "admin" as Role }; saveSession(s); setSession(s); }} />;
+    return <Login onLogin={(user, role) => { const s = { user, role }; saveSession(s); setSession(s); }} />;
   }
   const path = route.split("?")[0];
   const { role } = session;
@@ -85,6 +95,14 @@ export function App() {
   else if (path === "/activity") page = <ActivityPage />;
   else if (path === "/ai") page = <AiAgents />;
   else if (path === "/appearance") page = <Appearance />;
+  else if (path === "/updates") page = <Updates />;
+  else if (path === "/security") page = <Security />;
+  else if (path === "/usage") page = <Usage />;
+  else if (path === "/migrate") page = <Migration />;
+  else if (path === "/billing") page = <Billing role={role} />;
+  else if (path === "/people") page = <People role={role} />;
+  else if (path === "/alerts") page = <Alerts />;
+  else if (path === "/profile") page = <Profile user={session.user} />;
   else if (path === "/more") page = <More role={role} route={route} />;
   else if (path.startsWith("/soon/")) page = <Soon id={path.slice(6)} />;
   else page = <Soon id="" />;
@@ -92,7 +110,7 @@ export function App() {
   return (
     <Shell route={path} user={session.user} role={role}
       onRole={(r) => { const s = { ...session, role: r }; saveSession(s); setSession(s); }}
-      onLogout={() => { saveSession(null); setSession(null); }}>
+      onLogout={() => { api.logout().catch(() => {}); saveSession(null); setSession(null); }}>
       {page}
     </Shell>
   );

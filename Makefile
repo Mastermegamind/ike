@@ -7,7 +7,7 @@ VERSION ?= dev
 all: agent panel
 
 web:
-	cd web && npm ci && npm run build
+	cd web && npm ci && VITE_IKE_API=http npm run build
 
 # The panel embeds the web UI, so build the UI first.
 panel: web

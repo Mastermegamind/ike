@@ -1,4 +1,5 @@
 import {
+  ArrowUpCircle, BarChart3, BellRing, CreditCard, FolderInput, KeyRound, ShieldHalf, UserCog,
   Activity, AppWindow, Bot, Boxes, CalendarClock, Database, Gauge, Globe, HardDriveDownload, LockKeyhole, Mail,
   Network, Palette, Server, ShieldCheck, SquareTerminal, Users, type LucideIcon,
 } from "lucide-react";
@@ -38,8 +39,20 @@ export const navGroups: NavGroup[] = [
     items: [
       { to: "/firewall", label: "Firewall", icon: ShieldCheck, roles: ["admin"] },
       { to: "/software", label: "Server software", icon: Server, roles: ["admin"] },
+      { to: "/usage", label: "Resource usage", icon: BarChart3, roles: ["admin", "reseller"] },
+      { to: "/updates", label: "Updates", icon: ArrowUpCircle, roles: ["admin"] },
+      { to: "/security", label: "Security scan", icon: ShieldHalf, roles: ["admin"] },
+      { to: "/migrate", label: "Migrate from cPanel", icon: FolderInput, roles: ["admin"] },
       { to: "/activity", label: "Activity", icon: Activity, roles: ["admin", "reseller"] },
       { to: "/ai", label: "AI agents", icon: Bot, roles: ["admin"] },
+    ],
+  },
+  {
+    title: "Business",
+    items: [
+      { to: "/billing", label: "Billing", icon: CreditCard, roles: all },
+      { to: "/people", label: "People", icon: UserCog, roles: ["admin", "reseller"] },
+      { to: "/alerts", label: "Alerts", icon: BellRing, roles: ["admin"] },
     ],
   },
   {
@@ -48,10 +61,13 @@ export const navGroups: NavGroup[] = [
       { to: "/soon/ssl", label: "SSL certificates", icon: LockKeyhole, roles: all, soon: true },
       { to: "/soon/dns", label: "DNS zones", icon: Network, roles: all, soon: true },
       { to: "/soon/backups", label: "Backups", icon: HardDriveDownload, roles: all, soon: true },
-      { to: "/soon/plans", label: "Plans & resellers", icon: Boxes, roles: ["admin"], soon: true },
+      { to: "/soon/plans", label: "Hosting plans", icon: Boxes, roles: ["admin"], soon: true },
     ],
   },
-  { title: "Settings", items: [{ to: "/appearance", label: "Appearance", icon: Palette, roles: all }] },
+  { title: "Settings", items: [
+    { to: "/appearance", label: "Appearance", icon: Palette, roles: all },
+    { to: "/profile", label: "Sign-in security", icon: KeyRound, roles: all },
+  ] },
 ];
 
 export function visibleGroups(role: Role): NavGroup[] {

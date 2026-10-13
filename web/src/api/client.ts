@@ -1,9 +1,14 @@
 import type {
-  Account, Api, AuditEntry, Ban, CatalogApp, CreateSiteRequest, CronJob, Database, DnsCheck, FirewallBlock,
-  FirewallPort, Forwarder, LogKind, MailDomain, Mailbox, NewDatabase, Runtimes, SSHKey, SSHMode, ServiceStatus,
-  Site, SiteStatus, SmtpSettings, SystemInfo, WebServer, WordPressResult,
+  Account, AccountUsage, AlertEvent, AlertSettings, Api, AuditEntry, AutoUpdates, Ban, BillingSettings, CatalogApp,
+  CreateSiteRequest, CronJob, Database, Diagnosis, DnsCheck, Drift, EnvVar, FirewallBlock, FirewallPort, Forwarder,
+  HealthCheck, IkeRelease, ImportPlan, Invoice, Job, Limits, LogKind, MailDomain, Mailbox, NewDatabase, PaymentProvider,
+  Person, Role, Runtimes, SSHKey, SSHMode, SecurityReport, ServiceStatus, Site, SiteStatus, SmtpSettings, SystemInfo,
+  UpdateStatus, WebServer, WordPressResult,
 } from "./types";
+
 import { DemoApi } from "./demo";
+import { TwoFactorRequired } from "./errors";
+export { TwoFactorRequired };
 
 const e = encodeURIComponent;
 
@@ -15,16 +20,25 @@ class HttpApi implements Api {
     const res = await fetch(this.base + path, {
       method,
       credentials: "same-origin",
-      headers: body ? { "Content-Type": "application/json" } : undefined,
+      // The panel requires this header on every change (CSRF protection).
+      headers: { "X-Requested-With": "ike", ...(body ? { "Content-Type": "application/json" } : {}) },
       body: body ? JSON.stringify(body) : undefined,
     });
     const data = await res.json().catch(() => ({}));
+    if ((data as { two_factor_required?: boolean }).two_factor_required) throw new TwoFactorRequired((data as { error: string }).error);
+    if (res.status === 401 && path !== "/session") window.dispatchEvent(new Event("ike:signed-out"));
     if (!res.ok) throw new Error((data as { error?: string }).error || `Request failed (HTTP ${res.status})`);
     return data as T;
   }
   private get<T>(p: string) { return this.req<T>("GET", p); }
 
-  login(username: string, password: string) { return this.req<{ name: string }>("POST", "/session", { username, password }); }
+  async login(username: string, password: string, code?: string) {
+    const p = await this.req<{ username: string; role: Role }>("POST", "/session", { username, password, code });
+    return { name: p.username, role: p.role };
+  }
+  async logout() { await this.req("DELETE", "/session"); }
+  setup2fa() { return this.req<{ secret: string; otpauth_url: string }>("POST", "/me/2fa/setup"); }
+  enable2fa(code: string) { return this.req<{ recovery_codes: string[] }>("POST", "/me/2fa/enable", { code }); }
   system() { return this.get<SystemInfo>("/system"); }
   services() { return this.get<ServiceStatus[]>("/services"); }
   runtimes() { return this.get<Runtimes>("/runtimes"); }
@@ -69,6 +83,41 @@ class HttpApi implements Api {
   async unban(jail: string, ip: string) { await this.req("DELETE", `/firewall/bans?jail=${e(jail)}&ip=${e(ip)}`); }
 
   audit() { return this.get<AuditEntry[]>("/audit"); }
+
+  updates() { return this.get<UpdateStatus>("/updates"); }
+  applyUpdates(security_only: boolean) { return this.req<Job>("POST", "/updates/apply", { security_only }); }
+  setAutoUpdates(a: AutoUpdates) { return this.req<AutoUpdates>("PUT", "/updates/auto", a); }
+  async scheduleReboot(in_minutes: number) { await this.req("POST", "/server/reboot", { in_minutes }); }
+  ikeRelease() { return this.get<IkeRelease>("/ike/release"); }
+  updateIke() { return this.req<Job>("POST", "/ike/update"); }
+  job(id: string) { return this.get<Job>(`/jobs/${e(id)}`); }
+  diagnose(d: string) { return this.get<Diagnosis>(`/sites/${e(d)}/diagnose`); }
+  createStaging(d: string) { return this.req<Job>("POST", `/sites/${e(d)}/staging`); }
+  pushStaging(d: string) { return this.req<Job>("POST", `/sites/${e(d)}/push`); }
+  setHealthCheck(d: string, hc: HealthCheck | null) { return this.req<Site>("PUT", `/sites/${e(d)}/healthcheck`, hc ?? null); }
+  env(d: string) { return this.get<EnvVar[]>(`/sites/${e(d)}/env`); }
+  async setEnv(d: string, vars: EnvVar[]) { await this.req("PUT", `/sites/${e(d)}/env`, vars); }
+  setLimits(n: string, l: Limits) { return this.req<Account>("PUT", `/accounts/${e(n)}/limits`, l); }
+  usage() { return this.get<AccountUsage[]>("/usage"); }
+  security() { return this.get<SecurityReport>("/security"); }
+  drift() { return this.get<Drift[]>("/drift"); }
+  reconcile(paths: string[]) { return this.req<Drift[]>("POST", "/drift/reconcile", { paths }); }
+  inspectImport(f: string) { return this.get<ImportPlan>(`/imports/cpanel/${e(f)}`); }
+
+  people() { return this.get<Person[]>("/people"); }
+  createPerson(p: { username: string; email: string; name?: string; role: Role; password: string; accounts?: string[]; max_accounts?: number }) { return this.req<Person>("POST", "/people", p); }
+  updatePerson(u: string, patch: Partial<{ disabled: boolean; accounts: string[]; max_accounts: number; role: Role }>) { return this.req<Person>("PATCH", `/people/${e(u)}`, patch); }
+  billingSettings() { return this.get<{ settings: BillingSettings; webhook_urls: Record<PaymentProvider, string> }>("/billing/settings"); }
+  saveBillingSettings(s: BillingSettings) { return this.req<{ settings: BillingSettings; webhook_urls: Record<PaymentProvider, string> }>("PUT", "/billing/settings", s); }
+  invoices() { return this.get<Invoice[]>("/billing/invoices"); }
+  createInvoice(r: { account: string; description: string; amount: string; currency?: string; due_in_days: number }) { return this.req<Invoice>("POST", "/billing/invoices", r); }
+  payInvoice(id: string, provider: PaymentProvider) { return this.req<{ checkout_url: string }>("POST", `/billing/invoices/${e(id)}/checkout`, { provider }); }
+  async voidInvoice(id: string) { await this.req("POST", `/billing/invoices/${e(id)}/void`); }
+  async markPaid(id: string) { await this.req("POST", `/billing/invoices/${e(id)}/mark-paid`); }
+  alertSettings() { return this.get<AlertSettings>("/alerts/settings"); }
+  saveAlertSettings(a: AlertSettings) { return this.req<AlertSettings>("PUT", "/alerts/settings", a); }
+  testAlert() { return this.req<Record<string, string>>("POST", "/alerts/test"); }
+  alertEvents() { return this.get<AlertEvent[]>("/alerts/events"); }
 
   mailDomains() { return this.get<MailDomain[]>("/mail/domains"); }
   mailboxes(d: string) { return this.get<Mailbox[]>(`/mail/domains/${e(d)}/mailboxes`); }

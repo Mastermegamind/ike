@@ -6,8 +6,9 @@ import type { LogKind, Runtimes, Site, SiteStatus, WebServer, WordPressResult } 
 import { Badge, Button, CopyField, Field, Modal, Segmented, Skeleton, Tabs, timeAgo, useAsync, useToast } from "../components/ui";
 import { ConfirmDelete, PageHead, RuntimeBadge, StatusBadge, webServerLabel } from "../components/common";
 import { navigate } from "../router";
+import { EnvTab, HealthCheckPanel, HealthTab, StagingPanel } from "./SiteExtras";
 
-type Tab = "overview" | "runtime" | "status" | "logs" | "tools";
+type Tab = "overview" | "health" | "runtime" | "env" | "status" | "logs" | "tools";
 
 export function SiteDetail({ domain }: { domain: string }) {
   const toast = useToast();
@@ -33,8 +34,8 @@ export function SiteDetail({ domain }: { domain: string }) {
         actions={<a className="btn" href={`http://${site.domain}`} target="_blank" rel="noreferrer"><ExternalLink size={16} />Visit</a>}
       />
       <Tabs<Tab> value={tab} onChange={setTab} tabs={[
-        { value: "overview", label: "Overview" }, { value: "runtime", label: isApp ? "App" : "Runtime" },
-        { value: "status", label: "Status" }, { value: "logs", label: "Logs" }, { value: "tools", label: "Tools" },
+        { value: "overview", label: "Overview" }, { value: "health", label: "Health" }, { value: "runtime", label: isApp ? "App" : "Runtime" },
+        ...(site.runtime !== "static" ? [{ value: "env" as Tab, label: "Env vars" }] : []), { value: "status", label: "Status" }, { value: "logs", label: "Logs" }, { value: "tools", label: "Tools" },
       ]} />
 
       {tab === "overview" && (
@@ -63,12 +64,16 @@ export function SiteDetail({ domain }: { domain: string }) {
         </div>
       )}
 
+      {tab === "health" && <HealthTab site={site} />}
       {tab === "runtime" && rt.data && <RuntimeTab site={site} rt={rt.data} onChange={update} />}
+      {tab === "runtime" && isApp && <HealthCheckPanel site={site} onChange={update} />}
+      {tab === "env" && <EnvTab site={site} />}
       {tab === "status" && <StatusTab site={site} onChange={update} />}
       {tab === "logs" && <LogsTab site={site} />}
       {tab === "tools" && (
         <div className="stack">
           <ToolsTab site={site} />
+          <StagingPanel site={site} />
           <section className="panel">
             <div className="panel-head"><div><h2>Delete website</h2><p className="small muted">The account and its other websites stay.</p></div>
               <Button variant="ghost" style={{ color: "var(--bad)" }} onClick={() => setDeleting(true)}><Trash2 size={16} />Delete</Button></div>
