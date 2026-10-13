@@ -1,0 +1,4 @@
+agent/dist/
+agent/hp-agent
+*.sock
+.DS_Store

@@ -1,0 +1,107 @@
+// hp-agent is the root daemon that applies changes on a HostPanel server.
+package main
+
+import (
+	"context"
+	"errors"
+	"flag"
+	"fmt"
+	"log/slog"
+	"net"
+	"net/http"
+	"os"
+	"os/signal"
+	"os/user"
+	"path/filepath"
+	"strconv"
+	"syscall"
+	"time"
+
+	"github.com/YOUR-ORG/hostpanel/agent/internal/api"
+	"github.com/YOUR-ORG/hostpanel/agent/internal/config"
+	"github.com/YOUR-ORG/hostpanel/agent/internal/runner"
+	"github.com/YOUR-ORG/hostpanel/agent/internal/sites"
+)
+
+func main() {
+	var (
+		socket  = flag.String("socket", "/run/hostpanel/agent.sock", "unix socket to listen on")
+		cfgPath = flag.String("config", "/etc/hostpanel/agent.json", "config file")
+		root    = flag.String("root", "/", "filesystem root (for testing)")
+		dryRun  = flag.Bool("dry-run", false, "log commands instead of running them")
+		group   = flag.String("socket-group", "hostpanel", "group allowed to use the socket")
+		showVer = flag.Bool("version", false, "print version and exit")
+	)
+	flag.Parse()
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
+
+	if *showVer {
+		fmt.Println("hp-agent", api.Version)
+		return
+	}
+	if err := run(*socket, *cfgPath, *root, *group, *dryRun); err != nil {
+		slog.Error("fatal", "err", err)
+		os.Exit(1)
+	}
+}
+
+func run(socket, cfgPath, root, group string, dryRun bool) error {
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		return err
+	}
+	cfg.Root, cfg.DryRun = root, dryRun
+
+	if !dryRun {
+		if os.Geteuid() != 0 {
+			return errors.New("hp-agent must run as root (use --dry-run for development)")
+		}
+		if root != "/" {
+			return errors.New("--root can only be changed together with --dry-run")
+		}
+	}
+
+	var r runner.Runner = runner.Exec{}
+	if dryRun {
+		r = &runner.DryRun{}
+		slog.Warn("DRY-RUN mode: no system commands will be executed", "root", root)
+	}
+
+	srv := &api.Server{Sites: sites.NewManager(cfg, r), Runner: r, Root: root}
+
+	if err := os.MkdirAll(filepath.Dir(socket), 0o750); err != nil {
+		return err
+	}
+	_ = os.Remove(socket) // stale socket from a previous run
+	ln, err := net.Listen("unix", socket)
+	if err != nil {
+		return err
+	}
+	// Only root and members of the panel group may talk to the agent.
+	if err := os.Chmod(socket, 0o660); err != nil {
+		return err
+	}
+	if g, err := user.LookupGroup(group); err == nil {
+		gid, _ := strconv.Atoi(g.Gid)
+		_ = os.Chown(socket, 0, gid)
+		_ = os.Chown(filepath.Dir(socket), 0, gid)
+	} else if !dryRun {
+		slog.Warn("socket group not found; only root can use the agent", "group", group)
+	}
+
+	hs := &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	go func() {
+		<-ctx.Done()
+		shutdown, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		_ = hs.Shutdown(shutdown)
+	}()
+
+	slog.Info("hp-agent listening", "version", api.Version, "socket", socket)
+	if err := hs.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+	return nil
+}
