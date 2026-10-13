@@ -106,9 +106,10 @@ func (s *Server) Handle(ctx context.Context, msg []byte) *rpcResponse {
 			"protocolVersion": version,
 			"capabilities":    map[string]any{"tools": map[string]any{"listChanged": false}},
 			"serverInfo":      map[string]any{"name": ServerName, "version": s.Version},
-			"instructions": "Ike server management (" + mode + "). Each website has its own Linux user, " +
-				"PHP-FPM pool and Nginx config. Check list_sites before creating a site. Never delete a site " +
-				"unless the human explicitly asked for that specific domain to be deleted.",
+			"instructions": "Ike server management (" + mode + "). The server holds hosting accounts (isolated Linux users); " +
+				"each account holds websites, each with a runtime (PHP, Node.js, Python or static) and a web server. " +
+				"Check list_accounts, list_sites and list_runtimes before creating anything. Never delete, suspend, " +
+				"or change the firewall unless the human explicitly asked for that specific change.",
 		}
 	case "ping":
 		resp.Result = map[string]any{}
@@ -152,134 +153,286 @@ func str(desc string) map[string]any { return map[string]any{"type": "string", "
 
 func readOnly() map[string]any { return map[string]any{"readOnlyHint": true, "openWorldHint": false} }
 
+// Shared argument schemas.
+var (
+	argDomain  = str("Website domain, lowercase, e.g. example.com")
+	argAccount = str("Hosting account name (its Linux username), e.g. adaeze")
+)
+
+func esc(v string) string { return client.PathEscape(v) }
+
+// get / call build handlers for simple endpoints.
+func (s *Server) get(path func(a map[string]any) string) func(context.Context, map[string]any) (any, error) {
+	return func(ctx context.Context, a map[string]any) (any, error) {
+		var out any
+		return out, s.Agent.Get(ctx, path(a), &out)
+	}
+}
+
+func (s *Server) call(method string, path func(a map[string]any) string, body func(a map[string]any) any) func(context.Context, map[string]any) (any, error) {
+	return func(ctx context.Context, a map[string]any) (any, error) {
+		var b any
+		if body != nil {
+			b = body(a)
+		}
+		var out any
+		return out, s.Agent.Do(ctx, method, path(a), b, &out)
+	}
+}
+
+func fixed(p string) func(map[string]any) string { return func(map[string]any) string { return p } }
+
+// pick copies the named non-empty string arguments into a request body.
+func pick(keys ...string) func(map[string]any) any {
+	return func(a map[string]any) any {
+		out := map[string]any{}
+		for _, k := range keys {
+			if v, ok := a[k]; ok && v != "" {
+				out[k] = v
+			}
+		}
+		return out
+	}
+}
+
+func write(destructive, idempotent bool) map[string]any {
+	return map[string]any{"readOnlyHint": false, "destructiveHint": destructive, "idempotentHint": idempotent, "openWorldHint": false}
+}
+
 func (s *Server) tools() []tool {
-	domain := str("Website domain, lowercase, e.g. example.com")
+	acct := func(a map[string]any) string { return "/v1/accounts/" + esc(argStr(a, "account")) }
+	site := func(a map[string]any) string { return "/v1/sites/" + esc(argStr(a, "domain")) }
+	none := obj(map[string]any{})
+
 	return []tool{
-		{
-			Name: "get_system_info", Title: "Server information",
-			Description: "OS, kernel, CPU count, memory, disk space, uptime, load and installed PHP versions.",
-			InputSchema: obj(map[string]any{}), Annotations: readOnly(),
-			handler: func(ctx context.Context, _ map[string]any) (any, error) {
-				var out any
-				return out, s.Agent.Get(ctx, "/v1/system", &out)
-			},
-		},
-		{
-			Name: "get_service_status", Title: "Service status",
-			Description: "Whether nginx, mariadb, PHP-FPM, fail2ban and the agent are running.",
-			InputSchema: obj(map[string]any{}), Annotations: readOnly(),
-			handler: func(ctx context.Context, _ map[string]any) (any, error) {
-				var out any
-				return out, s.Agent.Get(ctx, "/v1/services", &out)
-			},
-		},
-		{
-			Name: "list_sites", Title: "List websites",
-			Description: "All websites on this server with their Linux user, PHP version, document root and SSH mode.",
-			InputSchema: obj(map[string]any{}), Annotations: readOnly(),
-			handler: func(ctx context.Context, _ map[string]any) (any, error) {
-				var out any
-				return out, s.Agent.Get(ctx, "/v1/sites", &out)
-			},
-		},
-		{
-			Name: "get_site", Title: "Website details",
-			Description: "Details for one website.",
-			InputSchema: obj(map[string]any{"domain": domain}, "domain"), Annotations: readOnly(),
-			handler: func(ctx context.Context, a map[string]any) (any, error) {
-				var out any
-				return out, s.Agent.Get(ctx, "/v1/sites/"+client.PathEscape(argStr(a, "domain")), &out)
-			},
-		},
-		{
-			Name: "list_ssh_keys", Title: "List SSH keys",
-			Description: "SSH public keys authorized for a website's Linux user (type, fingerprint, comment).",
-			InputSchema: obj(map[string]any{"domain": domain}, "domain"), Annotations: readOnly(),
-			handler: func(ctx context.Context, a map[string]any) (any, error) {
-				var out any
-				return out, s.Agent.Get(ctx, "/v1/sites/"+client.PathEscape(argStr(a, "domain"))+"/ssh/keys", &out)
-			},
-		},
-		{
-			Name: "create_site", Title: "Create website", write: true,
-			Description: "Create a website: a new Linux user, home folder, PHP-FPM pool and Nginx config. " +
+		// ------------------------------------------------------------ read
+		{Name: "get_system_info", Title: "Server information", Annotations: readOnly(), InputSchema: none,
+			Description: "OS, kernel, CPU, memory, disk, uptime, load and installed PHP/Node.js/Python versions.",
+			handler:     s.get(fixed("/v1/system"))},
+		{Name: "get_service_status", Title: "Service status", Annotations: readOnly(), InputSchema: none,
+			Description: "Whether the web server(s), MariaDB, PHP-FPM, cron, fail2ban and the agent are running.",
+			handler:     s.get(fixed("/v1/services"))},
+		{Name: "list_runtimes", Title: "Runtimes and web servers", Annotations: readOnly(), InputSchema: none,
+			Description: "Installed PHP, Node.js and Python versions, and which web servers the admin enabled. Check before create_site.",
+			handler:     s.get(fixed("/v1/runtimes"))},
+		{Name: "list_accounts", Title: "List accounts", Annotations: readOnly(), InputSchema: none,
+			Description: "Hosting accounts on this server with SSH mode, suspension state and website count.",
+			handler:     s.get(fixed("/v1/accounts"))},
+		{Name: "list_sites", Title: "List websites", Annotations: readOnly(),
+			Description: "Websites with account, runtime, version, web server and status. Optionally only one account's.",
+			InputSchema: obj(map[string]any{"account": argAccount}),
+			handler: s.get(func(a map[string]any) string {
+				if v := argStr(a, "account"); v != "" {
+					return "/v1/sites?account=" + client.QueryEscape(v)
+				}
+				return "/v1/sites"
+			})},
+		{Name: "get_site", Title: "Website details", Annotations: readOnly(),
+			Description: "Details for one website.", InputSchema: obj(map[string]any{"domain": argDomain}, "domain"),
+			handler: s.get(site)},
+		{Name: "list_ssh_keys", Title: "List SSH keys", Annotations: readOnly(),
+			Description: "SSH public keys authorized for an account (type, fingerprint, comment).",
+			InputSchema: obj(map[string]any{"account": argAccount}, "account"),
+			handler:     s.get(func(a map[string]any) string { return acct(a) + "/ssh/keys" })},
+		{Name: "list_cron_jobs", Title: "List cron jobs", Annotations: readOnly(),
+			Description: "Scheduled jobs for an account.", InputSchema: obj(map[string]any{"account": argAccount}, "account"),
+			handler: s.get(func(a map[string]any) string { return acct(a) + "/cron" })},
+		{Name: "get_app_logs", Title: "App logs", Annotations: readOnly(),
+			Description: "Recent output of a Node.js or Python website's app process (errors, startup messages).",
+			InputSchema: obj(map[string]any{"domain": argDomain,
+				"lines": map[string]any{"type": "integer", "description": "How many lines (1-1000, default 200)"}}, "domain"),
+			handler: s.get(func(a map[string]any) string {
+				p := site(a) + "/app/logs"
+				if n, ok := a["lines"].(float64); ok {
+					p += fmt.Sprintf("?lines=%d", int(n))
+				}
+				return p
+			})},
+		{Name: "list_databases", Title: "List databases", Annotations: readOnly(),
+			Description: "An account's MariaDB databases (passwords are never shown again after creation).",
+			InputSchema: obj(map[string]any{"account": argAccount}, "account"),
+			handler:     s.get(func(a map[string]any) string { return acct(a) + "/databases" })},
+		{Name: "get_site_log", Title: "Website logs", Annotations: readOnly(),
+			Description: "Last lines of a website log: access, error, php, apache-access, apache-error or app.",
+			InputSchema: obj(map[string]any{"domain": argDomain,
+				"kind":  map[string]any{"type": "string", "enum": []string{"access", "error", "php", "apache-access", "apache-error", "app"}},
+				"lines": map[string]any{"type": "integer", "description": "1-2000, default 200"}}, "domain", "kind"),
+			handler: s.get(func(a map[string]any) string {
+				p := site(a) + "/logs/" + esc(argStr(a, "kind"))
+				if n, ok := a["lines"].(float64); ok {
+					p += fmt.Sprintf("?lines=%d", int(n))
+				}
+				return p
+			})},
+		{Name: "get_audit_log", Title: "Audit log", Annotations: readOnly(), InputSchema: none,
+			Description: "Recent changes made on this server: who, what, when and whether it worked.",
+			handler:     s.get(fixed("/v1/audit"))},
+		{Name: "list_apps", Title: "One-click apps", Annotations: readOnly(), InputSchema: none,
+			Description: "Apps that can be installed into a website (WordPress, ...).", handler: s.get(fixed("/v1/apps"))},
+		{Name: "get_firewall", Title: "Firewall rules", Annotations: readOnly(), InputSchema: none,
+			Description: "Open ports and blocked IP addresses/ranges.", handler: s.get(fixed("/v1/firewall"))},
+		{Name: "list_bans", Title: "Automatic bans", Annotations: readOnly(), InputSchema: none,
+			Description: "IP addresses fail2ban banned for repeated failed logins.", handler: s.get(fixed("/v1/firewall/bans"))},
+
+		// ----------------------------------------------------------- write
+		{Name: "create_database", Title: "Create database", write: true, Annotations: write(false, false),
+			Description: "Create a MariaDB database and user named <account>_<name>. The password is shown once; give it to the human.",
+			InputSchema: obj(map[string]any{"account": argAccount, "name": str("1-16 lowercase letters/digits, e.g. store"),
+				"note": str("Short note (optional)")}, "account", "name"),
+			handler: s.call("POST", func(a map[string]any) string { return acct(a) + "/databases" }, pick("name", "note"))},
+		{Name: "install_wordpress", Title: "Install WordPress", write: true, Annotations: write(false, false),
+			Description: "Install the latest WordPress into an empty PHP website: creates the database and admin user. " +
+				"Returns the admin login once; give it to the human.",
+			InputSchema: obj(map[string]any{"domain": argDomain, "title": str("Site title"),
+				"admin_user": str("Admin username (not 'admin')"), "admin_email": str("Admin email"),
+				"locale": str("Language, e.g. en_US (optional)")}, "domain", "title", "admin_user", "admin_email"),
+			handler: s.call("POST", func(a map[string]any) string { return site(a) + "/apps/wordpress" },
+				pick("title", "admin_user", "admin_email", "locale"))},
+		{Name: "fix_permissions", Title: "Fix file permissions", write: true, Annotations: write(false, true),
+			Description: "Reset a website's file ownership and modes to safe defaults (e.g. after an upload or migration).",
+			InputSchema: obj(map[string]any{"domain": argDomain}, "domain"),
+			handler:     s.call("POST", func(a map[string]any) string { return site(a) + "/permissions" }, nil)},
+		{Name: "create_account", Title: "Create account", write: true, Annotations: write(false, false),
+			Description: "Create a hosting account: an isolated Linux user that can hold many websites.",
+			InputSchema: obj(map[string]any{"name": str("Account name: 3-16 lowercase letters/digits, starting with a letter")}, "name"),
+			handler:     s.call("POST", fixed("/v1/accounts"), pick("name"))},
+		{Name: "create_site", Title: "Create website", write: true, Annotations: write(false, false),
+			Description: "Add a website to an existing account. Runtime 'php' (default) gets a PHP-FPM pool; 'node' and " +
+				"'python' get an app service started with start_command (it must listen on $PORT); 'static' serves files. " +
 				"Point the domain's DNS A record at this server for it to load.",
 			InputSchema: obj(map[string]any{
-				"domain": domain,
-				"user":   str("New Linux username for the site: 3-16 lowercase letters/digits, starting with a letter"),
-				"php":    str("PHP version, e.g. 8.3. Optional; uses the server default. See get_system_info for installed versions."),
-			}, "domain", "user"),
-			Annotations: map[string]any{"readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false},
-			handler: func(ctx context.Context, a map[string]any) (any, error) {
-				var out any
-				body := map[string]string{"domain": argStr(a, "domain"), "user": argStr(a, "user")}
-				if v := argStr(a, "php"); v != "" {
-					body["php"] = v
-				}
-				return out, s.Agent.Do(ctx, "POST", "/v1/sites", body, &out)
-			},
-		},
-		{
-			Name: "set_ssh_access", Title: "Set SSH access", write: true,
-			Description: "Set a website user's SSH access: 'none' (no login), 'sftp' (file transfer only, " +
-				"jailed to the site's home) or 'shell' (full shell, not jailed; only for trusted users).",
-			InputSchema: obj(map[string]any{
-				"domain": domain,
-				"mode":   map[string]any{"type": "string", "enum": []string{"none", "sftp", "shell"}},
-			}, "domain", "mode"),
-			Annotations: map[string]any{"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false},
-			handler: func(ctx context.Context, a map[string]any) (any, error) {
-				var out any
-				return out, s.Agent.Do(ctx, "PUT", "/v1/sites/"+client.PathEscape(argStr(a, "domain"))+"/ssh",
-					map[string]string{"mode": argStr(a, "mode")}, &out)
-			},
-		},
-		{
-			Name: "add_ssh_key", Title: "Add SSH key", write: true,
-			Description: "Authorize an OpenSSH public key (e.g. 'ssh-ed25519 AAAA... name@laptop') for a website's user. " +
+				"domain":        argDomain,
+				"account":       argAccount,
+				"runtime":       map[string]any{"type": "string", "enum": []string{"php", "node", "python", "static"}, "description": "Default php"},
+				"version":       str("Runtime version, e.g. 8.3, 5.6 (PHP), 22 (Node.js), 3.12 (Python). Optional; see list_runtimes."),
+				"web_server":    map[string]any{"type": "string", "enum": []string{"nginx", "apache", "nginx+apache"}, "description": "Optional; only choices the admin enabled work"},
+				"start_command": str("Node.js/Python only, e.g. 'npm start' or 'gunicorn app:app --bind 127.0.0.1:$PORT'"),
+			}, "domain", "account"),
+			handler: s.call("POST", fixed("/v1/sites"), pick("domain", "account", "runtime", "version", "web_server", "start_command"))},
+		{Name: "update_site", Title: "Change version, web server or start command", write: true, Annotations: write(false, true),
+			Description: "Switch a website to another installed runtime version (e.g. PHP 7.4 to 8.3), another enabled web server, " +
+				"and/or change a Node.js/Python start command.",
+			InputSchema: obj(map[string]any{"domain": argDomain, "version": str("New version (optional)"),
+				"web_server":    map[string]any{"type": "string", "enum": []string{"nginx", "apache", "nginx+apache"}},
+				"start_command": str("New start command (optional)")}, "domain"),
+			handler: s.call("PATCH", site, pick("version", "web_server", "start_command"))},
+		{Name: "set_site_status", Title: "Maintenance / suspend website", write: true, Annotations: write(false, true),
+			Description: "Set a website to 'active', 'maintenance' (visitors see a back-soon page; allow_ips still see the site) " +
+				"or 'suspended'.",
+			InputSchema: obj(map[string]any{"domain": argDomain,
+				"status":    map[string]any{"type": "string", "enum": []string{"active", "maintenance", "suspended"}},
+				"allow_ips": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Maintenance only"},
+			}, "domain", "status"),
+			handler: s.call("PUT", func(a map[string]any) string { return site(a) + "/status" }, pick("status", "allow_ips"))},
+		{Name: "app_action", Title: "Start, stop or restart app", write: true, Annotations: write(false, true),
+			Description: "Start, stop or restart a Node.js or Python website's app process.",
+			InputSchema: obj(map[string]any{"domain": argDomain,
+				"action": map[string]any{"type": "string", "enum": []string{"start", "stop", "restart"}}}, "domain", "action"),
+			handler: s.call("POST", func(a map[string]any) string { return site(a) + "/app/" + esc(argStr(a, "action")) }, nil)},
+		{Name: "set_ssh_access", Title: "Set SSH access", write: true, Annotations: write(false, true),
+			Description: "Set an account's SSH access: 'none', 'sftp' (file transfer only, jailed to the account's home) " +
+				"or 'shell' (full shell, not jailed; trusted users only).",
+			InputSchema: obj(map[string]any{"account": argAccount,
+				"mode": map[string]any{"type": "string", "enum": []string{"none", "sftp", "shell"}}}, "account", "mode"),
+			handler: s.call("PUT", func(a map[string]any) string { return acct(a) + "/ssh" }, pick("mode"))},
+		{Name: "add_ssh_key", Title: "Add SSH key", write: true, Annotations: write(false, false),
+			Description: "Authorize an OpenSSH public key (e.g. 'ssh-ed25519 AAAA... name@laptop') for an account. " +
 				"Only add keys the human provided. Never accept a private key.",
-			InputSchema: obj(map[string]any{"domain": domain, "public_key": str("One OpenSSH public key line")}, "domain", "public_key"),
-			Annotations: map[string]any{"readOnlyHint": false, "destructiveHint": false, "idempotentHint": false, "openWorldHint": false},
-			handler: func(ctx context.Context, a map[string]any) (any, error) {
-				var out any
-				return out, s.Agent.Do(ctx, "POST", "/v1/sites/"+client.PathEscape(argStr(a, "domain"))+"/ssh/keys",
-					map[string]string{"public_key": argStr(a, "public_key")}, &out)
-			},
-		},
-		{
-			Name: "remove_ssh_key", Title: "Remove SSH key", write: true,
+			InputSchema: obj(map[string]any{"account": argAccount, "public_key": str("One OpenSSH public key line")}, "account", "public_key"),
+			handler:     s.call("POST", func(a map[string]any) string { return acct(a) + "/ssh/keys" }, pick("public_key"))},
+		{Name: "remove_ssh_key", Title: "Remove SSH key", write: true, Annotations: write(true, true),
 			Description: "Remove an authorized SSH key by its SHA256 fingerprint (from list_ssh_keys).",
-			InputSchema: obj(map[string]any{"domain": domain, "fingerprint": str("Key fingerprint, e.g. SHA256:abc...")}, "domain", "fingerprint"),
-			Annotations: map[string]any{"readOnlyHint": false, "destructiveHint": true, "idempotentHint": true, "openWorldHint": false},
-			handler: func(ctx context.Context, a map[string]any) (any, error) {
-				var out any
-				return out, s.Agent.Do(ctx, "DELETE", "/v1/sites/"+client.PathEscape(argStr(a, "domain"))+
-					"/ssh/keys?fingerprint="+client.QueryEscape(argStr(a, "fingerprint")), nil, &out)
-			},
-		},
-		{
-			Name: "delete_site", Title: "Delete website", write: true,
-			Description: "Remove a website's Nginx and PHP config. With remove_files=true the Linux user and ALL " +
-				"its files are permanently deleted. Only use when the human explicitly asked to delete this exact domain.",
-			InputSchema: obj(map[string]any{
-				"domain":         domain,
-				"confirm_domain": str("Type the domain again to confirm deletion"),
-				"remove_files":   map[string]any{"type": "boolean", "description": "Also delete the user and all website files (cannot be undone). Default false."},
+			InputSchema: obj(map[string]any{"account": argAccount, "fingerprint": str("e.g. SHA256:abc...")}, "account", "fingerprint"),
+			handler: s.call("DELETE", func(a map[string]any) string {
+				return acct(a) + "/ssh/keys?fingerprint=" + client.QueryEscape(argStr(a, "fingerprint"))
+			}, nil)},
+		{Name: "add_cron_job", Title: "Add cron job", write: true, Annotations: write(false, false),
+			Description: "Schedule a command for an account. It runs as the account's user from its home folder.",
+			InputSchema: obj(map[string]any{"account": argAccount,
+				"schedule": str("Cron schedule, e.g. '*/15 * * * *' or '@daily'"),
+				"command":  str("Single-line command, e.g. 'php web/example.com/public_html/artisan schedule:run'"),
+				"comment":  str("Short note (optional)")}, "account", "schedule", "command"),
+			handler: s.call("POST", func(a map[string]any) string { return acct(a) + "/cron" }, pick("schedule", "command", "comment"))},
+		{Name: "delete_cron_job", Title: "Delete cron job", write: true, Annotations: write(true, true),
+			Description: "Delete a cron job by id (from list_cron_jobs).",
+			InputSchema: obj(map[string]any{"account": argAccount, "id": str("Job id")}, "account", "id"),
+			handler:     s.call("DELETE", func(a map[string]any) string { return acct(a) + "/cron/" + esc(argStr(a, "id")) }, nil)},
+		{Name: "suspend_account", Title: "Suspend account", write: true, Annotations: write(false, true),
+			Description: "Suspend an account: all its websites show the suspended page, apps and cron jobs stop, SSH is blocked. " +
+				"Only when the human asked for it.",
+			InputSchema: obj(map[string]any{"account": argAccount, "reason": str("Why (optional, shown to admins)")}, "account"),
+			handler:     s.call("POST", func(a map[string]any) string { return acct(a) + "/suspend" }, pick("reason"))},
+		{Name: "unsuspend_account", Title: "Reactivate account", write: true, Annotations: write(false, true),
+			Description: "Lift an account suspension and restore its websites, SSH access and cron jobs.",
+			InputSchema: obj(map[string]any{"account": argAccount}, "account"),
+			handler:     s.call("POST", func(a map[string]any) string { return acct(a) + "/unsuspend" }, nil)},
+		{Name: "open_port", Title: "Open firewall port", write: true, Annotations: write(false, false),
+			Description: "Allow incoming traffic on a port or range. Only open ports the human asked for.",
+			InputSchema: obj(map[string]any{"port": str("Port or range, e.g. 8080 or 6000:6100"),
+				"proto":   map[string]any{"type": "string", "enum": []string{"tcp", "udp"}},
+				"comment": str("Short note (optional)")}, "port", "proto"),
+			handler: s.call("POST", fixed("/v1/firewall/ports"), pick("port", "proto", "comment"))},
+		{Name: "close_port", Title: "Close firewall port", write: true, Annotations: write(true, true),
+			Description: "Close a port opened earlier. SSH and web ports can't be closed.",
+			InputSchema: obj(map[string]any{"port": str("Port or range"),
+				"proto": map[string]any{"type": "string", "enum": []string{"tcp", "udp"}}}, "port", "proto"),
+			handler: s.call("DELETE", func(a map[string]any) string {
+				return "/v1/firewall/ports?port=" + client.QueryEscape(argStr(a, "port")) + "&proto=" + client.QueryEscape(argStr(a, "proto"))
+			}, nil)},
+		{Name: "block_address", Title: "Block IP address", write: true, Annotations: write(false, false),
+			Description: "Block all traffic from an IP address or range (e.g. 203.0.113.7 or 203.0.113.0/24).",
+			InputSchema: obj(map[string]any{"address": str("IP or CIDR range"), "comment": str("Why (optional)")}, "address"),
+			handler:     s.call("POST", fixed("/v1/firewall/blocks"), pick("address", "comment"))},
+		{Name: "unblock_address", Title: "Unblock IP address", write: true, Annotations: write(false, true),
+			Description: "Remove an address from the block list.",
+			InputSchema: obj(map[string]any{"address": str("IP or CIDR range")}, "address"),
+			handler: s.call("DELETE", func(a map[string]any) string {
+				return "/v1/firewall/blocks?address=" + client.QueryEscape(argStr(a, "address"))
+			}, nil)},
+		{Name: "unban_ip", Title: "Lift automatic ban", write: true, Annotations: write(false, true),
+			Description: "Release an IP banned by fail2ban (see list_bans).",
+			InputSchema: obj(map[string]any{"jail": str("Jail name, e.g. sshd"), "ip": str("Banned IP")}, "jail", "ip"),
+			handler: s.call("DELETE", func(a map[string]any) string {
+				return "/v1/firewall/bans?jail=" + client.QueryEscape(argStr(a, "jail")) + "&ip=" + client.QueryEscape(argStr(a, "ip"))
+			}, nil)},
+		{Name: "delete_site", Title: "Delete website", write: true, Annotations: write(true, false),
+			Description: "Remove a website's configuration. With remove_files=true its folder is permanently deleted. " +
+				"The account and its other websites stay. Only when the human explicitly asked to delete this exact domain.",
+			InputSchema: obj(map[string]any{"domain": argDomain,
+				"confirm_domain": str("Type the domain again to confirm"),
+				"remove_files":   map[string]any{"type": "boolean", "description": "Also delete the website's files (cannot be undone)"},
 			}, "domain", "confirm_domain"),
-			Annotations: map[string]any{"readOnlyHint": false, "destructiveHint": true, "idempotentHint": false, "openWorldHint": false},
 			handler: func(ctx context.Context, a map[string]any) (any, error) {
 				d := argStr(a, "domain")
 				if d == "" || argStr(a, "confirm_domain") != d {
 					return nil, fmt.Errorf("confirm_domain must exactly match domain; nothing was deleted")
 				}
-				path := "/v1/sites/" + client.PathEscape(d)
+				p := site(a)
 				if b, _ := a["remove_files"].(bool); b {
-					path += "?remove_files=true"
+					p += "?remove_files=true"
 				}
 				var out any
-				return out, s.Agent.Do(ctx, "DELETE", path, nil, &out)
-			},
-		},
+				return out, s.Agent.Do(ctx, "DELETE", p, nil, &out)
+			}},
+		{Name: "delete_account", Title: "Delete account", write: true, Annotations: write(true, false),
+			Description: "Permanently delete an account, its Linux user and ALL its files. With with_sites=true its websites " +
+				"are deleted too; otherwise accounts with websites are refused. Only when the human explicitly asked.",
+			InputSchema: obj(map[string]any{"account": argAccount,
+				"confirm_account": str("Type the account name again to confirm"),
+				"with_sites":      map[string]any{"type": "boolean", "description": "Also delete all of its websites"},
+			}, "account", "confirm_account"),
+			handler: func(ctx context.Context, a map[string]any) (any, error) {
+				n := argStr(a, "account")
+				if n == "" || argStr(a, "confirm_account") != n {
+					return nil, fmt.Errorf("confirm_account must exactly match account; nothing was deleted")
+				}
+				p := acct(a)
+				if b, _ := a["with_sites"].(bool); b {
+					p += "?with_sites=true"
+				}
+				var out any
+				return out, s.Agent.Do(ctx, "DELETE", p, nil, &out)
+			}},
 	}
 }
 
@@ -354,16 +507,37 @@ func checkArgs(schema map[string]any, args map[string]any) error {
 		p, _ := props[k].(map[string]any)
 		switch p["type"] {
 		case "string":
-			if _, ok := v.(string); !ok {
+			sv, ok := v.(string)
+			if !ok {
 				return fmt.Errorf("argument %q must be a string", k)
+			}
+			if enum, ok := p["enum"].([]string); ok && !contains(enum, sv) {
+				return fmt.Errorf("argument %q must be one of %s", k, strings.Join(enum, ", "))
 			}
 		case "boolean":
 			if _, ok := v.(bool); !ok {
 				return fmt.Errorf("argument %q must be true or false", k)
 			}
+		case "array":
+			if _, ok := v.([]any); !ok {
+				return fmt.Errorf("argument %q must be a list", k)
+			}
+		case "integer":
+			if f, ok := v.(float64); !ok || f != float64(int(f)) {
+				return fmt.Errorf("argument %q must be a whole number", k)
+			}
 		}
 	}
 	return nil
+}
+
+func contains(list []string, v string) bool {
+	for _, x := range list {
+		if x == v {
+			return true
+		}
+	}
+	return false
 }
 
 func toolError(msg string) map[string]any {

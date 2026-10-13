@@ -16,6 +16,7 @@ import (
 type Client struct {
 	BaseURL string
 	HTTP    *http.Client
+	Actor   string // sent as X-Ike-Actor for the audit log
 }
 
 // Unix returns a client for the agent's unix socket.
@@ -46,6 +47,9 @@ func (c *Client) Do(ctx context.Context, method, path string, body any, out any)
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	if c.Actor != "" {
+		req.Header.Set("X-Ike-Actor", c.Actor)
 	}
 	resp, err := c.HTTP.Do(req)
 	if err != nil {

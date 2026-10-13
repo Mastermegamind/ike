@@ -15,15 +15,26 @@ import (
 // Runner runs a program with arguments and returns combined output.
 type Runner interface {
 	Run(ctx context.Context, name string, args ...string) ([]byte, error)
+	// RunInput is Run with data on stdin. Use it for secrets (SQL with passwords,
+	// prompted values) so they never appear in the process list or error messages.
+	RunInput(ctx context.Context, stdin string, name string, args ...string) ([]byte, error)
 }
 
 // Exec runs real commands.
 type Exec struct{}
 
-func (Exec) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+func (e Exec) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
+	return e.RunInput(ctx, "", name, args...)
+}
+
+func (Exec) RunInput(ctx context.Context, stdin string, name string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, name, args...).CombinedOutput()
+	cmd := exec.CommandContext(ctx, name, args...)
+	if stdin != "" {
+		cmd.Stdin = strings.NewReader(stdin)
+	}
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return out, fmt.Errorf("%s %s: %w: %s", name, strings.Join(args, " "), err, strings.TrimSpace(string(out)))
 	}
@@ -34,12 +45,23 @@ func (Exec) Run(ctx context.Context, name string, args ...string) ([]byte, error
 type DryRun struct {
 	mu       sync.Mutex
 	Commands []string
+	Stdin    []string // what each RunInput call received, for tests
 	// FailOn makes any command whose joined text starts with this prefix fail.
 	FailOn string
 }
 
-func (d *DryRun) Run(_ context.Context, name string, args ...string) ([]byte, error) {
+func (d *DryRun) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
+	return d.RunInput(ctx, "", name, args...)
+}
+
+func (d *DryRun) RunInput(_ context.Context, stdin string, name string, args ...string) ([]byte, error) {
 	cmd := strings.TrimSpace(name + " " + strings.Join(args, " "))
+	if stdin != "" {
+		d.mu.Lock()
+		d.Stdin = append(d.Stdin, stdin)
+		d.mu.Unlock()
+		cmd += " <stdin>"
+	}
 	d.mu.Lock()
 	d.Commands = append(d.Commands, cmd)
 	d.mu.Unlock()

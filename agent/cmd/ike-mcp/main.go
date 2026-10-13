@@ -44,7 +44,9 @@ func main() {
 		}
 	}
 
-	srv := &mcp.Server{Agent: client.Unix(*socket), AllowWrite: *allowWrite, Version: api.Version, Audit: audit}
+	agent := client.Unix(*socket)
+	agent.Actor = "ai:mcp"
+	srv := &mcp.Server{Agent: agent, AllowWrite: *allowWrite, Version: api.Version, Audit: audit}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	if err := srv.Serve(ctx, os.Stdin, os.Stdout); err != nil {

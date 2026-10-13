@@ -4,6 +4,7 @@ package sysinfo
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -29,10 +30,13 @@ type Info struct {
 	DiskTotalGB float64  `json:"disk_total_gb"`
 	DiskFreeGB  float64  `json:"disk_free_gb"`
 	PHPVersions []string `json:"php_versions"`
+	Node        []string `json:"node_versions"`
+	Python      []string `json:"python_versions"`
 }
 
 // Collect gathers system information. root is "/" in production.
-func Collect(root string) Info {
+// runtimes maps "node"/"python" to installed versions.
+func Collect(root string, runtimes map[string][]string) Info {
 	in := Info{Arch: runtime.GOARCH, CPUs: runtime.NumCPU()}
 	in.Hostname, _ = os.Hostname()
 
@@ -89,6 +93,7 @@ func Collect(root string) Info {
 		in.DiskFreeGB = round1(float64(st.Bavail) * bs / 1e9)
 	}
 	in.PHPVersions = PHPVersions(root)
+	in.Node, in.Python = runtimes["node"], runtimes["python"]
 	return in
 }
 
@@ -99,7 +104,12 @@ func PHPVersions(root string) []string {
 	for _, m := range matches {
 		out = append(out, filepath.Base(filepath.Dir(m)))
 	}
-	sort.Strings(out)
+	sort.Slice(out, func(i, j int) bool {
+		var a1, b1, a2, b2 int
+		fmt.Sscanf(out[i], "%d.%d", &a1, &b1)
+		fmt.Sscanf(out[j], "%d.%d", &a2, &b2)
+		return a1 < a2 || (a1 == a2 && b1 < b2)
+	})
 	return out
 }
 
@@ -109,8 +119,15 @@ type ServiceStatus struct {
 }
 
 // Services reports systemd state of the services the panel manages.
-func Services(ctx context.Context, r runner.Runner, root string) []ServiceStatus {
-	names := []string{"nginx", "mariadb", "fail2ban", "ike-agent"}
+func Services(ctx context.Context, r runner.Runner, root, webStack string) []ServiceStatus {
+	names := []string{}
+	if webStack != "apache" {
+		names = append(names, "nginx")
+	}
+	if webStack == "apache" || webStack == "hybrid" {
+		names = append(names, "apache2")
+	}
+	names = append(names, "mariadb", "fail2ban", "cron", "ike-agent")
 	for _, v := range PHPVersions(root) {
 		names = append(names, "php"+v+"-fpm")
 	}

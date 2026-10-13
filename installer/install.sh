@@ -3,6 +3,7 @@
 # Run on a FRESH KVM VPS as root:
 #   curl -sSL https://raw.githubusercontent.com/YOUR-ORG/ike/main/installer/install.sh | sudo bash
 #
+# Every component is the server admin's choice; run with --help for options.
 # Licensed under the GNU AGPL-3.0.
 
 set -euo pipefail
@@ -12,8 +13,16 @@ AGENT_NAME="ike-agent"
 MCP_NAME="ike-mcp"
 REPO="YOUR-ORG/ike"
 SUPPORTED_UBUNTU="22.04 24.04 26.04"
+ALL_PHP="5.6 7.0 7.1 7.2 7.3 7.4 8.0 8.1 8.2 8.3 8.4 8.5"
 
-PHP_VERSIONS="8.1 8.2 8.3 8.4"
+# ---- admin choices (defaults) ----
+WEB_STACK="nginx"           # nginx | apache | hybrid
+DEFAULT_WEB_SERVER=""       # hybrid only: nginx | nginx+apache
+PHP_VERSIONS="8.2 8.3 8.4 8.5"
+DEFAULT_PHP=""
+NODE_VERSIONS="22"
+PYTHON_VERSIONS="3.12"
+PMA_CHANNEL="stable"        # stable | 6 | none
 INSTALL_MARIADB=1
 FORCE=0
 AGENT_BINARY=""
@@ -23,8 +32,13 @@ LOG_FILE="/var/log/${PANEL_NAME}-install.log"
 CONF_DIR="/etc/${PANEL_NAME}"
 STATE_DIR="/var/lib/${PANEL_NAME}"
 PANEL_LOG_DIR="/var/log/${PANEL_NAME}"
+OPT_DIR="/opt/${PANEL_NAME}"
+RUNTIMES_DIR="${OPT_DIR}/runtimes"
 NGINX_SITES_DIR="/etc/nginx/${PANEL_NAME}/sites"
+APACHE_SITES_DIR="/etc/apache2/${PANEL_NAME}/sites"
 SSH_KEYS_DIR="/etc/ssh/${PANEL_NAME}/keys"
+PMA_DIR="/usr/share/${PANEL_NAME}/phpmyadmin"
+PMA_PORT=8090
 
 export DEBIAN_FRONTEND=noninteractive
 export NEEDRESTART_MODE=a
@@ -50,23 +64,53 @@ pkg_available() {
 	apt-cache show "$1" >/dev/null 2>&1
 }
 
+# download URL DEST [SHA256]  — fails on HTTP errors and checksum mismatch.
+download() {
+	curl -fsSL --retry 3 --max-time 600 "$1" -o "$2" 2>>"$LOG_FILE" || return 1
+	if [ -n "${3:-}" ]; then
+		echo "${3}  ${2}" | sha256sum -c - >>"$LOG_FILE" 2>&1 || { rm -f "$2"; die "Checksum mismatch for $1"; }
+	fi
+}
+
 usage() {
 	cat <<EOF
 Usage: install.sh [options]
 
-  --php "8.3 8.4"        PHP versions to install (default: "${PHP_VERSIONS}")
-  --no-mariadb           Do not install MariaDB
-  --force                Install even if the server is not fresh
-  --agent-binary PATH    Use a locally built ${AGENT_NAME} instead of downloading
-  --mcp-binary PATH      Use a locally built ${MCP_NAME} instead of downloading
-  -h, --help             Show this help
+Web server
+  --web nginx|apache|hybrid   nginx: Nginx only (default)
+                              apache: Apache only
+                              hybrid: Nginx in front; each website picks Nginx or Nginx+Apache (.htaccess)
+  --default-web-server X      hybrid only: "nginx" or "nginx+apache" for new websites
+
+Languages
+  --php "7.4 8.3"             PHP versions, or "all" for ${ALL_PHP}
+                              (default: "${PHP_VERSIONS}")
+  --default-php 8.3           PHP version for new websites (default: newest installed)
+  --node "20 22 24"           Node.js major versions, or "none" (default: "${NODE_VERSIONS}")
+  --python "3.12 3.13"        Python versions, or "none" (default: "${PYTHON_VERSIONS}")
+
+Databases
+  --no-mariadb                Do not install MariaDB
+  --phpmyadmin stable|6|none  phpMyAdmin channel (default: stable; "6" = 6.0 development snapshot)
+
+Other
+  --force                     Install even if the server is not fresh
+  --agent-binary PATH         Use a locally built ${AGENT_NAME}
+  --mcp-binary PATH           Use a locally built ${MCP_NAME}
+  -h, --help                  Show this help
 EOF
 }
 
 while [ $# -gt 0 ]; do
 	case "$1" in
+		--web) WEB_STACK="${2:?}"; shift 2 ;;
+		--default-web-server) DEFAULT_WEB_SERVER="${2:?}"; shift 2 ;;
 		--php) PHP_VERSIONS="${2:?--php needs a value}"; shift 2 ;;
+		--default-php) DEFAULT_PHP="${2:?}"; shift 2 ;;
+		--node) NODE_VERSIONS="${2:?}"; shift 2 ;;
+		--python) PYTHON_VERSIONS="${2:?}"; shift 2 ;;
 		--no-mariadb) INSTALL_MARIADB=0; shift ;;
+		--phpmyadmin) PMA_CHANNEL="${2:?}"; shift 2 ;;
 		--force) FORCE=1; shift ;;
 		--agent-binary) AGENT_BINARY="${2:?}"; shift 2 ;;
 		--mcp-binary) MCP_BINARY="${2:?}"; shift 2 ;;
@@ -75,9 +119,23 @@ while [ $# -gt 0 ]; do
 	esac
 done
 
-for v in $PHP_VERSIONS; do
-	[[ "$v" =~ ^[5-9]\.[0-9]$ ]] || die "Invalid PHP version: $v"
-done
+[ "$PHP_VERSIONS" = "all" ] && PHP_VERSIONS="$ALL_PHP"
+[ "$NODE_VERSIONS" = "none" ] && NODE_VERSIONS=""
+[ "$PYTHON_VERSIONS" = "none" ] && PYTHON_VERSIONS=""
+
+case "$WEB_STACK" in nginx|apache|hybrid) ;; *) die "--web must be nginx, apache or hybrid" ;; esac
+case "$DEFAULT_WEB_SERVER" in
+	"") [ "$WEB_STACK" = "hybrid" ] && DEFAULT_WEB_SERVER="nginx+apache" ;;
+	nginx|nginx+apache) [ "$WEB_STACK" = "hybrid" ] || die "--default-web-server only applies to --web hybrid" ;;
+	*) die "--default-web-server must be nginx or nginx+apache" ;;
+esac
+case "$PMA_CHANNEL" in stable|6|none) ;; *) die "--phpmyadmin must be stable, 6 or none" ;; esac
+[ "$INSTALL_MARIADB" -eq 0 ] && PMA_CHANNEL="none"
+
+for v in $PHP_VERSIONS; do [[ "$v" =~ ^[5-9]\.[0-9]$ ]] || die "Invalid PHP version: $v"; done
+for v in $NODE_VERSIONS; do [[ "$v" =~ ^[1-9][0-9]?$ ]] || die "Invalid Node.js version: $v (use the major version, e.g. 22)"; done
+for v in $PYTHON_VERSIONS; do [[ "$v" =~ ^3\.[0-9]{1,2}$ ]] || die "Invalid Python version: $v"; done
+[ -z "$DEFAULT_PHP" ] || [[ "$DEFAULT_PHP" =~ ^[5-9]\.[0-9]$ ]] || die "Invalid --default-php"
 
 # ----------------------------------------------------------------- checks ----
 
@@ -96,8 +154,8 @@ check_system() {
 	OS_CODENAME="${VERSION_CODENAME:?missing VERSION_CODENAME}"
 
 	case "$(uname -m)" in
-		x86_64) ARCH="amd64" ;;
-		aarch64|arm64) ARCH="arm64" ;;
+		x86_64) ARCH="amd64"; NODE_ARCH="x64"; UV_ARCH="x86_64" ;;
+		aarch64|arm64) ARCH="arm64"; NODE_ARCH="arm64"; UV_ARCH="aarch64" ;;
 		*) die "Unsupported CPU architecture: $(uname -m). Use x86_64 or arm64." ;;
 	esac
 
@@ -107,15 +165,15 @@ check_system() {
 	fi
 	case "$virt" in
 		openvz|lxc|lxc-libvirt|docker|podman|wsl|systemd-nspawn)
-			die "Virtualization '$virt' is not supported. Use a KVM VPS (Docker, firewall and resource limits need a real kernel)." ;;
+			die "Virtualization '$virt' is not supported. Use a KVM VPS (firewall and resource limits need a real kernel)." ;;
 	esac
 
 	local mem_mb
 	mem_mb=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)
-	if [ "$mem_mb" -lt 900 ]; then
-		die "At least 1 GB RAM is required (found ${mem_mb} MB)."
+	[ "$mem_mb" -ge 900 ] || die "At least 1 GB RAM is required (found ${mem_mb} MB)."
+	if [ "$mem_mb" -lt 1900 ]; then
+		warn "Only ${mem_mb} MB RAM. Fine for a few sites; use 2 GB+ for email or many PHP versions."
 	fi
-	[ "$mem_mb" -lt 1900 ] && warn "Only ${mem_mb} MB RAM. Fine for a few sites, but use 2 GB+ if you plan to enable email."
 
 	local free_gb
 	free_gb=$(df -BG --output=avail / | tail -1 | tr -dc '0-9')
@@ -126,8 +184,7 @@ check_system() {
 		return
 	fi
 	if [ "$FORCE" -eq 0 ]; then
-		local found=()
-		local p
+		local found=() p
 		for p in /usr/local/cpanel /usr/local/directadmin /usr/local/hestia /usr/local/vesta \
 			/usr/local/CyberCP /www/server/panel /etc/webmin /usr/local/psa /data/coolify; do
 			[ -e "$p" ] && found+=("$p")
@@ -148,39 +205,38 @@ install_base() {
 	apt-get update -q >>"$LOG_FILE" 2>&1
 	info "Installing base packages"
 	apt_install ca-certificates curl gnupg software-properties-common lsb-release \
-		ufw fail2ban unzip acl openssl cron logrotate
+		ufw fail2ban unzip xz-utils acl openssl cron logrotate python3
+	systemctl enable --now cron >>"$LOG_FILE" 2>&1
 }
 
 # Prefer nginx.org's stable repo; fall back to Ubuntu's nginx if it doesn't
-# support this release yet (common for a few months after a new LTS).
+# support this release yet.
 install_nginx() {
+	[ "$WEB_STACK" = "apache" ] && return 0
 	info "Installing Nginx"
-	local key=/usr/share/keyrings/nginx-archive-keyring.gpg
-	local url="https://nginx.org/packages/ubuntu"
-	local source="ubuntu"
+	local key=/usr/share/keyrings/nginx-archive-keyring.gpg url="https://nginx.org/packages/ubuntu"
+	NGINX_SOURCE="ubuntu"
 	if curl -fsS --max-time 15 "${url}/dists/${OS_CODENAME}/Release" -o /dev/null 2>>"$LOG_FILE" \
 		&& curl -fsS --max-time 15 https://nginx.org/keys/nginx_signing.key | gpg --dearmor --yes -o "$key" 2>>"$LOG_FILE"; then
 		echo "deb [signed-by=${key}] ${url} ${OS_CODENAME} nginx" >/etc/apt/sources.list.d/nginx.list
 		printf 'Package: *\nPin: origin nginx.org\nPin-Priority: 900\n' >/etc/apt/preferences.d/99nginx
 		apt-get update -q >>"$LOG_FILE" 2>&1
-		source="nginx.org"
+		NGINX_SOURCE="nginx.org"
 	else
 		warn "nginx.org has no packages for Ubuntu ${OS_VERSION} yet; using Ubuntu's Nginx."
 		rm -f /etc/apt/sources.list.d/nginx.list /etc/apt/preferences.d/99nginx
 	fi
 	apt_install nginx
-	NGINX_SOURCE="$source"
-
-	# Which user does nginx run as? nginx.org uses "nginx", Ubuntu uses "www-data".
-	WEB_USER=$(awk '/^[[:space:]]*user[[:space:]]/ {gsub(";",""); print $2; exit}' /etc/nginx/nginx.conf)
-	WEB_USER="${WEB_USER:-www-data}"
-	WEB_GROUP=$(id -gn "$WEB_USER")
 
 	mkdir -p "$NGINX_SITES_DIR"
-	# conf.d/*.conf is included inside the http{} block by both Ubuntu and nginx.org configs.
+	# conf.d/*.conf is included inside http{} by both Ubuntu's and nginx.org's nginx.conf.
 	cat >/etc/nginx/conf.d/${PANEL_NAME}.conf <<EOF
 # Managed by ${PANEL_NAME}
 server_tokens off;
+map \$http_upgrade \$connection_upgrade_ike {
+    default upgrade;
+    ''      close;
+}
 include ${NGINX_SITES_DIR}/*.conf;
 EOF
 	# Replace the stock default site with a catch-all that drops unknown hosts.
@@ -199,6 +255,53 @@ EOF
 	systemctl reload nginx
 }
 
+install_apache() {
+	[ "$WEB_STACK" = "nginx" ] && return 0
+	info "Installing Apache (${WEB_STACK} mode)"
+	apt_install apache2
+	a2dismod -q php* mpm_prefork >>"$LOG_FILE" 2>&1 || true
+	a2enmod -q mpm_event proxy proxy_fcgi proxy_http proxy_wstunnel rewrite headers remoteip setenvif alias >>"$LOG_FILE" 2>&1
+	a2dissite -q 000-default >>"$LOG_FILE" 2>&1 || true
+	mkdir -p "$APACHE_SITES_DIR"
+
+	if [ "$WEB_STACK" = "hybrid" ]; then
+		APACHE_LISTEN="127.0.0.1:8080"
+		echo "Listen 127.0.0.1:8080" >/etc/apache2/ports.conf
+	else
+		APACHE_LISTEN="*:80"
+		echo "Listen 80" >/etc/apache2/ports.conf
+	fi
+	cat >/etc/apache2/conf-available/${PANEL_NAME}.conf <<EOF
+# Managed by ${PANEL_NAME}
+ServerTokens Prod
+ServerSignature Off
+$( [ "$WEB_STACK" = "hybrid" ] && printf 'RemoteIPHeader X-Real-IP\nRemoteIPInternalProxy 127.0.0.1\n' )
+<Directory ${CONF_DIR}/pages>
+    Require all granted
+</Directory>
+IncludeOptional ${APACHE_SITES_DIR}/*.conf
+EOF
+	a2enconf -q ${PANEL_NAME} >>"$LOG_FILE" 2>&1
+	apache2ctl configtest >>"$LOG_FILE" 2>&1 || die "Apache configuration test failed. See $LOG_FILE"
+	systemctl enable --now apache2 >>"$LOG_FILE" 2>&1
+	systemctl restart apache2
+}
+
+# Which user/group serves files? Nginx decides when it is installed, else Apache.
+detect_web_user() {
+	if [ "$WEB_STACK" = "apache" ]; then
+		WEB_USER="www-data"
+	else
+		WEB_USER=$(awk '/^[[:space:]]*user[[:space:]]/ {gsub(";",""); print $2; exit}' /etc/nginx/nginx.conf)
+		WEB_USER="${WEB_USER:-www-data}"
+	fi
+	WEB_GROUP=$(id -gn "$WEB_USER")
+	# In hybrid mode Apache (www-data) must also read website files.
+	if [ "$WEB_STACK" = "hybrid" ] && [ "$WEB_GROUP" != "www-data" ]; then
+		usermod -aG "$WEB_GROUP" www-data
+	fi
+}
+
 install_php() {
 	info "Installing PHP ${PHP_VERSIONS}"
 	if add-apt-repository -y ppa:ondrej/php >>"$LOG_FILE" 2>&1; then
@@ -207,29 +310,27 @@ install_php() {
 		warn "Could not add the ondrej/php PPA; only Ubuntu's own PHP version will be available."
 	fi
 
-	local installed=()
-	local v ext
+	local installed=() skipped=() v ext
 	for v in $PHP_VERSIONS; do
 		if ! pkg_available "php${v}-fpm"; then
-			warn "PHP ${v} is not available for Ubuntu ${OS_VERSION}; skipping."
+			skipped+=("$v")
 			continue
 		fi
 		apt_install "php${v}-fpm" "php${v}-cli" "php${v}-common"
-		# Extensions are installed one by one: some (e.g. opcache in PHP 8.5+) are built in.
+		# One by one: some extensions are built in on newer PHP (e.g. opcache in 8.5).
 		for ext in mysql curl gd mbstring xml zip intl bcmath opcache readline soap imagick redis; do
 			if pkg_available "php${v}-${ext}"; then
 				apt_install "php${v}-${ext}" || warn "php${v}-${ext} failed to install"
 			fi
 		done
-		# The stock www pool must stay (php-fpm needs at least one), but make it idle-cheap.
+		# The stock www pool must stay (php-fpm needs one), but make it idle-cheap.
 		local www="/etc/php/${v}/fpm/pool.d/www.conf"
-		if [ -f "$www" ]; then
-			sed -i -E 's/^pm = .*/pm = ondemand/; s/^;?pm.process_idle_timeout = .*/pm.process_idle_timeout = 10s/' "$www"
-		fi
+		[ -f "$www" ] && sed -i -E 's/^pm = .*/pm = ondemand/; s/^;?pm.process_idle_timeout = .*/pm.process_idle_timeout = 10s/' "$www"
 		systemctl enable --now "php${v}-fpm" >>"$LOG_FILE" 2>&1
 		systemctl restart "php${v}-fpm"
 		installed+=("$v")
 	done
+	[ ${#skipped[@]} -gt 0 ] && warn "PHP ${skipped[*]} not available for Ubuntu ${OS_VERSION}; skipped."
 
 	if [ ${#installed[@]} -eq 0 ]; then
 		info "Falling back to Ubuntu's default PHP"
@@ -239,18 +340,97 @@ install_php() {
 		systemctl enable --now "php${v}-fpm" >>"$LOG_FILE" 2>&1
 		installed+=("$v")
 	fi
-	DEFAULT_PHP=$(printf '%s\n' "${installed[@]}" | sort -V | tail -1)
 	PHP_INSTALLED="${installed[*]}"
+	if [ -n "$DEFAULT_PHP" ] && [[ " $PHP_INSTALLED " == *" $DEFAULT_PHP "* ]]; then
+		:
+	else
+		[ -n "$DEFAULT_PHP" ] && warn "PHP $DEFAULT_PHP is not installed; using the newest version as default."
+		DEFAULT_PHP=$(printf '%s\n' "${installed[@]}" | sort -V | tail -1)
+	fi
+}
+
+# WP-CLI powers the one-click WordPress installer.
+install_wpcli() {
+	info "Installing WP-CLI"
+	local base="https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar" tmp
+	tmp=$(mktemp -d)
+	if download "${base}/wp-cli.phar.sha512" "${tmp}/sha" \
+		&& curl -fsSL --max-time 300 "${base}/wp-cli.phar" -o "${tmp}/wp" 2>>"$LOG_FILE" \
+		&& echo "$(cut -d' ' -f1 "${tmp}/sha")  ${tmp}/wp" | sha512sum -c - >>"$LOG_FILE" 2>&1; then
+		mkdir -p "${OPT_DIR}/bin"
+		install -m 0755 "${tmp}/wp" "${OPT_DIR}/bin/wp"
+	else
+		warn "Could not download WP-CLI; the WordPress installer will be unavailable."
+	fi
+	rm -rf "$tmp"
+}
+
+# Node.js: official builds from nodejs.org, checksum-verified, one folder per major.
+install_node() {
+	[ -n "$NODE_VERSIONS" ] || return 0
+	info "Installing Node.js ${NODE_VERSIONS}"
+	local index tmp major ver file sums
+	index=$(mktemp)
+	download https://nodejs.org/dist/index.json "$index" || { warn "Could not reach nodejs.org; skipping Node.js."; return 0; }
+	for major in $NODE_VERSIONS; do
+		ver=$(python3 -c 'import json,sys; m=sys.argv[2]; print(next((r["version"] for r in json.load(open(sys.argv[1])) if r["version"].startswith("v"+m+".")), ""))' "$index" "$major")
+		if [ -z "$ver" ]; then
+			warn "Node.js ${major} not found; skipping."
+			continue
+		fi
+		file="node-${ver}-linux-${NODE_ARCH}.tar.xz"
+		tmp=$(mktemp -d)
+		sums="${tmp}/SHASUMS256.txt"
+		download "https://nodejs.org/dist/${ver}/SHASUMS256.txt" "$sums" || { warn "No checksums for Node.js ${ver}; skipping."; continue; }
+		download "https://nodejs.org/dist/${ver}/${file}" "${tmp}/${file}" "$(awk -v f="$file" '$2==f {print $1}' "$sums")" \
+			|| { warn "Download of Node.js ${ver} failed; skipping."; continue; }
+		rm -rf "${RUNTIMES_DIR}/node/${major}"
+		mkdir -p "${RUNTIMES_DIR}/node/${major}"
+		tar -xJf "${tmp}/${file}" -C "${RUNTIMES_DIR}/node/${major}" --strip-components=1 --no-same-owner
+		rm -rf "$tmp"
+		NODE_INSTALLED="${NODE_INSTALLED:-} ${major}(${ver})"
+	done
+	rm -f "$index"
+}
+
+# Python: standalone builds managed by uv (works the same on every Ubuntu release).
+install_python() {
+	[ -n "$PYTHON_VERSIONS" ] || return 0
+	info "Installing Python ${PYTHON_VERSIONS}"
+	local uvtar="uv-${UV_ARCH}-unknown-linux-gnu.tar.gz" tmp sha v bin
+	tmp=$(mktemp -d)
+	if ! download "https://github.com/astral-sh/uv/releases/latest/download/${uvtar}.sha256" "${tmp}/sha"; then
+		warn "Could not reach GitHub to fetch uv; skipping Python."
+		return 0
+	fi
+	sha=$(cut -d' ' -f1 "${tmp}/sha")
+	download "https://github.com/astral-sh/uv/releases/latest/download/${uvtar}" "${tmp}/${uvtar}" "$sha" \
+		|| { warn "Could not download uv; skipping Python."; return 0; }
+	mkdir -p "${OPT_DIR}/bin"
+	tar -xzf "${tmp}/${uvtar}" -C "$tmp"
+	install -m 0755 "${tmp}/uv-${UV_ARCH}-unknown-linux-gnu/uv" "${OPT_DIR}/bin/uv"
+	rm -rf "$tmp"
+
+	export UV_PYTHON_INSTALL_DIR="${RUNTIMES_DIR}/python/.uv"
+	for v in $PYTHON_VERSIONS; do
+		if ! "${OPT_DIR}/bin/uv" python install "$v" >>"$LOG_FILE" 2>&1; then
+			warn "Python ${v} could not be installed; skipping."
+			continue
+		fi
+		bin=$("${OPT_DIR}/bin/uv" python find --managed-python "$v" 2>>"$LOG_FILE" || true)
+		[ -n "$bin" ] || { warn "Python ${v} installed but not found; skipping."; continue; }
+		# Stable path the agent uses: runtimes/python/<version>/bin/python3
+		ln -sfn "$(dirname "$(dirname "$bin")")" "${RUNTIMES_DIR}/python/${v}"
+		PYTHON_INSTALLED="${PYTHON_INSTALLED:-} ${v}"
+	done
 }
 
 install_mariadb() {
 	[ "$INSTALL_MARIADB" -eq 1 ] || return 0
 	info "Installing MariaDB"
-	# Ubuntu's MariaDB is maintained for the whole LTS lifetime. root uses unix_socket auth
-	# (no password; only the system root user can log in as the database root).
+	# Ubuntu's MariaDB is maintained for the whole LTS lifetime. root uses unix_socket auth.
 	apt_install mariadb-server mariadb-client
 	systemctl enable --now mariadb >>"$LOG_FILE" 2>&1
-	# Equivalent of mysql_secure_installation's non-interactive parts.
 	mariadb >>"$LOG_FILE" 2>&1 <<'SQL'
 DELETE FROM mysql.global_priv WHERE User='';
 DELETE FROM mysql.global_priv WHERE User='root' AND Host NOT IN ('localhost','127.0.0.1','::1');
@@ -260,10 +440,114 @@ FLUSH PRIVILEGES;
 SQL
 }
 
+# phpMyAdmin runs on its own PHP-FPM pool and user, independent of website PHP
+# versions, and listens on localhost only until the panel proxies it with sign-on.
+install_phpmyadmin() {
+	[ "$PMA_CHANNEL" = "none" ] && return 0
+	local url pma_php="" v tmp
+	if [ "$PMA_CHANNEL" = "6" ]; then
+		url="https://files.phpmyadmin.net/snapshots/phpMyAdmin-6.0+snapshot-all-languages.tar.gz"
+		info "Installing phpMyAdmin 6.0 development snapshot (not for production)"
+	else
+		url="https://www.phpmyadmin.net/downloads/phpMyAdmin-latest-all-languages.tar.gz"
+		info "Installing phpMyAdmin (latest stable)"
+	fi
+	# Newest installed PHP that phpMyAdmin supports (5.2: 7.2-8.3; 6.0: 8.2+).
+	for v in $(tr ' ' '\n' <<<"$PHP_INSTALLED" | sort -rV); do
+		case "$PMA_CHANNEL:$v" in
+			stable:7.[2-4]|stable:8.[0-3]|6:8.[2-9]) pma_php="$v"; break ;;
+		esac
+	done
+	if [ -z "$pma_php" ]; then
+		warn "No installed PHP version suits phpMyAdmin (${PMA_CHANNEL}); skipping. Add PHP 8.3 and re-run."
+		return 0
+	fi
+
+	tmp=$(mktemp -d)
+	download "${url}.sha256" "${tmp}/sha" || { warn "Could not reach phpmyadmin.net; skipping."; return 0; }
+	download "$url" "${tmp}/pma.tar.gz" "$(cut -d' ' -f1 "${tmp}/sha")" || { warn "phpMyAdmin download failed; skipping."; return 0; }
+	rm -rf "$PMA_DIR"
+	mkdir -p "$PMA_DIR"
+	tar -xzf "${tmp}/pma.tar.gz" -C "$PMA_DIR" --strip-components=1 --no-same-owner
+	rm -rf "$tmp"
+
+	getent passwd ike-pma >/dev/null || useradd --system --home-dir /nonexistent --shell /usr/sbin/nologin ike-pma
+	install -d -m 0750 -o ike-pma -g ike-pma /var/lib/ike/pma-tmp
+	local secret
+	secret=$(openssl rand -base64 32 | tr -d '\n/+=' | cut -c1-32)
+	cat >"${PMA_DIR}/config.inc.php" <<EOF
+<?php
+// Managed by ${PANEL_NAME}
+\$cfg['blowfish_secret'] = '${secret}';
+\$cfg['TempDir'] = '/var/lib/ike/pma-tmp';
+\$cfg['Servers'][1]['auth_type'] = 'cookie';
+\$cfg['Servers'][1]['host'] = 'localhost';
+\$cfg['Servers'][1]['AllowNoPassword'] = false;
+\$cfg['Servers'][1]['AllowRoot'] = false;
+\$cfg['LoginCookieValidity'] = 3600;
+EOF
+	chown root:ike-pma "${PMA_DIR}/config.inc.php"
+	chmod 0640 "${PMA_DIR}/config.inc.php"
+
+	cat >"/etc/php/${pma_php}/fpm/pool.d/ike-pma.conf" <<EOF
+; Managed by ${PANEL_NAME}
+[ike-pma]
+user = ike-pma
+group = ike-pma
+listen = /run/php/ike-pma.sock
+listen.owner = ${WEB_USER}
+listen.group = ${WEB_GROUP}
+listen.mode = 0660
+pm = ondemand
+pm.max_children = 4
+php_admin_value[open_basedir] = ${PMA_DIR}:/var/lib/ike/pma-tmp:/usr/share/php
+php_admin_value[upload_tmp_dir] = /var/lib/ike/pma-tmp
+php_admin_value[session.save_path] = /var/lib/ike/pma-tmp
+EOF
+	systemctl reload "php${pma_php}-fpm"
+
+	if [ "$WEB_STACK" != "apache" ]; then
+		cat >/etc/nginx/conf.d/${PANEL_NAME}-phpmyadmin.conf <<EOF
+# phpMyAdmin on localhost only. Reach it with:  ssh -L ${PMA_PORT}:127.0.0.1:${PMA_PORT} root@this-server
+server {
+    listen 127.0.0.1:${PMA_PORT};
+    root ${PMA_DIR};
+    index index.php;
+    location ~ /(libraries|setup|templates|vendor)/ { deny all; }
+    location ~ \.php\$ {
+        try_files \$uri =404;
+        fastcgi_pass unix:/run/php/ike-pma.sock;
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
+    }
+}
+EOF
+		nginx -t >>"$LOG_FILE" 2>&1 && systemctl reload nginx
+	else
+		echo "Listen 127.0.0.1:${PMA_PORT}" >>/etc/apache2/ports.conf
+		cat >/etc/apache2/conf-available/${PANEL_NAME}-phpmyadmin.conf <<EOF
+# phpMyAdmin on localhost only.
+<VirtualHost 127.0.0.1:${PMA_PORT}>
+    DocumentRoot ${PMA_DIR}
+    <Directory ${PMA_DIR}>
+        Require all granted
+        DirectoryIndex index.php
+    </Directory>
+    <FilesMatch "\.php\$">
+        SetHandler "proxy:unix:/run/php/ike-pma.sock|fcgi://localhost"
+    </FilesMatch>
+</VirtualHost>
+EOF
+		a2enconf -q ${PANEL_NAME}-phpmyadmin >>"$LOG_FILE" 2>&1
+		apache2ctl configtest >>"$LOG_FILE" 2>&1 && systemctl reload apache2
+	fi
+	PMA_INSTALLED="${PMA_CHANNEL} on PHP ${pma_php}"
+}
+
 # SSH access for hosting accounts:
-#   ike-sftp group -> SFTP only, chrooted to the user's home
+#   ike-sftp group -> SFTP only, chrooted to the account's home
 #   ike-ssh  group -> normal shell (trusted users)
-# Keys are read from a root-owned file per user so users can't add keys themselves.
+# Keys are read from a root-owned file per account so users can't add keys themselves.
 configure_ssh() {
 	info "Configuring SSH/SFTP for hosting accounts"
 	apt_install openssh-server
@@ -271,14 +555,13 @@ configure_ssh() {
 	getent group ike-ssh  >/dev/null || groupadd --system ike-ssh
 	install -d -m 0755 -o root -g root "/etc/ssh/${PANEL_NAME}" "$SSH_KEYS_DIR"
 
-	local cfg=/etc/ssh/sshd_config
-	local backup
+	local cfg=/etc/ssh/sshd_config backup
 	backup="${cfg}.${PANEL_NAME}.bak.$(date +%s)"
 	cp -a "$cfg" "$backup"
 
-	# Our Match blocks go at the very END of sshd_config: anything after a Match line
-	# belongs to that Match, so appending is the only placement that can't capture
-	# the admin's own settings.
+	# Match blocks go at the very END of sshd_config: everything after a Match line
+	# belongs to it, so appending is the only placement that can't capture the
+	# admin's own settings.
 	sed -i "/^# BEGIN ${PANEL_NAME}/,/^# END ${PANEL_NAME}/d" "$cfg"
 	cat >>"$cfg" <<EOF
 # BEGIN ${PANEL_NAME} (managed, do not edit between these markers)
@@ -305,18 +588,16 @@ EOF
 		cp -a "$backup" "$cfg"
 		die "sshd rejected the new configuration; your original config was restored. See $LOG_FILE"
 	fi
-	# Ubuntu 22.10+ may use socket activation; reloading ssh.service is safe either way.
 	systemctl reload ssh >>"$LOG_FILE" 2>&1 || systemctl reload sshd >>"$LOG_FILE" 2>&1 || true
 }
 
 configure_firewall() {
 	info "Configuring firewall (ufw) and fail2ban"
-	local ssh_ports
-	ssh_ports=$(sshd -T 2>/dev/null | awk '$1=="port" {print $2}')
-	ssh_ports="${ssh_ports:-22}"
+	SSH_PORTS=$(sshd -T 2>/dev/null | awk '$1=="port" {print $2}')
+	SSH_PORTS="${SSH_PORTS:-22}"
 	local p
 	# Allow SSH before enabling the firewall so the current session is never cut off.
-	for p in $ssh_ports; do
+	for p in $SSH_PORTS; do
 		ufw allow "${p}/tcp" comment 'SSH' >>"$LOG_FILE" 2>&1
 	done
 	{
@@ -327,58 +608,73 @@ configure_firewall() {
 		ufw --force enable
 	} >>"$LOG_FILE" 2>&1
 
-	cat >/etc/fail2ban/jail.d/${PANEL_NAME}.conf <<'EOF'
-[sshd]
+	local jails="[sshd]
 enabled  = true
 maxretry = 5
 findtime = 10m
-bantime  = 1h
-EOF
+bantime  = 1h"
+	if [ "$WEB_STACK" != "apache" ]; then
+		jails="${jails}
+
+[nginx-http-auth]
+enabled = true
+
+[nginx-botsearch]
+enabled  = true
+logpath  = /var/log/ike/*/access.log"
+	fi
+	printf '%s\n' "$jails" >/etc/fail2ban/jail.d/${PANEL_NAME}.conf
 	systemctl enable --now fail2ban >>"$LOG_FILE" 2>&1
 	systemctl restart fail2ban
 }
 
 fetch_binary() { # name dest local_path
-	local name="$1" dest="$2" local_path="$3"
+	local name="$1" dest="$2" local_path="$3" url tmp
 	if [ -n "$local_path" ]; then
 		[ -f "$local_path" ] || die "$local_path not found"
 		install -m 0755 "$local_path" "$dest"
 		return
 	fi
-	local url="https://github.com/${REPO}/releases/latest/download/${name}-linux-${ARCH}"
-	local tmp
+	url="https://github.com/${REPO}/releases/latest/download/${name}-linux-${ARCH}"
 	tmp=$(mktemp)
-	curl -fsSL --max-time 120 "$url" -o "$tmp" 2>>"$LOG_FILE" \
-		|| { rm -f "$tmp"; die "Could not download ${name} from ${url}. Build it and pass --agent-binary / --mcp-binary."; }
-	if curl -fsSL --max-time 30 "${url}.sha256" -o "${tmp}.sha256" 2>>"$LOG_FILE"; then
-		echo "$(cut -d' ' -f1 "${tmp}.sha256")  ${tmp}" | sha256sum -c - >>"$LOG_FILE" 2>&1 \
-			|| { rm -f "$tmp" "${tmp}.sha256"; die "Checksum mismatch for ${name}."; }
-		rm -f "${tmp}.sha256"
-	else
-		warn "No checksum published for ${name}; skipping verification."
-	fi
+	download "${url}.sha256" "${tmp}.sha256" \
+		|| die "Could not download ${name} from ${url}. Build it and pass --agent-binary / --mcp-binary."
+	download "$url" "$tmp" "$(cut -d' ' -f1 "${tmp}.sha256")" || die "Could not download ${name}."
 	install -m 0755 "$tmp" "$dest"
-	rm -f "$tmp"
+	rm -f "$tmp" "${tmp}.sha256"
 }
 
 install_agent() {
 	info "Installing ${AGENT_NAME} and ${MCP_NAME}"
 	getent group "$PANEL_NAME" >/dev/null || groupadd --system "$PANEL_NAME"
-	install -d -m 0750 -o root -g root "$CONF_DIR"
-	install -d -m 0700 -o root -g root "$STATE_DIR" "$STATE_DIR/sites"
+	install -d -m 0755 -o root -g root "$CONF_DIR" "${CONF_DIR}/pages" "${OPT_DIR}" "$RUNTIMES_DIR" \
+		"${RUNTIMES_DIR}/node" "${RUNTIMES_DIR}/python"
+	install -d -m 0700 -o root -g root "${CONF_DIR}/apps" "$STATE_DIR" "$STATE_DIR/sites" "$STATE_DIR/accounts"
 	install -d -m 0750 -o root -g adm "$PANEL_LOG_DIR"
 
 	fetch_binary "$AGENT_NAME" "/usr/local/bin/${AGENT_NAME}" "$AGENT_BINARY"
 	fetch_binary "$MCP_NAME" "/usr/local/bin/${MCP_NAME}" "$MCP_BINARY"
 
+	local protected="" p
+	for p in $SSH_PORTS 80 443; do protected="${protected}\"${p}/tcp\", "; done
 	cat >"$CONF_DIR/agent.json" <<EOF
 {
+  "web_stack": "${WEB_STACK}",
+  "default_web_server": "${DEFAULT_WEB_SERVER}",
   "web_user": "${WEB_USER}",
   "web_group": "${WEB_GROUP}",
   "nginx_sites_dir": "${NGINX_SITES_DIR}",
+  "apache_sites_dir": "${APACHE_SITES_DIR}",
+  "apache_listen": "${APACHE_LISTEN:-127.0.0.1:8080}",
   "home_base": "/home",
   "state_dir": "${STATE_DIR}/sites",
-  "default_php": "${DEFAULT_PHP}"
+  "accounts_dir": "${STATE_DIR}/accounts",
+  "pages_dir": "${CONF_DIR}/pages",
+  "apps_dir": "${CONF_DIR}/apps",
+  "runtimes_dir": "${RUNTIMES_DIR}",
+  "tools_dir": "${OPT_DIR}/bin",
+  "default_php": "${DEFAULT_PHP}",
+  "protected_ports": [${protected%, }]
 }
 EOF
 	chmod 0640 "$CONF_DIR/agent.json"
@@ -386,7 +682,7 @@ EOF
 	cat >/etc/systemd/system/${AGENT_NAME}.service <<EOF
 [Unit]
 Description=${PANEL_NAME} agent
-After=network.target nginx.service
+After=network.target
 
 [Service]
 Type=simple
@@ -398,7 +694,6 @@ RuntimeDirectoryMode=0750
 PrivateTmp=yes
 ProtectKernelModules=yes
 ProtectKernelTunables=yes
-ProtectControlGroups=yes
 ProtectClock=yes
 LockPersonality=yes
 
@@ -414,10 +709,9 @@ EOF
 		[ -S "/run/${PANEL_NAME}/agent.sock" ] && break
 		sleep 0.5
 	done
-	if ! curl -fsS --unix-socket "/run/${PANEL_NAME}/agent.sock" http://agent/v1/health >>"$LOG_FILE" 2>&1; then
-		die "${AGENT_NAME} did not start. Check: journalctl -u ${AGENT_NAME}"
-	fi
-	echo "installed_at=$(date -u +%FT%TZ) ubuntu=${OS_VERSION} php=\"${PHP_INSTALLED}\" nginx=${NGINX_SOURCE}" >"$CONF_DIR/installed"
+	curl -fsS --unix-socket "/run/${PANEL_NAME}/agent.sock" http://agent/v1/health >>"$LOG_FILE" 2>&1 \
+		|| die "${AGENT_NAME} did not start. Check: journalctl -u ${AGENT_NAME}"
+	echo "installed_at=$(date -u +%FT%TZ) ubuntu=${OS_VERSION} web=${WEB_STACK} php=\"${PHP_INSTALLED}\"" >"$CONF_DIR/installed"
 }
 
 summary() {
@@ -428,33 +722,29 @@ summary() {
 ${C_BLD}${C_GRN}${PANEL_NAME} installed successfully${C_RST}
 
   Ubuntu        ${OS_VERSION} (${ARCH})
-  Nginx         from ${NGINX_SOURCE}, runs as ${WEB_USER}
+  Web server    ${WEB_STACK}$( [ "$WEB_STACK" = "hybrid" ] && echo " (new websites: ${DEFAULT_WEB_SERVER})" )$( [ -n "${NGINX_SOURCE:-}" ] && echo ", Nginx from ${NGINX_SOURCE}" )
   PHP           ${PHP_INSTALLED} (default ${DEFAULT_PHP})
+  Node.js       ${NODE_INSTALLED:- none}
+  Python        ${PYTHON_INSTALLED:- none}
   MariaDB       $( [ "$INSTALL_MARIADB" -eq 1 ] && echo installed || echo skipped )
+  phpMyAdmin    ${PMA_INSTALLED:-not installed}$( [ -n "${PMA_INSTALLED:-}" ] && echo " — ssh -L ${PMA_PORT}:127.0.0.1:${PMA_PORT} root@${ip}, then open http://localhost:${PMA_PORT}" )
   Server IP     ${ip}
   Install log   ${LOG_FILE}
 
-${C_BLD}Try it${C_RST} — create a site (point example.com's DNS A record to ${ip} first):
+${C_BLD}Try it${C_RST} (point example.com's DNS A record to ${ip} first):
 
+  curl --unix-socket /run/${PANEL_NAME}/agent.sock -X POST http://agent/v1/accounts -d '{"name":"example"}'
   curl --unix-socket /run/${PANEL_NAME}/agent.sock -X POST http://agent/v1/sites \\
-       -d '{"domain":"example.com","user":"example"}'
+       -d '{"domain":"example.com","account":"example"}'
 
-${C_BLD}Connect an AI agent (MCP)${C_RST} — add this to your MCP client config on your own computer:
+${C_BLD}Connect an AI agent (MCP)${C_RST} — in your MCP client config on your own computer:
 
-  {
-    "mcpServers": {
-      "${PANEL_NAME}": {
-        "command": "ssh",
-        "args": ["root@${ip}", "${MCP_NAME}"]
-      }
-    }
-  }
+  { "mcpServers": { "${PANEL_NAME}": { "command": "ssh", "args": ["root@${ip}", "${MCP_NAME}"] } } }
 
-  It starts read-only. To let the AI create sites and manage SSH access, use
-  "args": ["root@${ip}", "${MCP_NAME}", "--allow-write"]. Every call is logged to
-  ${PANEL_LOG_DIR}/mcp-audit.log.
+  Read-only by default; add "--allow-write" after "${MCP_NAME}" to allow changes.
+  Every call is logged to ${PANEL_LOG_DIR}/mcp-audit.log.
 
-The web panel is not part of this release yet.
+Customize the starter, maintenance, suspended and error pages in ${CONF_DIR}/pages.
 EOF
 }
 
@@ -465,8 +755,14 @@ main() {
 	info "Installing ${PANEL_NAME} on Ubuntu ${OS_VERSION} (${OS_CODENAME}, ${ARCH})"
 	install_base
 	install_nginx
+	install_apache
+	detect_web_user
 	install_php
+	install_wpcli
+	install_node
+	install_python
 	install_mariadb
+	install_phpmyadmin
 	configure_ssh
 	configure_firewall
 	install_agent

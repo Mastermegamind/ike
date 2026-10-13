@@ -20,17 +20,63 @@ type Config struct {
 	HomeBase      string `json:"home_base"`       // usually /home
 	StateDir      string `json:"state_dir"`       // site metadata JSON files
 	DefaultPHP    string `json:"default_php"`
+	RuntimesDir   string `json:"runtimes_dir"`   // Node.js and Python versions: <dir>/<runtime>/<version>/bin
+	AppsDir       string `json:"apps_dir"`       // root-owned start scripts for app sites
+	AppPortStart  int    `json:"app_port_start"` // first local port handed to apps
+	AccountsDir   string `json:"accounts_dir"`
+	PagesDir      string `json:"pages_dir"` // admin-editable starter, status and error pages
+	ToolsDir      string `json:"tools_dir"` // WP-CLI, uv
+	CronDir       string `json:"cron_dir"`  // /etc/cron.d
+	FirewallState string `json:"firewall_state"`
+	// Ports that can never be closed from the panel (SSH, web, panel ports).
+	ProtectedPorts []string `json:"protected_ports"`
+
+	// Web server stack chosen by the server admin at install time:
+	//   "nginx"  - Nginx only
+	//   "apache" - Apache only (listens on port 80)
+	//   "hybrid" - Nginx in front; each website picks "nginx" or "nginx+apache"
+	WebStack         string `json:"web_stack"`
+	DefaultWebServer string `json:"default_web_server"` // for new websites on a hybrid stack
+	ApacheSitesDir   string `json:"apache_sites_dir"`
+	ApacheListen     string `json:"apache_listen"` // "*:80" (apache stack) or "127.0.0.1:8080" (hybrid)
+}
+
+// WebServers lists the per-website choices this stack allows, default first.
+func (c Config) WebServers() []string {
+	switch c.WebStack {
+	case "apache":
+		return []string{"apache"}
+	case "hybrid":
+		if c.DefaultWebServer == "nginx" {
+			return []string{"nginx", "nginx+apache"}
+		}
+		return []string{"nginx+apache", "nginx"}
+	default:
+		return []string{"nginx"}
+	}
 }
 
 func Default() Config {
 	return Config{
-		Root:          "/",
-		WebUser:       "www-data",
-		WebGroup:      "www-data",
-		NginxSitesDir: "/etc/nginx/ike/sites",
-		HomeBase:      "/home",
-		StateDir:      "/var/lib/ike/sites",
-		DefaultPHP:    "8.3",
+		Root:           "/",
+		WebUser:        "www-data",
+		WebGroup:       "www-data",
+		NginxSitesDir:  "/etc/nginx/ike/sites",
+		HomeBase:       "/home",
+		StateDir:       "/var/lib/ike/sites",
+		DefaultPHP:     "8.3",
+		RuntimesDir:    "/opt/ike/runtimes",
+		AppsDir:        "/etc/ike/apps",
+		AppPortStart:   3001,
+		AccountsDir:    "/var/lib/ike/accounts",
+		PagesDir:       "/etc/ike/pages",
+		ToolsDir:       "/opt/ike/bin",
+		CronDir:        "/etc/cron.d",
+		FirewallState:  "/var/lib/ike/firewall.json",
+		ProtectedPorts: []string{"22/tcp", "80/tcp", "443/tcp"},
+		WebStack:       "nginx",
+		ApacheSitesDir: "/etc/apache2/ike/sites",
+		ApacheListen:   "127.0.0.1:8080",
 	}
 }
 

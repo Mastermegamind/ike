@@ -1,285 +1,464 @@
-// Package sites creates and removes hosted websites: one Linux user per site,
-// a dedicated PHP-FPM pool and an Nginx server block.
 package sites
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
-	"os/user"
 	"path/filepath"
+	"regexp"
 	"sort"
-	"strconv"
 	"strings"
-	"sync"
-	"text/template"
 	"time"
 
-	"github.com/YOUR-ORG/ike/agent/internal/config"
-	"github.com/YOUR-ORG/ike/agent/internal/runner"
 	"github.com/YOUR-ORG/ike/agent/internal/validate"
 )
 
-var (
-	ErrExists   = errors.New("already exists")
-	ErrNotFound = errors.New("site not found")
-)
-
-// Site is the stored metadata for one website.
+// Site is one website inside an account.
 type Site struct {
-	Domain    string    `json:"domain"`
-	User      string    `json:"user"`
-	PHP       string    `json:"php"`
-	DocRoot   string    `json:"doc_root"`
-	SSH       string    `json:"ssh"` // none | sftp | shell
-	CreatedAt time.Time `json:"created_at"`
+	Domain       string    `json:"domain"`
+	Account      string    `json:"account"`
+	Runtime      string    `json:"runtime"`           // php | node | python | static
+	Version      string    `json:"version,omitempty"` // 8.3, 22, 3.12
+	WebServer    string    `json:"web_server"`        // nginx | apache | nginx+apache
+	DocRoot      string    `json:"doc_root"`
+	Port         int       `json:"port,omitempty"` // local port for Node.js/Python apps
+	StartCommand string    `json:"start_command,omitempty"`
+	Status       string    `json:"status"`              // active | maintenance | suspended
+	AllowIPs     []string  `json:"allow_ips,omitempty"` // see the real site during maintenance
+	CreatedAt    time.Time `json:"created_at"`
 }
 
-// CreateRequest is what the control plane sends to create a site.
+// CreateRequest adds a website to an existing account.
 type CreateRequest struct {
-	Domain string `json:"domain"`
-	User   string `json:"user"`
-	PHP    string `json:"php,omitempty"`
+	Domain       string `json:"domain"`
+	Account      string `json:"account"`
+	Runtime      string `json:"runtime,omitempty"`    // default php
+	Version      string `json:"version,omitempty"`    // default: server default / newest installed
+	WebServer    string `json:"web_server,omitempty"` // default: the admin's choice for this server
+	StartCommand string `json:"start_command,omitempty"`
 }
 
-type Manager struct {
-	cfg config.Config
-	run runner.Runner
-	mu  sync.Mutex
+// UpdateRequest changes a website's runtime version, web server or start command.
+type UpdateRequest struct {
+	Version      string `json:"version,omitempty"`
+	WebServer    string `json:"web_server,omitempty"`
+	StartCommand string `json:"start_command,omitempty"`
 }
-
-func NewManager(cfg config.Config, r runner.Runner) *Manager {
-	return &Manager{cfg: cfg, run: r}
-}
-
-// p maps an absolute system path into the configured root.
-func (m *Manager) p(abs string) string { return filepath.Join(m.cfg.Root, abs) }
 
 type layout struct {
-	Domain, User, PHP         string
-	Home, SiteDir, DocRoot    string
-	TmpDir, LogDir, PHPSocket string
-	WebUser, WebGroup         string
-	VhostFile, PoolFile       string
-	StateFile                 string
+	Domain, User, Runtime, Version, WebServer string
+	Home, SiteDir, DocRoot, AppDir            string
+	TmpDir, LogDir, ErrorsDir, PagesDir       string
+	Status, StatusPage, ErrorCodes            string
+	AllowIPs, AllowIPsRegex                   []string
+	ErrorCodeList                             []int
+	PoolName, PHPSocket                       string
+	WebUser, WebGroup, ApacheListen           string
+	VhostFile, ApacheFile, PoolFile           string
+	StateFile, UnitName, UnitFile             string
+	StartScript, RuntimeBin, StartCommand     string
+	Port                                      int
+	IsApp                                     bool
 }
 
-func (m *Manager) layout(domain, usr, php string) layout {
-	home := filepath.Join(m.cfg.HomeBase, usr)
-	site := filepath.Join(home, "web", domain)
-	return layout{
-		Domain: domain, User: usr, PHP: php,
-		Home:      home,
-		SiteDir:   site,
-		DocRoot:   filepath.Join(site, "public_html"),
-		TmpDir:    filepath.Join(home, "tmp"),
-		LogDir:    filepath.Join("/var/log/ike", domain),
-		PHPSocket: fmt.Sprintf("/run/php/php%s-fpm-%s.sock", php, usr),
-		WebUser:   m.cfg.WebUser,
-		WebGroup:  m.cfg.WebGroup,
-		VhostFile: filepath.Join(m.cfg.NginxSitesDir, domain+".conf"),
-		PoolFile:  filepath.Join("/etc/php", php, "fpm/pool.d", "ike-"+usr+".conf"),
-		StateFile: filepath.Join(m.cfg.StateDir, domain+".json"),
+// siteID is a short, stable, filename-safe id for a domain.
+func siteID(domain string) string {
+	h := sha256.Sum256([]byte(domain))
+	return hex.EncodeToString(h[:4])
+}
+
+func (m *Manager) layout(s *Site) layout {
+	A := m.accountLayout(s.Account)
+	site := filepath.Join(A.WebDir, s.Domain)
+	key := s.Account + "-" + siteID(s.Domain)
+	L := layout{
+		Domain: s.Domain, User: s.Account, Runtime: s.Runtime, Version: s.Version, WebServer: s.WebServer,
+		Home:         A.Home,
+		SiteDir:      site,
+		DocRoot:      filepath.Join(site, "public_html"),
+		AppDir:       filepath.Join(site, "app"),
+		TmpDir:       A.TmpDir,
+		LogDir:       filepath.Join("/var/log/ike", s.Domain),
+		ErrorsDir:    filepath.Join(site, "errors"),
+		PagesDir:     m.cfg.PagesDir,
+		Status:       statusOf(s.Status),
+		AllowIPs:     s.AllowIPs,
+		WebUser:      m.cfg.WebUser,
+		WebGroup:     m.cfg.WebGroup,
+		ApacheListen: m.cfg.ApacheListen,
+		VhostFile:    filepath.Join(m.cfg.NginxSitesDir, s.Domain+".conf"),
+		ApacheFile:   filepath.Join(m.cfg.ApacheSitesDir, s.Domain+".conf"),
+		StateFile:    filepath.Join(m.cfg.StateDir, s.Domain+".json"),
+		UnitName:     "ike-app-" + key,
+		StartScript:  filepath.Join(m.cfg.AppsDir, key+".sh"),
+		Port:         s.Port,
+		StartCommand: s.StartCommand,
+		IsApp:        IsApp(s.Runtime),
+		PoolName:     key,
 	}
+	L.UnitFile = filepath.Join("/etc/systemd/system", L.UnitName+".service")
+	// Status page: the website's own copy if it has one, else the server-wide page.
+	if L.Status != StatusActive {
+		L.StatusPage = filepath.Join(m.cfg.PagesDir, L.Status+".html")
+		if L.Status == StatusMaintenance {
+			if _, err := os.Stat(m.p(filepath.Join(L.ErrorsDir, "maintenance.html"))); err == nil {
+				L.StatusPage = filepath.Join(L.ErrorsDir, "maintenance.html")
+			}
+		}
+	}
+	// Nginx answers these itself. Behind a proxy only its own gateway errors are
+	// replaced, so an app's or Apache's own 404 pages still show.
+	codes := ErrorCodes
+	if L.IsApp || L.WebServer == "nginx+apache" {
+		codes = []int{502, 504}
+	}
+	// Apache serves the website itself, so it gets the full set (gateway errors only for apps).
+	L.ErrorCodeList = ErrorCodes
+	if L.IsApp {
+		L.ErrorCodeList = []int{502, 503, 504}
+	}
+	for _, ip := range L.AllowIPs {
+		L.AllowIPsRegex = append(L.AllowIPsRegex, regexp.QuoteMeta(ip))
+	}
+	parts := make([]string, len(codes))
+	for i, c := range codes {
+		parts[i] = fmt.Sprint(c)
+	}
+	L.ErrorCodes = strings.Join(parts, " ")
+	if s.Runtime == RuntimePHP {
+		L.PHPSocket = fmt.Sprintf("/run/php/php%s-fpm-%s.sock", s.Version, key)
+		L.PoolFile = filepath.Join("/etc/php", s.Version, "fpm/pool.d", "ike-"+key+".conf")
+	}
+	if L.IsApp {
+		L.RuntimeBin = m.runtimeBin(s.Runtime, s.Version)
+	}
+	return L
 }
 
-// Create provisions a new site. On any failure, everything done so far is undone.
+func (L layout) usesNginx() bool  { return L.WebServer != "apache" }
+func (L layout) usesApache() bool { return L.WebServer == "apache" || L.WebServer == "nginx+apache" }
+
+// checkWebServer confirms the admin enabled this web server choice on this server.
+func (m *Manager) checkWebServer(ws, runtime string) error {
+	allowed := m.cfg.WebServers()
+	for _, a := range allowed {
+		if a == ws {
+			if ws == "nginx+apache" && IsApp(runtime) {
+				return fmt.Errorf("Node.js and Python apps are served by Nginx directly; use web_server \"nginx\"")
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("web server %q is not enabled on this server (available: %s)", ws, strings.Join(allowed, ", "))
+}
+
+// Create adds a website to an account. On any failure, everything done so far is undone.
 func (m *Manager) Create(ctx context.Context, req CreateRequest) (*Site, error) {
-	if req.PHP == "" {
-		req.PHP = m.cfg.DefaultPHP
+	if req.Runtime == "" {
+		req.Runtime = RuntimePHP
+	}
+	if req.Version == "" {
+		req.Version = m.defaultVersion(req.Runtime)
+	}
+	if req.Runtime == RuntimeStatic {
+		req.Version = ""
+	}
+	if req.WebServer == "" {
+		req.WebServer = m.cfg.WebServers()[0]
+		if IsApp(req.Runtime) && req.WebServer == "nginx+apache" {
+			req.WebServer = "nginx"
+		}
 	}
 	if err := validate.Domain(req.Domain); err != nil {
 		return nil, err
 	}
-	if err := validate.Username(req.User); err != nil {
+	if err := validate.Username(req.Account); err != nil {
+		return nil, fmt.Errorf("account: %w", err)
+	}
+	if err := m.checkRuntime(req.Runtime, req.Version); err != nil {
 		return nil, err
 	}
-	if err := validate.PHPVersion(req.PHP); err != nil {
+	if err := m.checkWebServer(req.WebServer, req.Runtime); err != nil {
 		return nil, err
+	}
+	if IsApp(req.Runtime) {
+		if req.StartCommand == "" {
+			req.StartCommand = defaultStartCommand(req.Runtime)
+		}
+		if err := validateStartCommand(req.StartCommand); err != nil {
+			return nil, err
+		}
+	} else {
+		req.StartCommand = ""
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	L := m.layout(req.Domain, req.User, req.PHP)
-
-	if _, err := os.Stat(m.p(L.StateFile)); err == nil {
-		return nil, fmt.Errorf("domain %s %w", req.Domain, ErrExists)
+	if _, err := m.getAccount(req.Account); err != nil {
+		return nil, err
 	}
-	if _, err := os.Stat(m.p(L.VhostFile)); err == nil {
-		return nil, fmt.Errorf("nginx config for %s %w", req.Domain, ErrExists)
+	site := &Site{
+		Domain: req.Domain, Account: req.Account, Runtime: req.Runtime, Version: req.Version,
+		WebServer: req.WebServer, StartCommand: req.StartCommand, Status: StatusActive, CreatedAt: time.Now().UTC(),
 	}
-	if m.userTaken(req.User) {
-		return nil, fmt.Errorf("user %s %w", req.User, ErrExists)
-	}
-	if _, err := os.Stat(m.p(filepath.Join("/etc/php", req.PHP, "fpm"))); err != nil {
-		return nil, fmt.Errorf("PHP %s is not installed on this server", req.PHP)
-	}
-
-	var undo []func()
-	rollback := func() {
-		for i := len(undo) - 1; i >= 0; i-- {
-			undo[i]()
+	if IsApp(req.Runtime) {
+		if site.Port = m.nextPort(); site.Port == 0 {
+			return nil, fmt.Errorf("no free local ports left for apps")
 		}
 	}
+	L := m.layout(site)
+	site.DocRoot = L.DocRoot
+	if L.IsApp {
+		site.DocRoot = L.AppDir
+	}
+	if _, err := os.Stat(m.p(L.StateFile)); err == nil {
+		return nil, fmt.Errorf("website %s %w", req.Domain, ErrExists)
+	}
+	for _, f := range []string{L.VhostFile, L.ApacheFile} {
+		if _, err := os.Stat(m.p(f)); err == nil {
+			return nil, fmt.Errorf("a web server config for %s %w", req.Domain, ErrExists)
+		}
+	}
+
+	var undo undoStack
 	fail := func(step string, err error) (*Site, error) {
 		slog.Error("site create failed, rolling back", "domain", req.Domain, "step", step, "err", err)
-		rollback()
+		undo.run()
 		return nil, fmt.Errorf("%s: %w", step, err)
 	}
 
-	// 1. Linux user (no login shell; SFTP access is added in a later phase).
-	if _, err := m.run.Run(ctx, "useradd", "--create-home", "--home-dir", L.Home,
-		"--shell", "/usr/sbin/nologin", "--user-group", req.User); err != nil {
-		return fail("create user", err)
+	// 1. Folders.
+	//    web/<domain>      0750 a:web
+	//    public_html       2750 a:web   setgid so new files keep the web group
+	//    app               0750 a:a     Node.js/Python code (reached through the proxy only)
+	//    logs              0750 a:a     PHP/app error logs written by the account user
+	dirs := []dirSpec{
+		{path: L.SiteDir, mode: 0o750, webGroup: true},
+		{path: L.DocRoot, mode: 0o750 | os.ModeSetgid, webGroup: true},
+		{path: L.ErrorsDir, mode: 0o750 | os.ModeSetgid, webGroup: true},
+		{path: filepath.Join(L.SiteDir, "logs"), mode: 0o750},
 	}
-	undo = append(undo, func() { _, _ = m.run.Run(context.Background(), "userdel", "--remove", req.User) })
-
-	// 2. Directories.
-	//    /home/u            0751 root:u  root-owned so it can be an SFTP chroot; others may only traverse
-	//    /home/u/web/<d>    0750 u:web
-	//    public_html        2750 u:web   setgid so new files keep the web group
-	//    logs               0750 u:u     PHP error log (written by the site's own PHP user)
-	//    tmp                0700 u:u
-	dirs := []struct {
-		path     string
-		mode     os.FileMode
-		webGroup bool
+	if L.IsApp {
+		dirs = append(dirs, dirSpec{path: L.AppDir, mode: 0o750})
+	}
+	undo.push(func() { _ = os.RemoveAll(m.p(L.SiteDir)) })
+	if err := m.mkdirs(req.Account, dirs); err != nil {
+		return fail("create folders", err)
+	}
+	starter := map[string]struct {
+		path string
+		body []byte
 	}{
-		{L.Home, 0o751, false},
-		{filepath.Join(L.Home, "web"), 0o750, true},
-		{L.SiteDir, 0o750, true},
-		{L.DocRoot, 0o750 | os.ModeSetgid, true},
-		{filepath.Join(L.SiteDir, "logs"), 0o750, false},
-		{L.TmpDir, 0o700, false},
+		RuntimePHP:    {filepath.Join(L.DocRoot, "index.php"), m.starterPage("index.php", req.Domain)},
+		RuntimeStatic: {filepath.Join(L.DocRoot, "index.html"), m.starterPage("index.html", req.Domain)},
+		RuntimeNode:   {filepath.Join(L.AppDir, "server.js"), []byte(sampleNodeApp)},
+		RuntimePython: {filepath.Join(L.AppDir, "app.py"), []byte(samplePythonApp)},
+	}[req.Runtime]
+	if err := writeFile(m.p(starter.path), starter.body, 0o640); err != nil {
+		return fail("write starter file", err)
 	}
-	for _, d := range dirs {
-		if err := os.MkdirAll(m.p(d.path), 0o750); err != nil {
-			return fail("create directories", err)
-		}
-		if err := os.Chmod(m.p(d.path), d.mode); err != nil {
-			return fail("set permissions", err)
-		}
-		if err := m.chown(d.path, req.User, d.webGroup); err != nil {
-			return fail("set ownership", err)
-		}
-	}
-	// sshd refuses a chroot that the user can write to, so the home itself belongs to root.
-	if err := m.chownRootGroup(L.Home, req.User); err != nil {
-		return fail("set home ownership", err)
-	}
-	idx := filepath.Join(L.DocRoot, "index.html")
-	if err := writeFile(m.p(idx), []byte(defaultIndex), 0o640); err != nil {
-		return fail("write index.html", err)
-	}
-	if err := m.chown(idx, req.User, true); err != nil {
+	if err := m.chown(starter.path, req.Account, !L.IsApp); err != nil {
 		return fail("set ownership", err)
 	}
-	if m.cfg.DryRun {
-		// useradd --remove does nothing in dry-run, so clean the fake home ourselves.
-		undo = append(undo, func() { _ = os.RemoveAll(m.p(L.Home)) })
+	if err := m.copyErrorPages(L); err != nil {
+		return fail("write error pages", err)
 	}
 
-	// 3. Log directory owned by root, outside the user's reach.
+	// 2. Log folder owned by root, outside the account's reach.
 	if err := os.MkdirAll(m.p(L.LogDir), 0o750); err != nil {
-		return fail("create log directory", err)
+		return fail("create log folder", err)
 	}
-	undo = append(undo, func() { _ = os.RemoveAll(m.p(L.LogDir)) })
+	undo.push(func() { _ = os.RemoveAll(m.p(L.LogDir)) })
 
-	// 4. PHP-FPM pool.
-	if err := m.render(poolTmpl, L, L.PoolFile); err != nil {
-		return fail("write PHP-FPM pool", err)
-	}
-	undo = append(undo, func() {
-		_ = os.Remove(m.p(L.PoolFile))
-		_, _ = m.run.Run(context.Background(), "systemctl", "reload", "php"+req.PHP+"-fpm")
-	})
-	if _, err := m.run.Run(ctx, "php-fpm"+req.PHP, "--test"); err != nil {
-		return fail("test PHP-FPM config", err)
-	}
-	if _, err := m.run.Run(ctx, "systemctl", "reload", "php"+req.PHP+"-fpm"); err != nil {
-		return fail("reload PHP-FPM", err)
-	}
-
-	// 5. Nginx vhost.
-	if err := m.render(nginxTmpl, L, L.VhostFile); err != nil {
-		return fail("write nginx config", err)
-	}
-	undo = append(undo, func() {
-		_ = os.Remove(m.p(L.VhostFile))
-		_, _ = m.run.Run(context.Background(), "systemctl", "reload", "nginx")
-	})
-	if _, err := m.run.Run(ctx, "nginx", "-t"); err != nil {
-		return fail("test nginx config", err)
-	}
-	if _, err := m.run.Run(ctx, "systemctl", "reload", "nginx"); err != nil {
-		return fail("reload nginx", err)
+	// 3. Runtime.
+	switch {
+	case req.Runtime == RuntimePHP:
+		undo.push(func() { m.removePool(context.Background(), L) })
+		if err := m.writePool(ctx, L); err != nil {
+			return fail("set up PHP-FPM", err)
+		}
+	case L.IsApp:
+		if req.Runtime == RuntimePython {
+			// A private virtualenv, created as the account user, so pip installs stay in the app.
+			if _, err := m.run.Run(ctx, "runuser", "-u", req.Account, "--",
+				filepath.Join(L.RuntimeBin, "python3"), "-m", "venv", filepath.Join(L.AppDir, ".venv")); err != nil {
+				return fail("create Python virtualenv", err)
+			}
+		}
+		undo.push(func() { m.removeApp(context.Background(), L) })
+		if err := m.writeApp(ctx, L, true); err != nil {
+			return fail("start app", err)
+		}
 	}
 
-	// 6. Save metadata.
-	site := &Site{Domain: req.Domain, User: req.User, PHP: req.PHP, DocRoot: L.DocRoot, SSH: SSHNone, CreatedAt: time.Now().UTC()}
-	if err := m.saveSite(site); err != nil {
-		return fail("save site metadata", err)
+	// 4. Web servers: Apache first (when used) so Nginx never proxies to a missing vhost.
+	if L.usesApache() {
+		undo.push(func() { m.removeApacheVhost(context.Background(), L) })
+		if err := m.writeApacheVhost(ctx, L); err != nil {
+			return fail("configure Apache", err)
+		}
+	}
+	if L.usesNginx() {
+		undo.push(func() { m.removeNginxVhost(context.Background(), L) })
+		if err := m.writeNginxVhost(ctx, L); err != nil {
+			return fail("configure Nginx", err)
+		}
 	}
 
-	slog.Info("site created", "domain", site.Domain, "user", site.User, "php", site.PHP)
+	// 5. Save.
+	if err := m.writeJSON(L.StateFile, site); err != nil {
+		return fail("save website", err)
+	}
+	slog.Info("site created", "domain", site.Domain, "account", site.Account, "runtime", site.Runtime,
+		"version", site.Version, "web_server", site.WebServer)
 	return site, nil
 }
 
-// Delete removes a site's web server and PHP config. With removeFiles, the Linux
-// user and all of their files are deleted too.
+// Update switches a website's runtime version (PHP 8.2 → 8.4, Node.js 20 → 22),
+// web server (nginx ↔ nginx+apache) and/or app start command.
+func (m *Manager) Update(ctx context.Context, domain string, req UpdateRequest) (*Site, error) {
+	if err := validate.Domain(domain); err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	site, err := m.get(domain)
+	if err != nil {
+		return nil, err
+	}
+	old := *site
+	if req.Version != "" && req.Version != site.Version {
+		if site.Runtime == RuntimeStatic {
+			return nil, fmt.Errorf("static websites have no runtime version")
+		}
+		if err := m.checkRuntime(site.Runtime, req.Version); err != nil {
+			return nil, err
+		}
+		site.Version = req.Version
+	}
+	if req.WebServer != "" && req.WebServer != site.WebServer {
+		if err := m.checkWebServer(req.WebServer, site.Runtime); err != nil {
+			return nil, err
+		}
+		site.WebServer = req.WebServer
+	}
+	if req.StartCommand != "" {
+		if !IsApp(site.Runtime) {
+			return nil, fmt.Errorf("only Node.js and Python websites have a start command")
+		}
+		if err := validateStartCommand(req.StartCommand); err != nil {
+			return nil, err
+		}
+		site.StartCommand = req.StartCommand
+	}
+	if site.Version == old.Version && site.WebServer == old.WebServer && site.StartCommand == old.StartCommand {
+		return site, nil
+	}
+	oldL, newL := m.layout(&old), m.layout(site)
+
+	var undo undoStack
+	fail := func(step string, err error) (*Site, error) {
+		undo.run()
+		return nil, fmt.Errorf("%s: %w", step, err)
+	}
+	// Runtime first: bring up the new pool/app before web servers point at it.
+	switch {
+	case site.Runtime == RuntimePHP && site.Version != old.Version:
+		undo.push(func() { m.removePool(context.Background(), newL) })
+		if err := m.writePool(ctx, newL); err != nil {
+			return fail("set up PHP "+site.Version, err)
+		}
+	case IsApp(site.Runtime) && (site.Version != old.Version || site.StartCommand != old.StartCommand):
+		undo.push(func() { _ = m.writeApp(context.Background(), oldL, false) })
+		if err := m.writeApp(ctx, newL, false); err != nil {
+			return fail("restart app", err)
+		}
+	}
+
+	// Rewrite web server configs for the new shape; on failure restore the old ones.
+	undo.push(func() {
+		if oldL.usesApache() {
+			_ = m.writeApacheVhost(context.Background(), oldL)
+		} else {
+			m.removeApacheVhost(context.Background(), newL)
+		}
+		if oldL.usesNginx() {
+			_ = m.writeNginxVhost(context.Background(), oldL)
+		}
+	})
+	if newL.usesApache() {
+		if err := m.writeApacheVhost(ctx, newL); err != nil {
+			return fail("configure Apache", err)
+		}
+	}
+	if newL.usesNginx() {
+		if err := m.writeNginxVhost(ctx, newL); err != nil {
+			return fail("configure Nginx", err)
+		}
+	}
+	if oldL.usesApache() && !newL.usesApache() {
+		m.removeApacheVhost(ctx, oldL)
+	}
+	if site.Runtime == RuntimePHP && site.Version != old.Version {
+		m.removePool(ctx, oldL)
+	}
+
+	if err := m.writeJSON(newL.StateFile, site); err != nil {
+		return nil, err
+	}
+	slog.Info("site updated", "domain", domain, "version", site.Version, "web_server", site.WebServer)
+	return site, nil
+}
+
+// Delete removes a website's configuration. With removeFiles, its folder is
+// deleted too; the account and its other websites are untouched.
 func (m *Manager) Delete(ctx context.Context, domain string, removeFiles bool) error {
 	if err := validate.Domain(domain); err != nil {
 		return err
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
 	site, err := m.get(domain)
 	if err != nil {
 		return err
 	}
-	L := m.layout(site.Domain, site.User, site.PHP)
+	return m.deleteSite(ctx, site, removeFiles)
+}
 
-	if err := removeIfExists(m.p(L.VhostFile)); err != nil {
-		return err
+func (m *Manager) deleteSite(ctx context.Context, site *Site, removeFiles bool) error {
+	L := m.layout(site)
+	if L.usesNginx() {
+		m.removeNginxVhost(ctx, L)
 	}
-	if _, err := m.run.Run(ctx, "systemctl", "reload", "nginx"); err != nil {
-		return err
+	if L.usesApache() {
+		m.removeApacheVhost(ctx, L)
 	}
-	if err := removeIfExists(m.p(L.PoolFile)); err != nil {
-		return err
-	}
-	if _, err := m.run.Run(ctx, "systemctl", "reload", "php"+site.PHP+"-fpm"); err != nil {
-		return err
-	}
-	if err := removeIfExists(m.keysFile(site.User)); err != nil {
-		return err
-	}
-	if _, err := m.run.Run(ctx, "usermod", "--shell", "/usr/sbin/nologin", "--groups", "", site.User); err != nil && !removeFiles {
-		return err
+	switch {
+	case site.Runtime == RuntimePHP:
+		m.removePool(ctx, L)
+	case L.IsApp:
+		m.removeApp(ctx, L)
 	}
 	if removeFiles {
-		if _, err := m.run.Run(ctx, "userdel", "--remove", site.User); err != nil {
+		// os.RemoveAll never follows symlinks, so a planted link can't redirect the delete.
+		if err := os.RemoveAll(m.p(L.SiteDir)); err != nil {
 			return err
-		}
-		if m.cfg.DryRun {
-			_ = os.RemoveAll(m.p(L.Home))
 		}
 		_ = os.RemoveAll(m.p(L.LogDir))
 	}
 	if err := removeIfExists(m.p(L.StateFile)); err != nil {
 		return err
 	}
-	slog.Info("site deleted", "domain", domain, "files_removed", removeFiles)
+	slog.Info("site deleted", "domain", site.Domain, "files_removed", removeFiles)
 	return nil
 }
 
-// List returns all sites sorted by domain.
+// List returns all websites sorted by domain.
 func (m *Manager) List() ([]Site, error) {
 	entries, err := os.ReadDir(m.p(m.cfg.StateDir))
 	if errors.Is(err, os.ErrNotExist) {
@@ -304,7 +483,7 @@ func (m *Manager) List() ([]Site, error) {
 	return out, nil
 }
 
-// Get returns one site.
+// Get returns one website.
 func (m *Manager) Get(domain string) (*Site, error) {
 	if err := validate.Domain(domain); err != nil {
 		return nil, err
@@ -313,105 +492,100 @@ func (m *Manager) Get(domain string) (*Site, error) {
 }
 
 func (m *Manager) get(domain string) (*Site, error) {
-	b, err := os.ReadFile(m.p(filepath.Join(m.cfg.StateDir, domain+".json")))
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, ErrNotFound
-	}
-	if err != nil {
-		return nil, err
-	}
 	var s Site
-	if err := json.Unmarshal(b, &s); err != nil {
+	if err := m.readJSON(filepath.Join(m.cfg.StateDir, domain+".json"), &s); err != nil {
+		if err == ErrNotFound {
+			return nil, fmt.Errorf("website %s %w", domain, ErrNotFound)
+		}
 		return nil, err
 	}
 	return &s, nil
 }
 
-func (m *Manager) userTaken(name string) bool {
-	if !m.cfg.DryRun {
-		if _, err := user.Lookup(name); err == nil {
-			return true
-		}
+// ------------------------------------------------------------ components ---
+
+func (m *Manager) writePool(ctx context.Context, L layout) error {
+	if err := m.render(poolTmpl, L, L.PoolFile, 0o644); err != nil {
+		return err
 	}
-	sites, _ := m.List()
-	for _, s := range sites {
-		if s.User == name {
-			return true
-		}
+	if _, err := m.run.Run(ctx, "php-fpm"+L.Version, "--test"); err != nil {
+		return err
 	}
-	return false
+	_, err := m.run.Run(ctx, "systemctl", "reload", "php"+L.Version+"-fpm")
+	return err
 }
 
-// chown sets owner to the site user and group to either the web server group or
-// the user's own group. Skipped in dry-run mode. Uses Lchown so a symlink is never followed.
-func (m *Manager) chown(path, usr string, webGroup bool) error {
-	if m.cfg.DryRun {
-		return nil
+func (m *Manager) removePool(ctx context.Context, L layout) {
+	if L.PoolFile == "" {
+		return
 	}
-	u, err := user.Lookup(usr)
-	if err != nil {
-		return err
+	if _, err := os.Stat(m.p(L.PoolFile)); err != nil {
+		return
 	}
-	uid, _ := strconv.Atoi(u.Uid)
-	gid, _ := strconv.Atoi(u.Gid)
-	if webGroup {
-		g, err := user.LookupGroup(m.cfg.WebGroup)
-		if err != nil {
-			return fmt.Errorf("web server group %q: %w", m.cfg.WebGroup, err)
-		}
-		gid, _ = strconv.Atoi(g.Gid)
-	}
-	return os.Lchown(m.p(path), uid, gid)
+	_ = os.Remove(m.p(L.PoolFile))
+	_, _ = m.run.Run(ctx, "systemctl", "reload", "php"+L.Version+"-fpm")
 }
 
-// chownRootGroup makes path owned by root with the site user's own group.
-func (m *Manager) chownRootGroup(path, usr string) error {
-	if m.cfg.DryRun {
-		return nil
-	}
-	u, err := user.Lookup(usr)
-	if err != nil {
+// writeApp writes the root-owned start script and systemd unit, then (re)starts the app.
+func (m *Manager) writeApp(ctx context.Context, L layout, first bool) error {
+	if err := m.render(startScriptTmpl, L, L.StartScript, 0o755); err != nil {
 		return err
 	}
-	gid, _ := strconv.Atoi(u.Gid)
-	return os.Lchown(m.p(path), 0, gid)
+	if err := m.render(unitTmpl, L, L.UnitFile, 0o644); err != nil {
+		return err
+	}
+	if _, err := m.run.Run(ctx, "systemctl", "daemon-reload"); err != nil {
+		return err
+	}
+	if first {
+		_, err := m.run.Run(ctx, "systemctl", "enable", "--now", L.UnitName)
+		return err
+	}
+	_, err := m.run.Run(ctx, "systemctl", "restart", L.UnitName)
+	return err
 }
 
-func (m *Manager) render(t *template.Template, data layout, dest string) error {
-	var buf bytes.Buffer
-	if err := t.Execute(&buf, data); err != nil {
-		return err
-	}
-	return writeFile(m.p(dest), buf.Bytes(), 0o644)
+func (m *Manager) removeApp(ctx context.Context, L layout) {
+	_, _ = m.run.Run(ctx, "systemctl", "disable", "--now", L.UnitName)
+	_ = os.Remove(m.p(L.UnitFile))
+	_ = os.Remove(m.p(L.StartScript))
+	_, _ = m.run.Run(ctx, "systemctl", "daemon-reload")
 }
 
-// writeFile writes atomically: temp file in the same directory, then rename.
-func writeFile(path string, data []byte, mode os.FileMode) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+func (m *Manager) writeNginxVhost(ctx context.Context, L layout) error {
+	if err := m.render(nginxTmpl, L, L.VhostFile, 0o644); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".ike-*")
-	if err != nil {
+	if _, err := m.run.Run(ctx, "nginx", "-t"); err != nil {
 		return err
 	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Chmod(mode); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
+	_, err := m.run.Run(ctx, "systemctl", "reload", "nginx")
+	return err
 }
 
-func removeIfExists(path string) error {
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+func (m *Manager) removeNginxVhost(ctx context.Context, L layout) {
+	if _, err := os.Stat(m.p(L.VhostFile)); err != nil {
+		return
+	}
+	_ = os.Remove(m.p(L.VhostFile))
+	_, _ = m.run.Run(ctx, "systemctl", "reload", "nginx")
+}
+
+func (m *Manager) writeApacheVhost(ctx context.Context, L layout) error {
+	if err := m.render(apacheTmpl, L, L.ApacheFile, 0o644); err != nil {
 		return err
 	}
-	return nil
+	if _, err := m.run.Run(ctx, "apache2ctl", "configtest"); err != nil {
+		return err
+	}
+	_, err := m.run.Run(ctx, "systemctl", "reload", "apache2")
+	return err
+}
+
+func (m *Manager) removeApacheVhost(ctx context.Context, L layout) {
+	if _, err := os.Stat(m.p(L.ApacheFile)); err != nil {
+		return
+	}
+	_ = os.Remove(m.p(L.ApacheFile))
+	_, _ = m.run.Run(ctx, "systemctl", "reload", "apache2")
 }

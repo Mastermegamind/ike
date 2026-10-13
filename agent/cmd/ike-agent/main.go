@@ -19,6 +19,7 @@ import (
 
 	"github.com/YOUR-ORG/ike/agent/internal/api"
 	"github.com/YOUR-ORG/ike/agent/internal/config"
+	"github.com/YOUR-ORG/ike/agent/internal/firewall"
 	"github.com/YOUR-ORG/ike/agent/internal/runner"
 	"github.com/YOUR-ORG/ike/agent/internal/sites"
 )
@@ -67,7 +68,14 @@ func run(socket, cfgPath, root, group string, dryRun bool) error {
 		slog.Warn("DRY-RUN mode: no system commands will be executed", "root", root)
 	}
 
-	srv := &api.Server{Sites: sites.NewManager(cfg, r), Runner: r, Root: root}
+	mgr := sites.NewManager(cfg, r)
+	if err := mgr.EnsurePages(); err != nil {
+		slog.Warn("could not write default status/error pages", "err", err)
+	}
+	fw := &firewall.Manager{Run: r, StateFile: filepath.Join(root, cfg.FirewallState), Protected: cfg.ProtectedPorts}
+	srv := &api.Server{Sites: mgr, Firewall: fw, Runner: r, Config: cfg,
+		AuditPath: filepath.Join(root, "var/log/ike/agent-audit.log")}
+	_ = os.MkdirAll(filepath.Dir(srv.AuditPath), 0o750)
 
 	if err := os.MkdirAll(filepath.Dir(socket), 0o750); err != nil {
 		return err

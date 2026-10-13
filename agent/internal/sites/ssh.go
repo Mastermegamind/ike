@@ -6,16 +6,17 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/YOUR-ORG/ike/agent/internal/validate"
 )
 
-// SSH access modes for a site's Linux user.
+// SSH access modes for an account's Linux user.
 const (
 	SSHNone  = "none"  // no login at all (default)
 	SSHSFTP  = "sftp"  // SFTP only, chrooted to the user's home (sshd Match Group ike-sftp)
@@ -88,8 +89,8 @@ func ParsePublicKey(s string) (SSHKey, error) {
 	return SSHKey{Type: typ, Fingerprint: fp, Comment: comment, line: line}, nil
 }
 
-// SetSSHMode switches a site's user between none, sftp and shell.
-func (m *Manager) SetSSHMode(ctx context.Context, domain, mode string) (*Site, error) {
+// SetSSHMode switches an account between none, sftp and shell.
+func (m *Manager) SetSSHMode(ctx context.Context, account, mode string) (*Account, error) {
 	shell, groups := "/usr/sbin/nologin", ""
 	switch mode {
 	case SSHNone:
@@ -100,46 +101,49 @@ func (m *Manager) SetSSHMode(ctx context.Context, domain, mode string) (*Site, e
 	default:
 		return nil, fmt.Errorf("ssh mode must be %q, %q or %q", SSHNone, SSHSFTP, SSHShell)
 	}
+	if err := validate.Username(account); err != nil {
+		return nil, err
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	site, err := m.Get(domain)
+	a, err := m.getAccount(account)
 	if err != nil {
 		return nil, err
 	}
-
-	// --groups replaces the supplementary group list; site users have no other groups.
-	if _, err := m.run.Run(ctx, "usermod", "--shell", shell, "--groups", groups, site.User); err != nil {
+	if a.Suspended && mode != SSHNone {
+		return nil, fmt.Errorf("account %s is suspended; reactivate it first", account)
+	}
+	// --groups replaces the supplementary group list; account users have no other groups.
+	if _, err := m.run.Run(ctx, "usermod", "--shell", shell, "--groups", groups, account); err != nil {
 		return nil, err
 	}
-	site.SSH = mode
-	if err := m.saveSite(site); err != nil {
+	a.SSH = mode
+	if err := m.saveAccount(a); err != nil {
 		return nil, err
 	}
-	return site, nil
+	return a, nil
 }
 
-// ListSSHKeys returns the keys authorized for a site's user.
-func (m *Manager) ListSSHKeys(domain string) ([]SSHKey, error) {
-	site, err := m.Get(domain)
-	if err != nil {
+// ListSSHKeys returns the keys authorized for an account.
+func (m *Manager) ListSSHKeys(account string) ([]SSHKey, error) {
+	if _, err := m.GetAccount(account); err != nil {
 		return nil, err
 	}
-	return m.readKeys(site.User)
+	return m.readKeys(account)
 }
 
-// AddSSHKey authorizes a public key for a site's user.
-func (m *Manager) AddSSHKey(domain, publicKey string) (SSHKey, error) {
+// AddSSHKey authorizes a public key for an account.
+func (m *Manager) AddSSHKey(account, publicKey string) (SSHKey, error) {
 	k, err := ParsePublicKey(publicKey)
 	if err != nil {
 		return SSHKey{}, err
 	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	site, err := m.Get(domain)
-	if err != nil {
+	if _, err := m.GetAccount(account); err != nil {
 		return SSHKey{}, err
 	}
-	keys, err := m.readKeys(site.User)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	keys, err := m.readKeys(account)
 	if err != nil {
 		return SSHKey{}, err
 	}
@@ -149,20 +153,19 @@ func (m *Manager) AddSSHKey(domain, publicKey string) (SSHKey, error) {
 		}
 	}
 	if len(keys) >= maxKeys {
-		return SSHKey{}, fmt.Errorf("a site can have at most %d SSH keys", maxKeys)
+		return SSHKey{}, fmt.Errorf("an account can have at most %d SSH keys", maxKeys)
 	}
-	return k, m.writeKeys(site.User, append(keys, k))
+	return k, m.writeKeys(account, append(keys, k))
 }
 
 // RemoveSSHKey removes a key by its SHA256 fingerprint.
-func (m *Manager) RemoveSSHKey(domain, fingerprint string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	site, err := m.Get(domain)
-	if err != nil {
+func (m *Manager) RemoveSSHKey(account, fingerprint string) error {
+	if _, err := m.GetAccount(account); err != nil {
 		return err
 	}
-	keys, err := m.readKeys(site.User)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	keys, err := m.readKeys(account)
 	if err != nil {
 		return err
 	}
@@ -176,9 +179,9 @@ func (m *Manager) RemoveSSHKey(domain, fingerprint string) error {
 		out = append(out, k)
 	}
 	if !found {
-		return fmt.Errorf("key %s: %w", fingerprint, ErrNotFound)
+		return fmt.Errorf("key %s %w", fingerprint, ErrNotFound)
 	}
-	return m.writeKeys(site.User, out)
+	return m.writeKeys(account, out)
 }
 
 func (m *Manager) keysFile(usr string) string { return m.p(filepath.Join(keysDir, usr)) }
@@ -213,9 +216,4 @@ func (m *Manager) writeKeys(usr string, keys []SSHKey) error {
 	}
 	// sshd requires the file and its directories to be root-owned and not group/world writable.
 	return writeFile(m.keysFile(usr), buf.Bytes(), 0o644)
-}
-
-func (m *Manager) saveSite(s *Site) error {
-	b, _ := json.MarshalIndent(s, "", "  ")
-	return writeFile(m.p(filepath.Join(m.cfg.StateDir, s.Domain+".json")), b, 0o600)
 }

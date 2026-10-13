@@ -14,6 +14,7 @@ import (
 	"github.com/YOUR-ORG/ike/agent/internal/api"
 	"github.com/YOUR-ORG/ike/agent/internal/client"
 	"github.com/YOUR-ORG/ike/agent/internal/config"
+	"github.com/YOUR-ORG/ike/agent/internal/firewall"
 	"github.com/YOUR-ORG/ike/agent/internal/runner"
 	"github.com/YOUR-ORG/ike/agent/internal/sites"
 )
@@ -22,13 +23,14 @@ import (
 func newServer(t *testing.T, allowWrite bool) (*Server, *bytes.Buffer) {
 	t.Helper()
 	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, "etc/php/8.3/fpm"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, "etc/php/8.3/fpm/pool.d"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	cfg := config.Default()
 	cfg.Root, cfg.DryRun = root, true
 	r := &runner.DryRun{}
-	agent := &api.Server{Sites: sites.NewManager(cfg, r), Runner: r, Root: root}
+	fw := &firewall.Manager{Run: r, StateFile: filepath.Join(root, "fw.json"), Protected: cfg.ProtectedPorts}
+	agent := &api.Server{Sites: sites.NewManager(cfg, r), Firewall: fw, Runner: r, Config: cfg}
 	ts := httptest.NewServer(agent.Handler())
 	t.Cleanup(ts.Close)
 
@@ -104,39 +106,57 @@ func TestReadOnlyModeHidesAndBlocksWriteTools(t *testing.T) {
 func TestSiteLifecycleOverMCP(t *testing.T) {
 	s, audit := newServer(t, true)
 
-	text, isErr := callTool(t, s, "create_site", map[string]any{"domain": "shop.com.ng", "user": "shop"})
+	if text, isErr := callTool(t, s, "create_account", map[string]any{"name": "shop"}); isErr {
+		t.Fatalf("create_account: %s", text)
+	}
+	text, isErr := callTool(t, s, "create_site", map[string]any{"domain": "shop.com.ng", "account": "shop"})
 	if isErr {
 		t.Fatalf("create_site: %s", text)
 	}
-	text, _ = callTool(t, s, "list_sites", map[string]any{})
-	if !strings.Contains(text, "shop.com.ng") {
+	if text, _ = callTool(t, s, "list_sites", map[string]any{"account": "shop"}); !strings.Contains(text, "shop.com.ng") {
 		t.Errorf("list_sites: %s", text)
 	}
 
 	// Validation errors from the agent come back as tool errors, not protocol errors.
-	text, isErr = callTool(t, s, "create_site", map[string]any{"domain": "BAD DOMAIN", "user": "x"})
-	if !isErr {
-		t.Errorf("bad domain accepted: %s", text)
+	if _, isErr = callTool(t, s, "create_site", map[string]any{"domain": "BAD DOMAIN", "account": "shop"}); !isErr {
+		t.Error("bad domain accepted")
 	}
-	if _, isErr = callTool(t, s, "create_site", map[string]any{"domain": "a.com", "user": "auser", "evil": "x"}); !isErr {
+	if _, isErr = callTool(t, s, "create_site", map[string]any{"domain": "a.com", "account": "shop", "evil": "x"}); !isErr {
 		t.Error("unknown argument accepted")
 	}
+	if _, isErr = callTool(t, s, "create_site", map[string]any{"domain": "a.com", "account": "shop", "runtime": "ruby"}); !isErr {
+		t.Error("enum not enforced")
+	}
 
-	if _, isErr = callTool(t, s, "set_ssh_access", map[string]any{"domain": "shop.com.ng", "mode": "sftp"}); isErr {
-		t.Error("set_ssh_access failed")
+	for name, args := range map[string]map[string]any{
+		"set_ssh_access":  {"account": "shop", "mode": "sftp"},
+		"set_site_status": {"domain": "shop.com.ng", "status": "maintenance", "allow_ips": []any{"203.0.113.9"}},
+		"add_cron_job":    {"account": "shop", "schedule": "@hourly", "command": "php artisan schedule:run"},
+		"block_address":   {"address": "198.51.100.23", "comment": "Spam"},
+		"open_port":       {"port": "8080", "proto": "tcp"},
+	} {
+		if text, isErr := callTool(t, s, name, args); isErr {
+			t.Errorf("%s: %s", name, text)
+		}
+	}
+	if text, isErr := callTool(t, s, "close_port", map[string]any{"port": "22", "proto": "tcp"}); !isErr {
+		t.Errorf("closing SSH must fail: %s", text)
 	}
 
 	text, isErr = callTool(t, s, "delete_site", map[string]any{"domain": "shop.com.ng", "confirm_domain": "shop.com"})
 	if !isErr || !strings.Contains(text, "nothing was deleted") {
 		t.Errorf("mismatched confirmation must fail: %q", text)
 	}
-	if text, isErr = callTool(t, s, "delete_site", map[string]any{"domain": "shop.com.ng", "confirm_domain": "shop.com.ng", "remove_files": true}); isErr {
-		t.Errorf("delete_site: %s", text)
+	if text, isErr = callTool(t, s, "delete_account", map[string]any{"account": "shop", "confirm_account": "shop"}); !isErr {
+		t.Errorf("account with websites deleted without with_sites: %s", text)
+	}
+	if text, isErr = callTool(t, s, "delete_account", map[string]any{"account": "shop", "confirm_account": "shop", "with_sites": true}); isErr {
+		t.Errorf("delete_account: %s", text)
 	}
 	if text, _ = callTool(t, s, "list_sites", map[string]any{}); strings.Contains(text, "shop.com.ng") {
-		t.Error("site still listed after delete")
+		t.Error("site still listed after account delete")
 	}
-	if strings.Count(audit.String(), "\n") < 5 {
+	if strings.Count(audit.String(), "\n") < 10 {
 		t.Errorf("expected audit lines, got:\n%s", audit.String())
 	}
 }
