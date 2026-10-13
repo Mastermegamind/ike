@@ -22,7 +22,7 @@
 # cut off halfway can never run half a script.
 main() {
 	set -euo pipefail
-	local repo="${IKE_REPO:-YOUR-ORG/ike}" version="${IKE_VERSION:-latest}" base tmp sum want got
+	local repo="${IKE_REPO:-YOUR-ORG/ike}" version="${IKE_VERSION:-latest}" base tmp want got
 
 	say() { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
 	die() { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
@@ -58,7 +58,9 @@ main() {
 	fi
 
 	tmp=$(mktemp -d)
-	trap 'rm -rf "$tmp"' EXIT
+	# Expanded now on purpose: $tmp is local and gone by the time the trap runs.
+	# shellcheck disable=SC2064
+	trap "rm -rf '${tmp}'" EXIT
 	say "Downloading the Ike installer (${repo}, ${version})"
 	curl -fsSL --proto '=https' --tlsv1.2 --retry 3 -o "${tmp}/install.sh" "${base}/install.sh" \
 		|| die "Could not download ${base}/install.sh. Check the server can reach github.com."
@@ -69,8 +71,7 @@ main() {
 	[ -n "$want" ] && [ "$want" = "$got" ] || die "Checksum mismatch for install.sh (expected ${want:-nothing}, got ${got}). Nothing was installed."
 	say "Checksum verified"
 
-	sum="IKE_REPO=${repo} IKE_VERSION=${version}"
-	say "Starting the installer (${sum})"
+	say "Starting the installer"
 	# When piped from curl, stdin is the script itself. Hand the installer the
 	# terminal instead, so the guided wizard can ask its questions.
 	if [ $# -eq 0 ] && { : </dev/tty; } 2>/dev/null; then
