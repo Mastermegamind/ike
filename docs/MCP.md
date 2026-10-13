@@ -27,23 +27,21 @@ With `restrict` and a forced command, that key can only ever start the MCP serve
 
 ## Tools
 
-| Tool | Mode | What it does |
+37 tools. Read-only tools are always available; the rest need `--allow-write`.
+
+| Area | Read | Write |
 |---|---|---|
-| `get_system_info` | read | OS, kernel, CPU, RAM, disk, uptime, PHP versions |
-| `get_service_status` | read | nginx, mariadb, PHP-FPM, fail2ban, agent |
-| `list_sites` | read | All sites |
-| `get_site` | read | One site |
-| `list_ssh_keys` | read | Keys authorized for a site user |
-| `create_site` | write | New Linux user + PHP-FPM pool + Nginx vhost |
-| `set_ssh_access` | write | `none`, `sftp` (jailed) or `shell` |
-| `add_ssh_key` | write | Authorize a public key |
-| `remove_ssh_key` | write | Remove a key by fingerprint (destructive) |
-| `delete_site` | write | Remove a site; requires `confirm_domain` (destructive) |
+| Server | `get_system_info`, `get_service_status`, `list_runtimes`, `get_audit_log` | — |
+| Accounts | `list_accounts`, `list_ssh_keys`, `list_cron_jobs`, `list_databases` | `create_account`, `set_ssh_access`, `add_ssh_key`, `remove_ssh_key`, `add_cron_job`, `delete_cron_job`, `create_database`, `suspend_account`, `unsuspend_account`, `delete_account` |
+| Websites | `list_sites`, `get_site`, `get_site_log`, `get_app_logs`, `list_apps` | `create_site`, `update_site`, `set_site_status`, `app_action`, `install_wordpress`, `fix_permissions`, `delete_site` |
+| Firewall | `get_firewall`, `list_bans` | `open_port`, `close_port`, `block_address`, `unblock_address`, `unban_ip` |
 
 ## Safety
 
 - **Read-only by default.** Write tools are hidden and refused unless `--allow-write` is passed.
-- **Confirmation for deletes.** `delete_site` fails unless `confirm_domain` repeats the domain exactly.
+- **Confirmation for deletes.** `delete_site` and `delete_account` fail unless the name is repeated exactly.
+- **No lock-out.** SSH and web ports can't be closed, and loopback or overly broad ranges can't be blocked.
+- **Secrets stay out of logs.** Database and WordPress passwords are passed on stdin and returned only once.
 - **Strict input checks.** Unknown arguments are rejected; the agent re-validates every value.
 - **Audit log.** Every call (allowed, denied or failed) is appended to `/var/log/ike/mcp-audit.log` as JSON lines. Public keys are redacted.
 
