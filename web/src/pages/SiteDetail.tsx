@@ -7,8 +7,11 @@ import { Badge, Button, CopyField, Field, Modal, Segmented, Skeleton, Tabs, time
 import { ConfirmDelete, PageHead, RuntimeBadge, StatusBadge, webServerLabel } from "../components/common";
 import { navigate } from "../router";
 import { EnvTab, HealthCheckPanel, HealthTab, StagingPanel } from "./SiteExtras";
+import { DomainsTab, PHPTab, RedirectsTab } from "./SiteWeb";
+import { DeployTab } from "./Deploy";
+import { isApp as isAppRt, versioned } from "../api/runtime";
 
-type Tab = "overview" | "health" | "runtime" | "env" | "status" | "logs" | "tools";
+type Tab = "overview" | "health" | "deploy" | "domains" | "redirects" | "php" | "runtime" | "env" | "status" | "logs" | "tools";
 
 export function SiteDetail({ domain }: { domain: string }) {
   const toast = useToast();
@@ -21,7 +24,7 @@ export function SiteDetail({ domain }: { domain: string }) {
   if (s.error) return <div className="callout bad"><CircleAlert size={18} />{s.error}</div>;
   if (!s.data) return <div className="stack"><Skeleton h={34} w={260} /><Skeleton h={200} /></div>;
   const site = s.data;
-  const isApp = site.runtime === "node" || site.runtime === "python";
+  const isApp = isAppRt(site.runtime) || site.runtime === "docker";
   const update = (next: Site) => s.setData(next);
 
   return (
@@ -34,8 +37,11 @@ export function SiteDetail({ domain }: { domain: string }) {
         actions={<a className="btn" href={`http://${site.domain}`} target="_blank" rel="noreferrer"><ExternalLink size={16} />Visit</a>}
       />
       <Tabs<Tab> value={tab} onChange={setTab} tabs={[
-        { value: "overview", label: "Overview" }, { value: "health", label: "Health" }, { value: "runtime", label: isApp ? "App" : "Runtime" },
-        ...(site.runtime !== "static" ? [{ value: "env" as Tab, label: "Env vars" }] : []), { value: "status", label: "Status" }, { value: "logs", label: "Logs" }, { value: "tools", label: "Tools" },
+        { value: "overview", label: "Overview" }, { value: "health", label: "Health" }, { value: "deploy", label: "Deploy" },
+        { value: "domains", label: "Domains & HTTPS" }, { value: "redirects", label: "Redirects" },
+        ...(site.runtime === "php" ? [{ value: "php" as Tab, label: "PHP" }] : []),
+        ...(site.runtime !== "proxy" ? [{ value: "runtime" as Tab, label: isApp ? "App" : "Runtime" }] : []),
+        ...(site.runtime !== "static" && site.runtime !== "proxy" ? [{ value: "env" as Tab, label: "Env vars" }] : []), { value: "status", label: "Status" }, { value: "logs", label: "Logs" }, { value: "tools", label: "Tools" },
       ]} />
 
       {tab === "overview" && (
@@ -48,7 +54,7 @@ export function SiteDetail({ domain }: { domain: string }) {
                 <dt>Error pages</dt><dd><code>{site.doc_root.replace(/\/(public_html|app)$/, "/errors")}</code></dd>
                 <dt>Runtime</dt><dd>{runtimeName(site.runtime)} {site.version}</dd>
                 <dt>Web server</dt><dd>{webServerLabel[site.web_server]}{site.web_server === "nginx+apache" ? " (.htaccess on)" : ""}</dd>
-                {isApp ? <><dt>Local port</dt><dd><code>127.0.0.1:{site.port}</code></dd></> : null}
+                {isApp || site.runtime === "proxy" ? <><dt>Local port</dt><dd><code>127.0.0.1:{site.port}</code></dd></> : null}
                 <dt>Created</dt><dd>{timeAgo(site.created_at)}</dd>
               </dl>
             </div>
@@ -65,8 +71,12 @@ export function SiteDetail({ domain }: { domain: string }) {
       )}
 
       {tab === "health" && <HealthTab site={site} />}
+      {tab === "deploy" && <DeployTab site={site} onChange={update} />}
+      {tab === "domains" && <DomainsTab site={site} onChange={update} />}
+      {tab === "redirects" && <RedirectsTab site={site} onChange={update} />}
+      {tab === "php" && <PHPTab site={site} onChange={update} />}
       {tab === "runtime" && rt.data && <RuntimeTab site={site} rt={rt.data} onChange={update} />}
-      {tab === "runtime" && isApp && <HealthCheckPanel site={site} onChange={update} />}
+      {tab === "runtime" && isAppRt(site.runtime) && <HealthCheckPanel site={site} onChange={update} />}
       {tab === "env" && <EnvTab site={site} />}
       {tab === "status" && <StatusTab site={site} onChange={update} />}
       {tab === "logs" && <LogsTab site={site} />}
@@ -93,13 +103,13 @@ export function SiteDetail({ domain }: { domain: string }) {
 
 function RuntimeTab({ site, rt, onChange }: { site: Site; rt: Runtimes; onChange: (s: Site) => void }) {
   const toast = useToast();
-  const isApp = site.runtime === "node" || site.runtime === "python";
+  const isApp = isAppRt(site.runtime) || site.runtime === "docker";
   const [version, setVersion] = useState(site.version || "");
   const [web, setWeb] = useState<WebServer>(site.web_server);
   const [start, setStart] = useState(site.start_command || "");
   const [busy, setBusy] = useState<string | null>(null);
   const [state, setState] = useState(demo?.appStateOf(site.domain) ?? "active");
-  const versions = site.runtime === "static" ? [] : rt[site.runtime];
+  const versions: string[] = versioned(site.runtime) ? rt[site.runtime] ?? [] : [];
   const dirty = version !== (site.version || "") || web !== site.web_server || start !== (site.start_command || "");
 
   const act = async (a: "start" | "stop" | "restart") => {
@@ -127,7 +137,7 @@ function RuntimeTab({ site, rt, onChange }: { site: Site; rt: Runtimes; onChange
       <section className="panel">
         <div className="panel-head"><h2>{isApp ? "Version and start command" : "Version and web server"}</h2></div>
         <div className="panel-body form-grid" style={{ maxWidth: 560 }}>
-          {site.runtime !== "static" ? (
+          {versioned(site.runtime) ? (
             <Field label={`${runtimeName(site.runtime)} version`}
               hint={site.runtime === "php" && phpEol(version) ? "This version no longer gets security fixes. Plan an upgrade." : "Switching takes a few seconds and keeps your files."}>
               {(id) => (
@@ -136,14 +146,14 @@ function RuntimeTab({ site, rt, onChange }: { site: Site; rt: Runtimes; onChange
                 </select>
               )}
             </Field>
-          ) : <p className="muted">Static websites are served straight from disk and have no runtime.</p>}
+          ) : <p className="muted">{site.runtime === "docker" ? "The container image decides the runtime. Change it on the Deploy tab." : "Static websites are served straight from disk and have no runtime."}</p>}
           {!isApp && rt.web_servers.length > 1 ? (
             <Field label="Web server" hint="Nginx + Apache reads .htaccess files, which many WordPress plugins need.">
               {(id) => <select id={id} className="select" value={web} onChange={(e) => setWeb(e.target.value as WebServer)}>
                 {rt.web_servers.map((w) => <option key={w} value={w}>{webServerLabel[w]}</option>)}</select>}
             </Field>
           ) : null}
-          {isApp ? (
+          {isAppRt(site.runtime) ? (
             <Field label="Start command" hint="Runs in the app folder. Your app must listen on $PORT.">
               {(id) => <input id={id} className="input mono" value={start} onChange={(e) => setStart(e.target.value)} spellCheck={false} />}
             </Field>

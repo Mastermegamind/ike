@@ -1,4 +1,5 @@
 import {
+  Box, Cloud, Puzzle, Ship,
   ArrowUpCircle, BarChart3, BellRing, CreditCard, FolderInput, KeyRound, ShieldHalf, UserCog,
   Activity, AppWindow, Bot, Boxes, CalendarClock, Database, Gauge, Globe, HardDriveDownload, LockKeyhole, Mail,
   Network, Palette, Server, ShieldCheck, SquareTerminal, Users, type LucideIcon,
@@ -31,6 +32,8 @@ export const navGroups: NavGroup[] = [
       { to: "/databases", label: "Databases", icon: Database, roles: all },
       { to: "/cron", label: "Cron jobs", icon: CalendarClock, roles: all },
       { to: "/apps", label: "App installer", icon: AppWindow, roles: all },
+      { to: "/containers", label: "Containers", icon: Box, roles: all },
+      { to: "/ssl", label: "SSL certificates", icon: LockKeyhole, roles: all },
       { to: "/terminal", label: "Terminal", icon: SquareTerminal, roles: all },
     ],
   },
@@ -39,6 +42,9 @@ export const navGroups: NavGroup[] = [
     items: [
       { to: "/firewall", label: "Firewall", icon: ShieldCheck, roles: ["admin"] },
       { to: "/software", label: "Server software", icon: Server, roles: ["admin"] },
+      { to: "/php-extensions", label: "PHP extensions", icon: Puzzle, roles: ["admin"] },
+      { to: "/docker", label: "Docker", icon: Ship, roles: ["admin"] },
+      { to: "/kubernetes", label: "Kubernetes", icon: Cloud, roles: ["admin"] },
       { to: "/usage", label: "Resource usage", icon: BarChart3, roles: ["admin", "reseller"] },
       { to: "/updates", label: "Updates", icon: ArrowUpCircle, roles: ["admin"] },
       { to: "/security", label: "Security scan", icon: ShieldHalf, roles: ["admin"] },
@@ -58,7 +64,6 @@ export const navGroups: NavGroup[] = [
   {
     title: "Coming next",
     items: [
-      { to: "/soon/ssl", label: "SSL certificates", icon: LockKeyhole, roles: all, soon: true },
       { to: "/soon/dns", label: "DNS zones", icon: Network, roles: all, soon: true },
       { to: "/soon/backups", label: "Backups", icon: HardDriveDownload, roles: all, soon: true },
       { to: "/soon/plans", label: "Hosting plans", icon: Boxes, roles: ["admin"], soon: true },

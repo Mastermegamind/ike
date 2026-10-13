@@ -1,6 +1,6 @@
 # Roadmap
 
-## Phase 1 — Foundation (nearly done)
+## Phase 1 — Foundation (done)
 - [x] Installer for Ubuntu 22.04 / 24.04 / 26.04 with OS, KVM, RAM and fresh-server checks
 - [x] nginx.org and ondrej/php repos with fallback to Ubuntu packages; Ubuntu's MariaDB
 - [x] ike-agent daemon on a root-only unix socket
@@ -15,7 +15,10 @@
 - [x] Staging sites, env vars, app health checks, resource limits + usage graphs
 - [x] Billing (Bachs, Paystack, Flutterwave), uptime alerts (WhatsApp, Telegram, email)
 - [x] One-line installer (`installer.sh`) with checksum verification
-- [ ] Let's Encrypt SSL (issue, renew, force HTTPS) ← next
+- [x] Let's Encrypt and custom certificates, force HTTPS, HSTS, HTTP/2, HTTP/3
+- [x] Domains, aliases, wildcards, redirects; PHP-FPM settings, PHP extensions, Composer
+- [x] Java, Go and Dart runtimes; proxy runtime
+- [x] Git deployments (Phase 5 brought forward), Docker, Compose, optional k3s
 
 ## Phase 2 — Hosting essentials
 - DNS with PowerDNS, cron jobs, log viewer, bandwidth/disk stats
@@ -34,7 +37,9 @@
 - WHMCS module, Paystack, Flutterwave and Stripe billing
 
 ## Phase 5 — App platform (Coolify-style)
-- Docker + Traefik/Caddy, Git push deploys, preview environments, one-click apps
+- [x] Git push deploys, previews, rollback, blue-green, build queue
+- [x] Docker, Compose, buildpacks, registries, k3s
+- One-click app catalog on containers (n8n, Ghost, Plausible, Metabase …)
 
 ## Phase 6 — Scale
 - Multi-server via agent join tokens (gRPC + mTLS)

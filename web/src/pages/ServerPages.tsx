@@ -143,12 +143,12 @@ export function AiAgents() {
         </section>
       </div>
       <section className="panel">
-        <div className="panel-head"><h2>What an agent can do</h2><Badge>47 tools</Badge></div>
+        <div className="panel-head"><h2>What an agent can do</h2><Badge>63 tools</Badge></div>
         <div className="panel-body" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 8 }}>
           {["Read server health and services", "List accounts, websites and runtimes", "Create accounts and websites", "Switch PHP, Node.js or Python versions",
             "Put a site in maintenance", "Start, stop and restart apps", "Read access, error and app logs", "Add cron jobs", "Create databases",
             "Install WordPress", "Fix file permissions", "Manage SSH keys", "Open ports and block IPs", "Suspend and reactivate accounts",
-            "Diagnose a broken website", "Check and install updates", "Create staging copies", "Run the security scan", "Find and undo config drift", "Read usage and set limits"].map((t) => (
+            "Diagnose a broken website", "Check and install updates", "Create staging copies", "Run the security scan", "Find and undo config drift", "Read usage and set limits", "Deploy from Git and roll back", "Get HTTPS certificates", "Manage containers and stacks", "Install PHP extensions"].map((t) => (
             <div key={t} className="row small" style={{ gap: 8 }}><Bot size={15} className="uli-line" aria-hidden />{t}</div>
           ))}
         </div>
@@ -183,18 +183,27 @@ export function Software() {
         </section>
       </div>
       <section className="panel">
-        <div className="panel-head"><h2>Languages</h2><span className="small muted">Install more with <code>--php all</code>, <code>--node</code>, <code>--python</code></span></div>
+        <div className="panel-head"><h2>Languages</h2><span className="small muted">Install more with <code>--php all</code>, <code>--node</code>, <code>--python</code>, <code>--java</code>, <code>--go</code>, <code>--dart</code></span></div>
         <div className="table-wrap"><table>
           <tbody>
-            {(["php", "node", "python"] as const).map((k) => (
+            {(["php", "node", "python", "java", "go", "dart"] as const).map((k) => (
               <tr key={k}><td style={{ width: 120 }}><strong>{runtimeName(k)}</strong></td>
-                <td style={{ padding: "12px 20px" }}><div className="row">{r[k].map((v) => (
+                <td style={{ padding: "12px 20px" }}><div className="row">{(r[k] ?? []).length === 0 ? <span className="small muted">Not installed</span> : null}{(r[k] ?? []).map((v) => (
                   <Badge key={v} tone={k === "php" && phpEol(v) ? "warn" : k === "php" && v === r.default_php ? "accent" : undefined}>
                     {v}{k === "php" && v === r.default_php ? " (default)" : ""}{k === "php" && phpEol(v) ? " end of life" : ""}</Badge>
                 ))}</div></td></tr>
             ))}
           </tbody>
         </table></div>
+      </section>
+      <section className="panel">
+        <div className="panel-head"><h2>Tools</h2></div>
+        <div className="panel-body row">
+          {[["Composer", r.composer], ["Docker", r.docker], ["Buildpacks", r.buildpacks], ["Kubernetes (k3s)", r.kubernetes],
+            [`HTTP/3${r.web?.nginx_version ? ` (Nginx ${r.web.nginx_version})` : ""}`, r.web?.http3]].map(([name, on]) => (
+            <Badge key={String(name)} tone={on ? "ok" : undefined}>{String(name)}: {on ? "yes" : "no"}</Badge>
+          ))}
+        </div>
       </section>
     </div>
   );

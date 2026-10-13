@@ -7,6 +7,7 @@ import { Badge, Button, Field, Modal, Segmented, Skeleton, useAsync, useToast } 
 import { Toggle } from "../components/common";
 import { JobModal, useJob } from "../components/job";
 import { href } from "../router";
+import { isApp as isAppRt } from "../api/runtime";
 
 const sevIcon = { ok: CircleCheck, info: Info, warn: TriangleAlert, bad: CircleAlert };
 const sevColor = { ok: "var(--ok)", info: "var(--accent)", warn: "var(--warn)", bad: "var(--bad)" };
@@ -63,7 +64,7 @@ export function EnvTab({ site }: { site: Site }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const cur = rows ?? env.data ?? [];
-  const isApp = site.runtime === "node" || site.runtime === "python";
+  const isApp = isAppRt(site.runtime) || site.runtime === "docker";
   const edit = (i: number, patch: Partial<EnvVar>) => setRows(cur.map((r, j) => (j === i ? { ...r, ...patch } : r)));
 
   return (

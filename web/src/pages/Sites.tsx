@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { Globe, Plus, Search } from "lucide-react";
 import { api } from "../api/client";
 import { domainError, phpEol, runtimeName } from "../api/demo";
+import { defaultStart, isApp as isAppRt, isProxied, versioned } from "../api/runtime";
 import type { Account, Role, Runtime, Runtimes, Site, WebServer } from "../api/types";
-import { Badge, Button, Empty, Field, Modal, Segmented, Skeleton, useAsync, useToast } from "../components/ui";
+import { Badge, Button, Empty, Field, Modal, Skeleton, useAsync, useToast } from "../components/ui";
 import { PageHead, RuntimeBadge, StatusBadge, webServerLabel } from "../components/common";
 import { href, navigate } from "../router";
 
@@ -74,6 +75,18 @@ export function Sites({ route, role }: { route: string; role: Role }) {
   );
 }
 
+const runtimeHint: Partial<Record<Runtime, string>> = {
+  php: "WordPress, Laravel and any PHP code. Deploy from Git later if you like.",
+  static: "HTML, or a site built by a generator; Git deploys can build it for you.",
+  node: "Runs as a service on its own port, restarted if it crashes.",
+  python: "Gets its own virtualenv; runs with gunicorn, uvicorn or your command.",
+  java: "Run a jar, or Java source directly. Git deploys build with Maven or Gradle.",
+  go: "Compiled with go build; Git deploys build it for you.",
+  dart: "Runs with dart run, e.g. a shelf or Dart Frog server.",
+  docker: "Built from a Dockerfile or buildpack in Git, or a registry image. Set it up on the Deploy tab.",
+  proxy: "Puts a domain and HTTPS in front of something already running on this server.",
+};
+
 function CreateSite(props: { open: boolean; onClose: () => void; onDone: (s: Site) => void; defaultAccount?: string; role: Role }) {
   const toast = useToast();
   const [rt, setRt] = useState<Runtimes | null>(null);
@@ -84,6 +97,7 @@ function CreateSite(props: { open: boolean; onClose: () => void; onDone: (s: Sit
   const [version, setVersion] = useState("");
   const [web, setWeb] = useState<WebServer | "">("");
   const [start, setStart] = useState("");
+  const [port, setPort] = useState("");
   const [touched, setTouched] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -94,14 +108,16 @@ function CreateSite(props: { open: boolean; onClose: () => void; onDone: (s: Sit
     api.accounts().then((a) => { const ok = a.filter((x) => !x.suspended); setAccounts(ok); setAccount((cur) => cur || props.defaultAccount || ok[0]?.name || ""); });
   }, [props.open, props.defaultAccount]);
 
-  const versions = rt ? (runtime === "static" ? [] : rt[runtime]) : [];
+  const versions: string[] = rt && versioned(runtime) ? rt[runtime] ?? [] : [];
   useEffect(() => {
     if (!rt) return;
-    setVersion(runtime === "php" ? rt.default_php : runtime === "static" ? "" : rt[runtime].at(-1) || "");
-    setStart(runtime === "node" ? "npm start" : runtime === "python" ? "gunicorn app:app --bind 127.0.0.1:$PORT" : "");
+    setVersion(runtime === "php" ? rt.default_php : versioned(runtime) ? (rt[runtime] ?? []).at(-1) || "" : "");
+    setStart(defaultStart[runtime] ?? "");
   }, [runtime, rt]);
 
-  const isApp = runtime === "node" || runtime === "python";
+  const isApp = isAppRt(runtime);
+  const proxied = isProxied(runtime);
+  const unavailable = rt && ((versioned(runtime) && versions.length === 0) || (runtime === "docker" && !rt.docker));
   const dErr = touched && domain ? domainError(domain) : null;
   const close = () => { setDomain(""); setTouched(false); setError(null); setRuntime("php"); props.onClose(); };
 
@@ -109,11 +125,12 @@ function CreateSite(props: { open: boolean; onClose: () => void; onDone: (s: Sit
     <Modal open={props.open} onClose={close} title="Create website"
       description="Point the domain's DNS A record to this server so it loads."
       footer={<><Button onClick={close}>Cancel</Button>
-        <Button variant="primary" loading={busy} disabled={!domain || !account || !!domainError(domain)} onClick={async () => {
+        <Button variant="primary" loading={busy} disabled={!domain || !account || !!domainError(domain) || !!unavailable || (runtime === "proxy" && !port)} onClick={async () => {
           setBusy(true); setError(null);
           try {
             const s = await api.createSite({ domain, account, runtime, version: version || undefined,
-              web_server: isApp ? undefined : (web || undefined), start_command: isApp ? start : undefined });
+              web_server: proxied ? undefined : (web || undefined), start_command: isApp ? start : undefined,
+              port: runtime === "proxy" ? Number(port) : undefined });
             toast("ok", `Created ${s.domain}`);
             close();
             props.onDone(s);
@@ -132,13 +149,29 @@ function CreateSite(props: { open: boolean; onClose: () => void; onDone: (s: Sit
             </select>
           )}
         </Field>
-        <div className="field">
-          <label>Runtime</label>
-          <Segmented<Runtime> label="Runtime" value={runtime} onChange={setRuntime}
-            options={[{ value: "php", label: "PHP" }, { value: "node", label: "Node.js" }, { value: "python", label: "Python" }, { value: "static", label: "Static" }]} />
-        </div>
+        <Field label="Runtime" hint={unavailable ? `${runtimeName(runtime)} isn't installed on this server. Add it with the installer.` : runtimeHint[runtime]}>
+          {(id) => (
+            <select id={id} className="select" value={runtime} onChange={(e) => setRuntime(e.target.value as Runtime)}>
+              <optgroup label="Websites">
+                <option value="php">PHP</option>
+                <option value="static">Static files (HTML, built sites)</option>
+              </optgroup>
+              <optgroup label="Apps">
+                <option value="node">Node.js</option>
+                <option value="python">Python</option>
+                <option value="java">Java</option>
+                <option value="go">Go</option>
+                <option value="dart">Dart</option>
+              </optgroup>
+              <optgroup label="Containers and other servers">
+                <option value="docker">Container (Dockerfile, buildpack or image)</option>
+                <option value="proxy">Forward to a local port</option>
+              </optgroup>
+            </select>
+          )}
+        </Field>
         <div className="form-2">
-          {runtime !== "static" ? (
+          {versioned(runtime) && versions.length > 0 ? (
             <Field label={`${runtimeName(runtime)} version`}
               hint={runtime === "php" && version && phpEol(version) ? "This version no longer gets security fixes." : undefined}>
               {(id) => (
@@ -148,7 +181,7 @@ function CreateSite(props: { open: boolean; onClose: () => void; onDone: (s: Sit
               )}
             </Field>
           ) : null}
-          {!isApp && rt && rt.web_servers.length > 1 ? (
+          {!proxied && rt && rt.web_servers.length > 1 ? (
             <Field label="Web server" hint={web === "nginx+apache" ? ".htaccess files work." : "Fastest; .htaccess is ignored."}>
               {(id) => (
                 <select id={id} className="select" value={web} onChange={(e) => setWeb(e.target.value as WebServer)}>
@@ -161,6 +194,11 @@ function CreateSite(props: { open: boolean; onClose: () => void; onDone: (s: Sit
         {isApp ? (
           <Field label="Start command" hint="Your app must listen on the PORT environment variable.">
             {(id) => <input id={id} className="input mono" value={start} onChange={(e) => setStart(e.target.value)} spellCheck={false} />}
+          </Field>
+        ) : null}
+        {runtime === "proxy" ? (
+          <Field label="Local port" hint="Something on this server already listening on 127.0.0.1, like a container or a Kubernetes service.">
+            {(id) => <input id={id} className="input mono" inputMode="numeric" style={{ maxWidth: 140 }} value={port} onChange={(e) => setPort(e.target.value.replace(/\D/g, ""))} placeholder="5678" />}
           </Field>
         ) : null}
         {error ? <div className="callout bad" role="alert">{error}</div> : null}

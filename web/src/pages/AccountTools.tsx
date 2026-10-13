@@ -7,7 +7,7 @@ import type { CronJob, NewDatabase } from "../api/types";
 import { Badge, Button, CopyField, Empty, Field, Modal, Skeleton, timeAgo, useAsync, useToast } from "../components/ui";
 import { ConfirmDelete, PageHead, Toggle } from "../components/common";
 
-function useAccountParam(route: string) {
+export function useAccountParam(route: string) {
   const accounts = useAsync(() => api.accounts());
   const initial = new URLSearchParams(route.split("?")[1] || "").get("account") || "";
   const [account, setAccount] = useState(initial);

@@ -4,8 +4,10 @@ import type {
   CreateSiteRequest, CronJob, Database, Diagnosis, DnsCheck, Drift, EnvVar, FirewallBlock, FirewallPort, Forwarder,
   HealthCheck, IkeRelease, ImportPlan, Invoice, Job, Limits, LogKind, MailDomain, Mailbox, NewDatabase, PaymentProvider,
   Person, Role, Runtimes, SSHKey, SSHMode, SecurityReport, ServiceStatus, Site, SiteStatus, SmtpSettings, SystemInfo,
-  UpdateStatus, WebServer, WordPressResult,
+  UpdateStatus, WebServer, WordPressResult, Redirect, PHPSettings, SSLSettings, CertInfo, PHPExtension, DeployInfo, DeploySetup,
+  Deployment, QueueStatus, Container, ContainerSpec, StackInfo, DockerOverview, ImageUpdate, KubeStatus, KubeWorkloads,
 } from "./types";
+import { isApp as isAppRt, isProxied } from "./runtime";
 
 // Same rules as agent/internal/validate, so demo errors match the real server.
 const domainLabel = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/;
@@ -49,7 +51,8 @@ const fp = () => "SHA256:" + btoa(String.fromCharCode(...crypto.getRandomValues(
 
 function docRoot(s: { account: string; domain: string; runtime: string }) {
   const base = `/home/${s.account}/web/${s.domain}`;
-  return s.runtime === "node" || s.runtime === "python" ? `${base}/app` : `${base}/public_html`;
+  if (s.runtime === "proxy" || s.runtime === "docker") return base;
+  return isAppRt(s.runtime as never) ? `${base}/app` : `${base}/public_html`;
 }
 
 export class DemoApi implements Api {
@@ -57,9 +60,14 @@ export class DemoApi implements Api {
     php: ["5.6", "7.4", "8.1", "8.2", "8.3", "8.4", "8.5"],
     node: ["20", "22", "24"],
     python: ["3.11", "3.12", "3.13"],
+    java: ["17", "21"],
+    go: ["1.24", "1.25"],
+    dart: ["3.9"],
     default_php: "8.4",
     web_stack: "hybrid",
     web_servers: ["nginx+apache", "nginx"],
+    composer: true, docker: true, docker_for_accounts: true, buildpacks: true, kubernetes: true,
+    web: { nginx_version: "1.28.0", h2_directive: true, http3: true },
   };
 
   private accounts_: Account[] = [
@@ -71,17 +79,35 @@ export class DemoApi implements Api {
   ];
 
   private sites_: Site[] = ([
-    { domain: "naijabites.ng", account: "naijabites", runtime: "php", version: "8.3", web_server: "nginx+apache", status: "active", created_at: ago(41 * day) },
+    { domain: "naijabites.ng", account: "naijabites", runtime: "php", version: "8.3", web_server: "nginx+apache", status: "active", created_at: ago(41 * day),
+      aliases: ["naijabites.com"], www: "root", redirect_aliases: true,
+      ssl: { provider: "letsencrypt", names: ["naijabites.ng", "www.naijabites.ng", "naijabites.com"], issuer: "R11", issued_at: ago(40 * day), expires_at: ago(-50 * day), force_https: true, hsts: true, http2: true, http3: true },
+      php: { pm: "dynamic", max_children: 12, memory_limit_mb: 512, upload_max_mb: 128, post_max_mb: 130, timezone: "Africa/Lagos" } },
     { domain: "shop.adaeze.com", account: "adaeze", runtime: "php", version: "8.4", web_server: "nginx", status: "active", created_at: ago(12 * day) },
     { domain: "legacy.adaeze.com", account: "adaeze", runtime: "php", version: "5.6", web_server: "nginx+apache", status: "maintenance", allow_ips: ["102.89.34.12"], created_at: ago(11 * day) },
-    { domain: "lagosrentals.com.ng", account: "lagosrentals", runtime: "php", version: "7.4", web_server: "nginx+apache", status: "active", created_at: ago(90 * day) },
-    { domain: "api.kelechi.dev", account: "kelechi", runtime: "node", version: "22", web_server: "nginx", port: 3001, start_command: "npm start", status: "active", created_at: ago(5 * day) },
+    { domain: "lagosrentals.com.ng", account: "lagosrentals", runtime: "php", version: "7.4", web_server: "nginx+apache", status: "active", created_at: ago(90 * day),
+      redirects: [
+        { id: "a1", kind: "redirect", match: "prefix", from: "/old-listings", to: "/listings", code: 301, keep_query: true },
+        { id: "a2", kind: "redirect", match: "exact", from: "/whatsapp", to: "https://wa.me/2348031234567", code: 302 },
+        { id: "a3", kind: "rewrite", match: "regex", from: "^/flat/([0-9]+)$", to: "/listing.php?id=$1" },
+      ],
+      ssl: { provider: "custom", names: ["lagosrentals.com.ng", "www.lagosrentals.com.ng"], issuer: "Sectigo RSA Domain Validation", issued_at: ago(350 * day), expires_at: ago(-12 * day), force_https: true, hsts: false, http2: true, http3: false } },
+    { domain: "api.kelechi.dev", account: "kelechi", runtime: "node", version: "22", web_server: "nginx", port: 3001, start_command: "npm start", status: "active", created_at: ago(5 * day),
+      deploy: { type: "native", git: { provider: "github", url: "git@github.com:kelechi/api.git", ref_type: "branch", ref: "main", auth: "deploy_key", auto_deploy: true },
+        strategy: "blue-green", health_path: "/health", shared_paths: [".env"], keep_releases: 5, current: "20261012-181502-9f3c2ab", color: "b", alt_port: 3010,
+        previews: { enabled: true, base_domain: "preview.kelechi.dev" } },
+      ssl: { provider: "letsencrypt", names: ["api.kelechi.dev"], issuer: "R10", issued_at: ago(5 * day), expires_at: ago(-85 * day), force_https: true, hsts: false, http2: true, http3: false } },
+    { domain: "jobs.kelechi.dev", account: "kelechi", runtime: "go", version: "1.25", web_server: "nginx", port: 3004, start_command: "./app", status: "active", created_at: ago(2 * day) },
+    { domain: "status.kelechi.dev", account: "kelechi", runtime: "docker", web_server: "nginx", port: 3005, status: "active", created_at: ago(1 * day),
+      deploy: { type: "image", image: "louislam/uptime-kuma:1", strategy: "blue-green", container_port: 3001, health_path: "/", keep_releases: 3, current: "20261012-090000", color: "a", alt_port: 3006 } },
     { domain: "ml.kelechi.dev", account: "kelechi", runtime: "python", version: "3.12", web_server: "nginx", port: 3002, start_command: "gunicorn app:app --bind 127.0.0.1:$PORT", status: "active", created_at: ago(4 * day) },
-    { domain: "docs.kelechi.dev", account: "kelechi", runtime: "static", web_server: "nginx", status: "active", created_at: ago(3 * day) },
+    { domain: "docs.kelechi.dev", account: "kelechi", runtime: "static", web_server: "nginx", status: "active", created_at: ago(3 * day),
+      deploy: { type: "native", git: { provider: "gitlab", url: "https://gitlab.com/kelechi/docs.git", ref_type: "tag", ref: "v*", auth: "token", auto_deploy: true },
+        strategy: "restart", public_dir: "dist", keep_releases: 5, current: "20261010-120000-71aa0de" } },
     { domain: "oldclient.com", account: "oldclient", runtime: "php", version: "8.2", web_server: "nginx", status: "suspended", created_at: ago(400 * day) },
   ] as Omit<Site, "doc_root">[]).map((s) => ({ ...s, doc_root: docRoot(s) }));
 
-  private appState: Record<string, string> = { "api.kelechi.dev": "active", "ml.kelechi.dev": "active" };
+  private appState: Record<string, string> = { "api.kelechi.dev": "active", "ml.kelechi.dev": "active", "jobs.kelechi.dev": "active", "status.kelechi.dev": "active" };
 
   private keys: Record<string, SSHKey[]> = {
     naijabites: [{ type: "ssh-ed25519", fingerprint: fp(), comment: "chidi@macbook" }],
@@ -323,16 +349,19 @@ export class DemoApi implements Api {
     if (a.suspended) throw new Error(`${a.name} is suspended.`);
     if (this.sites_.some((s) => s.domain === req.domain)) throw new Error(`${req.domain} is already hosted on this server.`);
     const runtime = req.runtime || "php";
-    const versions = runtime === "static" ? [] : this.runtimes_[runtime];
-    const version = runtime === "static" ? undefined : req.version || (runtime === "php" ? this.runtimes_.default_php : versions.at(-1));
+    const hasVersion = runtime !== "static" && runtime !== "proxy" && runtime !== "docker";
+    const versions: string[] = hasVersion ? (this.runtimes_ as unknown as Record<string, string[]>)[runtime] : [];
+    const version = !hasVersion ? undefined : req.version || (runtime === "php" ? this.runtimes_.default_php : versions.at(-1));
     if (version && !versions.includes(version)) throw new Error(`${runtimeName(runtime)} ${version} isn't installed on this server.`);
-    const isApp = runtime === "node" || runtime === "python";
+    if (runtime === "proxy" && !(req.port && req.port > 0 && req.port < 65536)) throw new Error("Give the local port to forward to (1-65535).");
+    const isApp = isAppRt(runtime);
     let web: WebServer = req.web_server || this.runtimes_.web_servers[0];
-    if (isApp) web = "nginx";
-    const port = isApp ? 3001 + this.sites_.filter((s) => s.port).length : undefined;
+    if (isProxied(runtime)) web = "nginx";
+    const port = runtime === "proxy" ? req.port : isApp || runtime === "docker" ? 3011 + this.sites_.filter((s) => s.port).length : undefined;
+    const starts: Record<string, string> = { node: "node server.js", python: "python app.py", java: "java Main.java", go: "./app", dart: "dart run bin/server.dart" };
     const site: Site = {
       domain: req.domain, account: req.account, runtime, version, web_server: web, port, status: "active", created_at: now(),
-      start_command: isApp ? req.start_command || (runtime === "node" ? "node server.js" : "python app.py") : undefined,
+      start_command: isApp ? req.start_command || starts[runtime] : undefined,
       doc_root: docRoot({ ...req, runtime }),
     };
     this.sites_.push(site);
@@ -810,10 +839,374 @@ export class DemoApi implements Api {
     this.record("PUT", "/v1/mail/smtp");
     return { ...this.smtp_ };
   }
+  // ------------------------------------------------ domains, redirects, PHP, HTTPS
+  private update(domain: string, patch: Partial<Site>, path: string) {
+    const s = this.find(domain);
+    Object.assign(s, patch);
+    this.record("PUT", `/v1/sites/${domain}/${path}`);
+    return { ...s };
+  }
+  async setDomains(domain: string, r: { aliases: string[]; www: string; redirect_aliases: boolean }) {
+    await wait(500);
+    for (const a of r.aliases) {
+      const plain = a.replace(/^\*\./, "");
+      const e = domainError(plain);
+      if (e) throw new Error(`${a}: ${e}`);
+      if (a.startsWith("*.") && plain.split(".").length < 2) throw new Error(`${a}: a wildcard needs a domain under it.`);
+      const owner = this.sites_.find((s) => s.domain !== domain && (s.domain === a || (s.aliases || []).includes(a)));
+      if (owner) throw new Error(`${a} is already served by ${owner.domain}.`);
+    }
+    if (new Set(r.aliases).size !== r.aliases.length) throw new Error("A domain is listed twice.");
+    return this.update(domain, { aliases: r.aliases, www: r.www as Site["www"], redirect_aliases: r.redirect_aliases && r.aliases.length > 0 }, "domains");
+  }
+  async setRedirects(domain: string, rules: Redirect[]) {
+    await wait(500);
+    rules.forEach((r, i) => {
+      const n = `Rule ${i + 1}: `;
+      if (r.match !== "regex" && !/^\/[A-Za-z0-9._~%/:@,+=-]*$/.test(r.from)) throw new Error(n + `“${r.from}” must be a path starting with /, without spaces.`);
+      if (r.match === "regex") {
+        if (!r.from.startsWith("^")) throw new Error(n + "a pattern must start with ^.");
+        try { new RegExp(r.from); } catch { throw new Error(n + "the pattern isn't valid."); }
+      }
+      if (!/^(https?:\/\/[A-Za-z0-9.-]+(:[0-9]{1,5})?)?(\/[A-Za-z0-9._~%/:@,+=&?$-]*)?$/.test(r.to) || !r.to) throw new Error(n + "the target must be a path like /new or a URL like https://example.com/new.");
+      if (r.kind === "rewrite" && !r.to.startsWith("/")) throw new Error(n + "a rewrite serves another path on this website, so its target must start with /.");
+      if (/\$(?![1-9])/.test(r.to)) throw new Error(n + "the target can only use $1 to $9.");
+      r.id ||= hex(4);
+      if (r.kind === "redirect") r.code ||= 301;
+    });
+    return this.update(domain, { redirects: rules }, "redirects");
+  }
+  async setPHPSettings(domain: string, p: PHPSettings) {
+    await wait(500);
+    if ((p.post_max_mb || 64) < (p.upload_max_mb || 64)) throw new Error("Post max size must be at least the upload size.");
+    if (p.max_children && p.max_children > 50) throw new Error("This account allows at most 50 PHP workers per website.");
+    return this.update(domain, { php: p }, "php");
+  }
+  async runComposer(domain: string, r: { action: string; package?: string; dev?: boolean }) {
+    await wait(300);
+    const s = this.find(domain);
+    if (s.runtime !== "php") throw new Error(`${domain} doesn't use PHP.`);
+    if ((r.action === "require" || r.action === "remove") && !/^[a-z0-9]([_.-]?[a-z0-9]+)*\/[a-z0-9]([_.-]?[a-z0-9]+)*(:.+)?$/.test(r.package || "")) throw new Error("Package must look like vendor/name.");
+    return this.startJob("composer", `composer ${r.action} on ${domain}`, [`composer ${r.action} in /home/${s.account}/web/${domain} (PHP ${s.version})`,
+      "Loading composer repositories with package information", r.action === "require" ? `Using version ^3.2 for ${r.package}` : "Installing dependencies from lock file",
+      "Package operations: 3 installs, 12 updates, 0 removals", "Generating optimized autoload files", "No security vulnerability advisories found."]);
+  }
+  async issueCertificate(domain: string, r: { email?: string; include_aliases?: boolean }) {
+    await wait(300);
+    const s = this.find(domain);
+    const names = [domain, ...(s.www === "none" ? [] : [`www.${domain}`]), ...(r.include_aliases ? (s.aliases || []).filter((a) => !a.startsWith("*.")) : [])];
+    return this.startJob("ssl", `Get an HTTPS certificate for ${domain}`, [...names.map((n) => `${n} points to 203.0.113.24`),
+      `Asking Let's Encrypt for a certificate for ${names.join(", ")}`, "Requesting a certificate for " + names[0], "Successfully received certificate.",
+      `HTTPS is on for ${domain}`], () => {
+      s.ssl = { provider: "letsencrypt", names, issuer: "R11", issued_at: now(), expires_at: ago(-90 * day), force_https: true, hsts: false, http2: true, http3: false };
+    });
+  }
+  async uploadCertificate(domain: string, r: { certificate: string; private_key: string }) {
+    await wait(600);
+    if (!r.certificate.includes("BEGIN CERTIFICATE")) throw new Error("Paste the certificate in PEM format (-----BEGIN CERTIFICATE-----).");
+    if (!/BEGIN (EC |RSA )?PRIVATE KEY/.test(r.private_key)) throw new Error("Paste the private key in PEM format.");
+    return this.update(domain, { ssl: { provider: "custom", names: [domain, `www.${domain}`], issuer: "Uploaded", issued_at: now(), expires_at: ago(-365 * day), force_https: true, hsts: false, http2: true, http3: false } }, "ssl/custom");
+  }
+  async updateSSL(domain: string, o: Partial<Pick<SSLSettings, "force_https" | "hsts" | "http2" | "http3">>) {
+    await wait(400);
+    const s = this.find(domain);
+    if (!s.ssl) throw new Error(`${domain} has no certificate yet.`);
+    const next = { ...s.ssl, ...o };
+    if (next.hsts && !next.force_https) throw new Error("HSTS needs Force HTTPS: browsers would otherwise refuse the plain HTTP version.");
+    return this.update(domain, { ssl: next }, "ssl");
+  }
+  async removeSSL(domain: string) { await wait(500); return this.update(domain, { ssl: undefined }, "ssl"); }
+  async certificates(): Promise<CertInfo[]> {
+    await wait(200);
+    return this.sites_.filter((s) => s.ssl).map((s) => {
+      const days = Math.floor((new Date(s.ssl!.expires_at).getTime() - Date.now()) / 86400000);
+      const problem = days < 0 ? "Expired. Visitors see a security warning." : s.ssl!.provider === "custom" && days < 21 ? "Expires soon. Upload a renewed certificate." :
+        s.ssl!.provider === "letsencrypt" && days < 20 ? "Automatic renewal seems to be failing." : undefined;
+      return { domain: s.domain, provider: s.ssl!.provider, names: s.ssl!.names, issuer: s.ssl!.issuer || "", expires_at: s.ssl!.expires_at, days_left: days, problem };
+    });
+  }
+  private exts: Record<string, string[]> = { "8.3": ["curl", "gd", "intl", "mbstring", "mysql", "opcache", "xml", "zip", "redis", "imagick", "bcmath"], "8.4": ["curl", "gd", "mbstring", "mysql", "opcache", "xml", "zip"] };
+  async phpExtensions(version: string): Promise<PHPExtension[]> {
+    await wait(300);
+    const all: Record<string, string> = { apcu: "In-memory user cache", bcmath: "Arbitrary precision maths", curl: "HTTP requests", gd: "Image processing (GD)",
+      gmp: "Big integer maths", igbinary: "Compact serializer", imagick: "Image processing (ImageMagick)", imap: "IMAP mail", intl: "Internationalization, number and date formatting",
+      ldap: "LDAP directory", mbstring: "Multibyte strings", memcached: "Memcached client", mongodb: "MongoDB driver", mysql: "MySQL and MariaDB (mysqli, PDO)",
+      opcache: "Bytecode cache (faster PHP)", pgsql: "PostgreSQL (pgsql, PDO)", redis: "Redis and Valkey client", soap: "SOAP web services", sqlite3: "SQLite",
+      ssh2: "SSH and SFTP client", swoole: "Async server (Swoole)", xdebug: "Debugger and profiler (not for production)", xml: "XML, DOM and XSL", yaml: "YAML parsing", zip: "ZIP archives" };
+    const on = this.exts[version] || ["curl", "mbstring", "mysql", "opcache", "xml"];
+    return Object.entries(all).map(([name, description]) => ({ name, description, package: `php${version}-${name}`, installed: on.includes(name) }));
+  }
+  async changePHPExtension(version: string, name: string, install: boolean) {
+    await wait(300);
+    const pkg = `php${version}-${name}`;
+    return this.startJob("php-ext", `${install ? "Install" : "Remove"} PHP ${version} ${name}`,
+      [install ? `Installing ${pkg}` : `Removing ${pkg}`, "Reading package lists...", install ? `Setting up ${pkg} ...` : `Removing ${pkg} ...`, `PHP ${version} reloaded`], () => {
+        const l = (this.exts[version] ||= []);
+        if (install && !l.includes(name)) l.push(name);
+        if (!install) this.exts[version] = l.filter((x) => x !== name);
+      });
+  }
+
+  // ------------------------------------------------------------ deployments
+  private deps: Record<string, Deployment[]> = {
+    "api.kelechi.dev": [
+      { id: "d5", domain: "api.kelechi.dev", trigger: "push", actor: "git", ref_type: "branch", ref: "main", commit: "9f3c2ab41d7e0c55e1a0b9a6d1e3f20c88a2b7d4", message: "Add Paystack webhook retries", author: "Kelechi Nwosu", release: "20261012-181502-9f3c2ab", status: "live", queued_at: ago(18 * 60), started_at: ago(18 * 60), finished_at: ago(18 * 60 - 2) },
+      { id: "d4", domain: "api.kelechi.dev", trigger: "push", actor: "git", ref_type: "branch", ref: "main", commit: "0c1d9be7712f4e44a1bd3b0f6c2d9e8a7b6c5d4e", message: "Bump express to 5.1", author: "Kelechi Nwosu", release: "20261012-110322-0c1d9be", status: "failed", error: "the new release didn't answer on /health, so traffic stayed on the old one: HTTP 502", queued_at: ago(25 * 60), started_at: ago(25 * 60), finished_at: ago(25 * 60 - 3) },
+      { id: "d3", domain: "api.kelechi.dev", trigger: "manual", actor: "kelechi", ref_type: "branch", ref: "main", commit: "5e8a7c31f0b2d4e6a8c0e2f4b6d8a0c2e4f6a8b0", message: "Cache exchange rates for 10 minutes", author: "Ada Obi", release: "20261011-160055-5e8a7c3", status: "replaced", queued_at: ago(26 * 60 + 30), started_at: ago(26 * 60 + 30), finished_at: ago(26 * 60 + 28) },
+      { id: "d2", domain: "api.kelechi.dev", trigger: "preview", actor: "git", ref_type: "commit", ref: "c4d5e6f", commit: "c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f7", message: "WIP: naira wallet", author: "Ada Obi", release: "20261011-091200-c4d5e6f", status: "replaced", queued_at: ago(33 * 60), started_at: ago(33 * 60), finished_at: ago(33 * 60 - 2) },
+    ],
+    "docs.kelechi.dev": [
+      { id: "s1", domain: "docs.kelechi.dev", trigger: "push", actor: "git", ref_type: "tag", ref: "v*", commit: "71aa0de5c3b2a1908f7e6d5c4b3a29180f7e6d5c", message: "Release v1.4.0", author: "Kelechi Nwosu", release: "20261010-120000-71aa0de", status: "live", queued_at: ago(3 * day), started_at: ago(3 * day), finished_at: ago(3 * day - 1) },
+    ],
+    "status.kelechi.dev": [
+      { id: "c1", domain: "status.kelechi.dev", trigger: "manual", actor: "kelechi", image: "louislam/uptime-kuma:1", release: "20261012-090000", status: "live", queued_at: ago(day), started_at: ago(day), finished_at: ago(day - 1) },
+    ],
+  };
+  private depLogs: Record<string, string> = {
+    d5: "18:15:02  Fetching git@github.com:kelechi/api.git\n18:15:04  Commit 9f3c2ab by Kelechi Nwosu: Add Paystack webhook retries\n18:15:04  Files exported to releases/20261012-181502-9f3c2ab\n18:15:04  Shared: .env\n18:15:04  $ npm ci\n18:15:31  added 214 packages in 26s\n18:15:31  $ npm run build\n18:15:44  Starting the new release on port 3010\n18:15:47  Traffic moved to the new release; stopping the old instance\n18:15:47  Live in 45s",
+    d4: "11:03:22  Fetching git@github.com:kelechi/api.git\n11:03:24  Commit 0c1d9be by Kelechi Nwosu: Bump express to 5.1\n11:03:24  $ npm ci\n11:03:51  $ npm run build\n11:04:02  Starting the new release on port 3001\n11:05:32  Failed: the new release didn't answer on /health, so traffic stayed on the old one: HTTP 502",
+  };
+  private deployKeys: Record<string, string> = { "api.kelechi.dev": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHk3mY0XbqfE0m9oVwR5yPpx2s1Lr8tQd7c4Ez6nB2aF ike-deploy@api.kelechi.dev" };
+  private info(s: Site, secret?: string): DeployInfo {
+    const g = s.deploy?.git;
+    const how: Record<string, string[]> = {
+      github: ["In the repository on GitHub: Settings → Deploy keys → Add deploy key. Paste the key; leave write access off.",
+        "Settings → Webhooks → Add webhook. Payload URL: the webhook URL, content type application/json, secret: the webhook secret. Choose 'Just the push event' (add Pull requests for previews)."],
+      gitlab: ["In the project on GitLab: Settings → Webhooks → Add new webhook. URL: the webhook URL, Secret token: the webhook secret. Tick Push events and Tag push events."],
+      bitbucket: ["Repository settings → Webhooks → Add webhook. URL: the webhook URL, Secret: the webhook secret. Trigger: Repository push."],
+      other: ["Have your Git host POST to the webhook URL on each push, signed with the webhook secret (X-Ike-Signature: sha256=<HMAC>)."],
+    };
+    return { deploy: s.deploy ?? null, deploy_key: g?.auth === "deploy_key" ? this.deployKeys[s.domain] ||= "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI" + hex(16) + " ike-deploy@" + s.domain : undefined,
+      has_token: g?.auth === "token", webhook_path: `/webhooks/git/${s.domain}`, webhook_secret: secret, instructions: g ? how[g.provider || "other"] : [] };
+  }
+  async deployInfo(domain: string) { await wait(200); return this.info(this.find(domain)); }
+  async configureDeploy(domain: string, set: DeploySetup) {
+    await wait(600);
+    const s = this.find(domain);
+    if (set.type === "image") {
+      if (!/^[a-z0-9]+([._-][a-z0-9]+)*(\/[a-z0-9]+([._-][a-z0-9]+)*)*(:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?$/.test(set.image || "")) throw new Error("Image must look like nginx:1.27 or ghcr.io/owner/app:latest.");
+    } else {
+      const u = set.git?.url || "";
+      if (!/^https:\/\/[A-Za-z0-9.-]+\/[A-Za-z0-9._~/-]+$/.test(u) && !/^[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[A-Za-z0-9._~/-]+$/.test(u)) throw new Error("Repository must be an https:// URL or an SSH address like git@github.com:owner/repo.git.");
+      if (set.git!.auth === "deploy_key" && u.startsWith("https://")) throw new Error("Deploy keys work with SSH addresses; use a token for https:// URLs.");
+      if (set.git!.auth === "token" && !u.startsWith("https://")) throw new Error("Tokens work with https:// URLs; use a deploy key for SSH addresses.");
+      if (set.git!.auth === "token" && !set.token && s.deploy?.git?.auth !== "token") throw new Error("Paste the access token for this repository.");
+      set.git!.provider = u.includes("github.com") ? "github" : u.includes("gitlab") ? "gitlab" : u.includes("bitbucket.org") ? "bitbucket" : "other";
+    }
+    if (set.strategy === "blue-green" && !(isAppRt(s.runtime) || s.runtime === "docker")) throw new Error("PHP and static websites already switch releases instantly; blue-green is for apps.");
+    const first = !s.deploy;
+    const { token: _t, ...rest } = set;
+    void _t;
+    s.deploy = { ...s.deploy, ...rest, strategy: set.strategy || (s.runtime === "docker" ? "blue-green" : "restart"), keep_releases: set.keep_releases || 5, health_path: set.health_path || "/" } as Site["deploy"];
+    this.record("PUT", `/v1/sites/${domain}/deploy`);
+    return this.info(s, first ? hex(24) : undefined);
+  }
+  async disconnectDeploy(domain: string) { await wait(400); const s = this.find(domain); s.deploy = s.deploy?.current ? { ...s.deploy, git: undefined, previews: undefined } : undefined; }
+  async regenerateDeployKey(domain: string) { await wait(400); this.deployKeys[domain] = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI" + hex(16) + " ike-deploy@" + domain; return this.info(this.find(domain)); }
+  async regenerateWebhookSecret(domain: string) { await wait(400); return this.info(this.find(domain), hex(24)); }
+  async deployments(domain: string) { await wait(250); return [...(this.deps[domain] || [])]; }
+  async deploy(domain: string, r?: { ref_type?: string; ref?: string }) {
+    await wait(300);
+    const s = this.find(domain);
+    if (!s.deploy?.git && s.deploy?.type !== "image") throw new Error(`${domain} isn't connected to a repository or image yet.`);
+    const sha = hex(20);
+    const rel = new Date().toISOString().replace(/[-:]/g, "").slice(0, 15).replace("T", "-") + (s.deploy.git ? "-" + sha.slice(0, 7) : "");
+    const d: Deployment = { id: hex(6), domain, trigger: "manual", actor: "andre", ref_type: r?.ref_type || s.deploy.git?.ref_type, ref: r?.ref || s.deploy.git?.ref,
+      image: s.deploy.image, status: "queued", queued_at: now() };
+    (this.deps[domain] ||= []).unshift(d);
+    const lines = s.deploy.type === "image" ? [`Pulling ${s.deploy.image}`, "Status: Image is up to date", `Starting container on port ${s.deploy.color === "b" ? s.port : s.deploy.alt_port}`, "Traffic moved; removing the old container"]
+      : [`Fetching ${s.deploy.git!.url}`, `Commit ${sha.slice(0, 7)} by Ada Obi: Update copy on the pricing page`, `Files exported to releases/${rel}`,
+        ...(s.deploy.shared_paths || []).map((p) => `Shared: ${p}`), ...(s.runtime === "php" ? ["$ composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader", "Generating optimized autoload files"] :
+          s.runtime === "go" ? ["$ go build -o app ."] : ["$ npm ci", "added 214 packages in 21s", "$ npm run build"]),
+        s.deploy.strategy === "blue-green" ? "Traffic moved to the new release; stopping the old instance" : `Switched to release ${rel}`];
+    let t = 600;
+    setTimeout(() => { d.status = "building"; d.started_at = now(); d.commit = s.deploy?.git ? sha : undefined; d.message = s.deploy?.git ? "Update copy on the pricing page" : undefined; d.author = s.deploy?.git ? "Ada Obi" : undefined; }, t);
+    lines.forEach((l, i) => setTimeout(() => { this.depLogs[d.id] = (this.depLogs[d.id] ? this.depLogs[d.id] + "\n" : "") + new Date().toTimeString().slice(0, 8) + "  " + l; }, (t += 700) + i));
+    setTimeout(() => {
+      d.status = "live"; d.release = rel; d.finished_at = now();
+      (this.deps[domain] || []).forEach((x) => { if (x !== d && x.status === "live") x.status = "replaced"; });
+      if (s.deploy) { s.deploy.current = rel; if (s.deploy.strategy === "blue-green") s.deploy.color = s.deploy.color === "b" ? "a" : "b"; }
+    }, t + 800);
+    this.record("POST", `/v1/sites/${domain}/deployments`, 202);
+    return { ...d };
+  }
+  async deployment(domain: string, id: string) {
+    await wait(150);
+    const d = (this.deps[domain] || []).find((x) => x.id === id);
+    if (!d) throw new Error("Deployment not found.");
+    return { deployment: { ...d }, log: this.depLogs[id] || (d.status === "queued" ? "" : "(log rotated)") };
+  }
+  async rollback(domain: string, id: string) {
+    await wait(300);
+    const s = this.find(domain);
+    const old = (this.deps[domain] || []).find((x) => x.id === id);
+    if (!old?.release) throw new Error("That deployment didn't produce a release to go back to.");
+    if (s.deploy?.current === old.release) throw new Error("That release is already live.");
+    const d: Deployment = { ...old, id: hex(6), trigger: "rollback", actor: "andre", status: "live", rollback_of: old.release, queued_at: now(), started_at: now(), finished_at: now() };
+    (this.deps[domain] || []).forEach((x) => { if (x.status === "live") x.status = "replaced"; });
+    this.deps[domain].unshift(d);
+    this.depLogs[d.id] = `${new Date().toTimeString().slice(0, 8)}  Rolling back to release ${old.release}\n${new Date().toTimeString().slice(0, 8)}  Switched to release ${old.release}`;
+    if (s.deploy) s.deploy.current = old.release;
+    return { ...d };
+  }
+  async cancelDeployment(domain: string, id: string) { await wait(200); const d = (this.deps[domain] || []).find((x) => x.id === id); if (d && d.status === "queued") d.status = "cancelled"; }
+  private maxBuilds = 1;
+  async deployQueue(): Promise<QueueStatus> {
+    await wait(200);
+    const all = Object.values(this.deps).flat();
+    return { settings: { max_concurrent: this.maxBuilds }, running: all.filter((d) => d.status === "building"), queued: all.filter((d) => d.status === "queued") };
+  }
+  async setDeploySettings(max: number) { await wait(300); if (max < 1 || max > 8) throw new Error("Run 1-8 builds at once."); this.maxBuilds = max; }
+
+  // ------------------------------------------------------------- containers
+  private ctrs: Container[] = [
+    { name: "ike-kelechi-c-redis", short: "redis", image: "redis:7.4-alpine", state: "running", status: "Up 3 days (healthy)", ports: "127.0.0.1:16379->6379/tcp", created: ago(3 * day), account: "kelechi" },
+    { name: "ike-kelechi-c-meilisearch", short: "meilisearch", image: "getmeili/meilisearch:v1.15", state: "exited", status: "Exited (0) 2 hours ago", ports: "", created: ago(2 * day), account: "kelechi" },
+    { name: "ike-kelechi-automation-n8n-1", short: "ike-kelechi-automation-n8n-1", image: "n8nio/n8n:1.110", state: "running", status: "Up 26 hours", ports: "127.0.0.1:5678->5678/tcp", created: ago(day), account: "kelechi", stack: "ike-kelechi-automation" },
+    { name: "ike-kelechi-automation-postgres-1", short: "ike-kelechi-automation-postgres-1", image: "postgres:17", state: "running", status: "Up 26 hours (healthy)", ports: "", created: ago(day), account: "kelechi", stack: "ike-kelechi-automation" },
+    { name: "ike-kelechi-1f0c2e9a-a", short: "ike-kelechi-1f0c2e9a-a", image: "ike/kelechi-1f0c2e9a:20261012-090000", state: "running", status: "Up 22 hours", ports: "127.0.0.1:3005->3001/tcp", created: ago(day), account: "kelechi", site: "status.kelechi.dev" },
+  ];
+  private stacks_: Record<string, StackInfo[]> = { kelechi: [{ name: "automation", account: "kelechi", status: "running(2)" }] };
+  private composeSrc: Record<string, string> = {
+    "kelechi/automation": "services:\n  n8n:\n    image: n8nio/n8n:1.110\n    ports: [\"5678:5678\"]\n    environment:\n      DB_TYPE: postgresdb\n      DB_POSTGRESDB_HOST: postgres\n    volumes: [\"n8n:/home/node/.n8n\"]\n  postgres:\n    image: postgres:17\n    environment:\n      POSTGRES_PASSWORD: ${PG_PASSWORD}\n    volumes: [\"pg:/var/lib/postgresql/data\"]\nvolumes:\n  n8n: {}\n  pg: {}\n",
+  };
+  private vols: Record<string, string[]> = { kelechi: ["redis-data", "meili-data"] };
+  private regs: Record<string, string[]> = { kelechi: ["ghcr.io"] };
+  private needDocker(account: string) { this.acct(account); }
+  async containers(account: string) { await wait(250); this.needDocker(account); return this.ctrs.filter((c) => c.account === account); }
+  async createContainer(account: string, spec: ContainerSpec) {
+    await wait(900);
+    this.needDocker(account);
+    if (!/^[a-z0-9][a-z0-9_.-]{0,39}$/.test(spec.name)) throw new Error("Container name must be lowercase letters, numbers, dots, dashes or underscores.");
+    if (!/^[a-z0-9]+([._-][a-z0-9]+)*(\/[a-z0-9]+([._-][a-z0-9]+)*)*(:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?$/.test(spec.image)) throw new Error("Image must look like nginx:1.27 or ghcr.io/owner/app:1.0.");
+    if (this.ctrs.some((c) => c.name === `ike-${account}-c-${spec.name}`)) throw new Error(`Container ${spec.name} already exists.`);
+    for (const p of spec.ports || []) if (p.host_port && p.host_port < 1024) throw new Error("Host ports below 1024 are reserved for the server.");
+    const c: Container = { name: `ike-${account}-c-${spec.name}`, short: spec.name, image: spec.image, state: "running", status: "Up 1 second", created: now(), account,
+      ports: (spec.ports || []).map((p) => `127.0.0.1:${p.host_port || 49153}->${p.container_port}/${p.protocol || "tcp"}`).join(", ") };
+    this.ctrs.unshift(c);
+    this.record("POST", `/v1/accounts/${account}/containers`, 201);
+    return c;
+  }
+  async containerAction(account: string, name: string, action: string) {
+    await wait(500);
+    const c = this.ctrs.find((x) => x.account === account && x.short === name);
+    if (!c) throw new Error("Container not found.");
+    if (action === "remove") this.ctrs = this.ctrs.filter((x) => x !== c);
+    else { c.state = action === "stop" ? "exited" : "running"; c.status = action === "stop" ? "Exited (0) just now" : "Up 1 second"; }
+    this.record("POST", `/v1/accounts/${account}/containers/${name}/${action}`);
+  }
+  async containerLogs(_account: string, name: string) {
+    await wait(300);
+    return name === "redis" ? "2026-10-13T09:12:01Z 1:M * Ready to accept connections tcp\n2026-10-13T10:12:02Z 1:M * 1 changes in 3600 seconds. Saving...\n2026-10-13T10:12:02Z 1:M * Background saving terminated with success"
+      : "2026-10-13T08:00:01Z Starting...\n2026-10-13T08:00:03Z Listening on 0.0.0.0:7700";
+  }
+  async containerExec(_account: string, name: string, command: string) {
+    await wait(500);
+    if (command.trim() === "") throw new Error("Type a command.");
+    return name === "redis" && command.includes("ping") ? "PONG" : `$ ${command}\n(preview) the command would run inside ${name}`;
+  }
+  async stacks(account: string) { await wait(200); return [...(this.stacks_[account] || [])]; }
+  async stack(account: string, name: string) {
+    await wait(250);
+    const s = (this.stacks_[account] || []).find((x) => x.name === name);
+    if (!s) throw new Error("Stack not found.");
+    return { ...s, compose: this.composeSrc[`${account}/${name}`] || "", services: this.ctrs.filter((c) => c.stack === `ike-${account}-${name}`)
+      .map((c) => ({ service: c.name.split("-").slice(-2, -1)[0], name: c.name, image: c.image, state: c.state, status: c.status, ports: c.ports })) };
+  }
+  async saveStack(account: string, name: string, compose: string) {
+    await wait(300);
+    if (!/^[a-z0-9][a-z0-9_.-]{0,39}$/.test(name)) throw new Error("Stack names are lowercase letters, numbers, dots, dashes or underscores.");
+    if (!/^services:/m.test(compose)) throw new Error("compose.yaml has a problem: services must be a mapping.");
+    if (/privileged:\s*true/.test(compose)) throw new Error("service: privileged containers aren't allowed.");
+    if (/network_mode:\s*["']?host/.test(compose)) throw new Error("service: network_mode: host isn't allowed.");
+    if (/docker\.sock/.test(compose)) throw new Error("service: only folders in /home/" + account + "/ can be mounted.");
+    this.composeSrc[`${account}/${name}`] = compose;
+    return this.startJob("stack", `Start stack ${name}`, ["Checking compose.yaml", "Ports kept on 127.0.0.1; add a website with the proxy runtime to publish one.", "Starting the stack", " Network ike-" + account + "-" + name + "_default  Created", " Container started", `Stack ${name} is up`], () => {
+      const l = (this.stacks_[account] ||= []);
+      if (!l.some((x) => x.name === name)) l.push({ name, account, status: "running(1)" });
+    });
+  }
+  async stackAction(account: string, name: string, action: string) {
+    await wait(300);
+    const s = (this.stacks_[account] || []).find((x) => x.name === name);
+    if (!s) throw new Error("Stack not found.");
+    return this.startJob("stack", `Stack ${name}: ${action}`, action === "pull" ? ["Pulling images", "n8n Pulled", "postgres Pulled", "Recreating changed containers", "Done"] : [`docker compose ${action}`, "Done"],
+      () => { s.status = action === "down" ? "exited" : "running(2)"; });
+  }
+  async deleteStack(account: string, name: string) { await wait(500); this.stacks_[account] = (this.stacks_[account] || []).filter((x) => x.name !== name); }
+  async volumes(account: string) { await wait(200); return (this.vols[account] || []).map((v) => ({ name: `ike-${account}-${v}`, short: v })); }
+  async createVolume(account: string, name: string) {
+    await wait(300);
+    if (!/^[a-z0-9][a-z0-9_.-]{0,39}$/.test(name)) throw new Error("Volume names are lowercase letters, numbers, dots, dashes or underscores.");
+    (this.vols[account] ||= []).push(name);
+  }
+  async removeVolume(account: string, name: string) { await wait(300); this.vols[account] = (this.vols[account] || []).filter((v) => v !== name); }
+  async registries(account: string) { await wait(150); return [...(this.regs[account] || [])]; }
+  async addRegistry(account: string, r: { registry: string; username: string; password: string }) {
+    await wait(700);
+    if (!/^[a-z0-9.-]+(:[0-9]{1,5})?$/.test(r.registry) || !r.username || !r.password) throw new Error("Give the registry host, a username and a password or token.");
+    (this.regs[account] ||= []).push(r.registry);
+  }
+  async removeRegistry(account: string, reg: string) { await wait(300); this.regs[account] = (this.regs[account] || []).filter((x) => x !== reg); }
+  async dockerOverview(): Promise<DockerOverview> {
+    await wait(300);
+    return { installed: true, version: "28.4.0", containers: this.ctrs.length, running: this.ctrs.filter((c) => c.state === "running").length, for_accounts: true,
+      images: [
+        { repository: "n8nio/n8n", tag: "1.110", id: "3f2a1b0c9d8e", size: "1.13GB", created: "9 days ago" },
+        { repository: "postgres", tag: "17", id: "a1b2c3d4e5f6", size: "438MB", created: "3 weeks ago" },
+        { repository: "louislam/uptime-kuma", tag: "1", id: "0f9e8d7c6b5a", size: "462MB", created: "2 months ago" },
+        { repository: "redis", tag: "7.4-alpine", id: "5e4d3c2b1a09", size: "41.4MB", created: "5 weeks ago" },
+        { repository: "getmeili/meilisearch", tag: "v1.15", id: "9a8b7c6d5e4f", size: "176MB", created: "6 weeks ago" },
+      ] };
+  }
+  async allContainers() { await wait(250); return [...this.ctrs]; }
+  async pruneDocker() { await wait(1200); return "Deleted build cache objects: 14\nTotal reclaimed space: 1.82GB"; }
+  async imageUpdates(): Promise<ImageUpdate[]> {
+    await wait(200);
+    return [
+      { image: "n8nio/n8n:1.110", containers: ["ike-kelechi-automation-n8n-1"], update_available: true, checked_at: ago(300) },
+      { image: "postgres:17", containers: ["ike-kelechi-automation-postgres-1"], update_available: false, checked_at: ago(300) },
+      { image: "redis:7.4-alpine", containers: ["ike-kelechi-c-redis"], update_available: true, checked_at: ago(300) },
+    ];
+  }
+  async checkImageUpdates() { await wait(300); return this.startJob("image-updates", "Check container images for updates", ["Update available: n8nio/n8n:1.110", "Update available: redis:7.4-alpine", "Checked 3 images"]); }
+  async kubeStatus(): Promise<KubeStatus> {
+    await wait(400);
+    return { installed: true, nodes: [{ name: "vps-lagos-1", ready: true, version: "v1.33.4+k3s1", roles: "control-plane,master" }], namespaces: ["default", "kube-system", "shop"] };
+  }
+  async kubeWorkloads(): Promise<KubeWorkloads> {
+    await wait(500);
+    return {
+      workloads: [
+        { kind: "Deployment", namespace: "shop", name: "storefront", ready: 3, desired: 3, images: ["ghcr.io/webafrica/storefront:2.8.1"] },
+        { kind: "Deployment", namespace: "shop", name: "worker", ready: 1, desired: 2, images: ["ghcr.io/webafrica/worker:2.8.1"] },
+        { kind: "StatefulSet", namespace: "shop", name: "valkey", ready: 1, desired: 1, images: ["valkey/valkey:8"] },
+        { kind: "Deployment", namespace: "kube-system", name: "coredns", ready: 1, desired: 1, images: ["rancher/mirrored-coredns-coredns:1.12.0"] },
+      ],
+      pods: [
+        { namespace: "shop", name: "storefront-7c9d6b5f4-2xk8p", phase: "Running", restarts: 0, node: "vps-lagos-1" },
+        { namespace: "shop", name: "worker-5b8c7d6e9-q4wzn", phase: "Running", restarts: 4, node: "vps-lagos-1" },
+        { namespace: "shop", name: "worker-5b8c7d6e9-7hjks", phase: "Pending", restarts: 0, node: "" },
+      ],
+      services: [{ namespace: "shop", name: "storefront", type: "NodePort", ports: ["80/TCP → node 30080"] }],
+    };
+  }
+  async kubeApply(manifest: string) {
+    await wait(700);
+    const kinds = [...manifest.matchAll(/^kind:\s*(\w+)/gm)].map((m) => m[1]);
+    const names = [...manifest.matchAll(/^\s{2}name:\s*([\w.-]+)/gm)].map((m) => m[1]);
+    if (!kinds.length) throw new Error("error: no objects passed to apply");
+    return kinds.map((k, i) => `${k.toLowerCase()}/${names[i] || "unnamed"} configured`).join("\n");
+  }
+  async kubeAction(_kind: string, _ns: string, _name: string, action: string, replicas?: number) {
+    await wait(500);
+    if (action === "scale" && (replicas === undefined || replicas < 0 || replicas > 100)) throw new Error("Replicas must be 0-100.");
+  }
+
 }
 
 export function runtimeName(r: string) {
-  return { php: "PHP", node: "Node.js", python: "Python", static: "Static" }[r] || r;
+  return ({ php: "PHP", node: "Node.js", python: "Python", java: "Java", go: "Go", dart: "Dart", static: "Static", proxy: "Proxy", docker: "Container" } as Record<string, string>)[r] || r;
 }
 
 // --------------------------------------------------------------- cron text

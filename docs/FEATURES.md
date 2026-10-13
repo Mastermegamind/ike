@@ -2,7 +2,7 @@
 
 Ike's full scope, grouped by area. Pick anything marked *planned* and open a PR — see [CONTRIBUTING.md](../CONTRIBUTING.md).
 
-**55 done · 9 partly done · 8 screen only · 104 planned** (of 176)
+**91 done · 9 partly done · 8 screen only · 69 planned** (of 177)
 
 | Mark | Meaning |
 |---|---|
@@ -35,11 +35,11 @@ Ike's full scope, grouped by area. Pick anything marked *planned* and open a PR 
 |---|---|---|
 | ✅ | Apache, Nginx, OpenLiteSpeed and Caddy integration | Nginx, Apache, Nginx+Apache; OLS/Caddy planned |
 | ✅ | Virtual hosts and website creation |  |
-| 🔜 2 | Domain, subdomain, wildcard and alias support |  |
+| ✅ | Domain, subdomain, wildcard and alias support | aliases, *.wildcards, www handling, redirect to main domain |
 | ✅ | Reverse proxy configuration | Node/Python apps, Nginx→Apache |
-| 🔜 2 | HTTP/2 and HTTP/3 support where available |  |
+| ✅ | HTTP/2 and HTTP/3 support where available | HTTP/3 with Nginx 1.25+ built with QUIC (nginx.org packages) |
 | ✅ | Per-website access/error logs |  |
-| 🔜 2 | URL redirects and rewrite rules |  |
+| ✅ | URL redirects and rewrite rules | exact, prefix and pattern rules; 301/302/307/308 |
 | ✅ | Custom error pages and password protection | error pages; password protection planned |
 | ✅ | PHP-FPM pools per website |  |
 | ✅ | Website staging and cloning | staging copy with database, push to live |
@@ -52,13 +52,14 @@ Ike's full scope, grouped by area. Pick anything marked *planned* and open a PR 
 |---|---|---|
 | ✅ | Multiple PHP versions installed side by side | 5.6 → 8.5 |
 | ✅ | Per-site PHP version selection |  |
-| 🟡 | PHP-FPM pool configuration | PHP workers and memory per website; raw pool editor planned |
-| 🔜 2 | PHP extensions management |  |
-| 🔜 2 | Composer integration |  |
+| ✅ | PHP-FPM pool configuration | process manager, workers, memory, uploads, time limits, timezone |
+| ✅ | PHP extensions management | 40 extensions per PHP version |
+| ✅ | Composer integration | install/update/require from the panel; run on Git deploys |
 | ✅ | Node.js and npm/pnpm/yarn management | Node versions; package managers via shell |
 | ✅ | Python virtual environments and pip | venv per app |
-| 🔜 2 | Java runtime and build tooling |  |
-| 🔜 2 | Go runtime support |  |
+| ✅ | Java runtime and build tooling | OpenJDK; Maven, Gradle wrapper on deploy |
+| ✅ | Go runtime support | go.dev releases, checksum-verified |
+| ✅ | Dart runtime support | Dart SDK from Google's archive |
 | ✅ | Environment variable and secrets management | editor per website; apps restart on save |
 | ✅ | Process management for long-running applications | systemd unit per app |
 | ✅ | Runtime-specific health checks | HTTP health check per app, restart or alert |
@@ -67,36 +68,36 @@ Ike's full scope, grouped by area. Pick anything marked *planned* and open a PR 
 
 | | Feature | Notes |
 |---|---|---|
-| 🔜 5 | GitHub, GitLab and Bitbucket integration |  |
-| 🔜 5 | Private repository authentication |  |
-| 🔜 5 | Deploy from branch, tag or commit |  |
-| 🔜 5 | Git push-triggered deployments |  |
-| 🔜 5 | Automatic application builds |  |
-| 🔜 5 | Dockerfile and buildpack deployments |  |
-| 🔜 5 | Docker Compose project management |  |
-| 🔜 5 | Build logs and deployment history |  |
-| 🔜 5 | Zero-downtime deployment strategies |  |
-| 🔜 5 | Rollback to previous release |  |
-| 🔜 5 | Preview deployments |  |
-| 🔜 5 | Deployment webhooks and API |  |
-| 🔜 5 | Build queues and concurrency controls |  |
+| ✅ | GitHub, GitLab and Bitbucket integration | deploy keys, tokens, signed webhooks, setup steps; OAuth sign-in planned |
+| ✅ | Private repository authentication | SSH deploy keys or access tokens |
+| ✅ | Deploy from branch, tag or commit | tag patterns like v* |
+| ✅ | Git push-triggered deployments | GitHub, GitLab, Bitbucket, generic |
+| ✅ | Automatic application builds | detected per runtime, sandboxed as the account user |
+| ✅ | Dockerfile and buildpack deployments | plus registry images |
+| ✅ | Docker Compose project management | policy-checked stacks per account |
+| ✅ | Build logs and deployment history |  |
+| ✅ | Zero-downtime deployment strategies | atomic release switch; blue-green for apps and containers |
+| ✅ | Rollback to previous release |  |
+| ✅ | Preview deployments | per pull request; forks never built |
+| ✅ | Deployment webhooks and API | signed outgoing events, deploy API, MCP |
+| ✅ | Build queues and concurrency controls |  |
 
 ## Docker and orchestration
 
 | | Feature | Notes |
 |---|---|---|
-| 🔜 5 | Docker Engine integration |  |
-| 🔜 5 | Container creation, start, stop and restart |  |
-| 🔜 5 | Image registry management |  |
-| 🔜 5 | Docker Compose stack deployment |  |
-| 🔜 5 | Container logs and shell |  |
-| 🔜 5 | Volumes and persistent storage |  |
-| 🔜 5 | Container networks and port mapping |  |
-| 🔜 5 | Resource quotas per container |  |
-| 🔜 5 | Container health checks |  |
-| 🔜 5 | Private registry credentials |  |
-| 🔜 5 | Image update notifications |  |
-| 🔜 5 | Optional Kubernetes integration |  |
+| ✅ | Docker Engine integration |  |
+| ✅ | Container creation, start, stop and restart |  |
+| ✅ | Image registry management | registry logins, images, cleanup |
+| ✅ | Docker Compose stack deployment |  |
+| 🟡 | Container logs and shell | logs and one-off commands; interactive shell planned with the web terminal |
+| ✅ | Volumes and persistent storage |  |
+| ✅ | Container networks and port mapping | ports on 127.0.0.1, published through websites |
+| ✅ | Resource quotas per container | plus the account's slice |
+| ✅ | Container health checks |  |
+| ✅ | Private registry credentials |  |
+| ✅ | Image update notifications | daily check, alerts |
+| ✅ | Optional Kubernetes integration | k3s single node for admins |
 
 ## DNS and domain management
 
@@ -119,10 +120,10 @@ Ike's full scope, grouped by area. Pick anything marked *planned* and open a PR 
 
 | | Feature | Notes |
 |---|---|---|
-| 🔜 1 | Let's Encrypt certificate issuance and renewal |  |
+| ✅ | Let's Encrypt certificate issuance and renewal |  |
 | 🔜 2 | Wildcard certificates with DNS-01 validation |  |
-| 🔜 2 | Custom SSL certificate upload |  |
-| 🔜 2 | Certificate expiration monitoring |  |
+| ✅ | Custom SSL certificate upload |  |
+| ✅ | Certificate expiration monitoring | alerts when renewal fails |
 | ✅ | UFW, nftables and firewalld integration | UFW |
 | ✅ | Fail2ban or CrowdSec integration | fail2ban |
 | ✅ | Two-factor authentication and passkeys | TOTP + recovery codes; passkeys planned |
@@ -268,6 +269,7 @@ Ike's full scope, grouped by area. Pick anything marked *planned* and open a PR 
 - ✅ Naira-first billing with Bachs, Paystack and Flutterwave
 - ✅ Data saver mode for slow or metered connections
 - ✅ Update Ike itself from the panel, with checksums
+- ✅ Proxy runtime: put a domain and HTTPS in front of any local port (containers, Kubernetes services)
 
 ## Also planned
 

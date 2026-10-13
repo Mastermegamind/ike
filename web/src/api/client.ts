@@ -3,7 +3,8 @@ import type {
   CreateSiteRequest, CronJob, Database, Diagnosis, DnsCheck, Drift, EnvVar, FirewallBlock, FirewallPort, Forwarder,
   HealthCheck, IkeRelease, ImportPlan, Invoice, Job, Limits, LogKind, MailDomain, Mailbox, NewDatabase, PaymentProvider,
   Person, Role, Runtimes, SSHKey, SSHMode, SecurityReport, ServiceStatus, Site, SiteStatus, SmtpSettings, SystemInfo,
-  UpdateStatus, WebServer, WordPressResult,
+  UpdateStatus, WebServer, WordPressResult, Redirect, PHPSettings, SSLSettings, CertInfo, PHPExtension, DeployInfo, DeploySetup,
+  Deployment, QueueStatus, Container, ContainerSpec, StackInfo, DockerOverview, ImageUpdate, KubeStatus, KubeWorkloads,
 } from "./types";
 
 import { DemoApi } from "./demo";
@@ -118,6 +119,60 @@ class HttpApi implements Api {
   saveAlertSettings(a: AlertSettings) { return this.req<AlertSettings>("PUT", "/alerts/settings", a); }
   testAlert() { return this.req<Record<string, string>>("POST", "/alerts/test"); }
   alertEvents() { return this.get<AlertEvent[]>("/alerts/events"); }
+
+  setDomains(d: string, r: { aliases: string[]; www: string; redirect_aliases: boolean }) { return this.req<Site>("PUT", `/sites/${e(d)}/domains`, r); }
+  setRedirects(d: string, rules: Redirect[]) { return this.req<Site>("PUT", `/sites/${e(d)}/redirects`, rules); }
+  setPHPSettings(d: string, p: PHPSettings) { return this.req<Site>("PUT", `/sites/${e(d)}/php`, p); }
+  runComposer(d: string, r: { action: string; package?: string; dev?: boolean }) { return this.req<Job>("POST", `/sites/${e(d)}/composer`, r); }
+  issueCertificate(d: string, r: { email?: string; include_aliases?: boolean }) { return this.req<Job>("POST", `/sites/${e(d)}/ssl`, r); }
+  uploadCertificate(d: string, r: { certificate: string; private_key: string }) { return this.req<Site>("PUT", `/sites/${e(d)}/ssl/custom`, r); }
+  updateSSL(d: string, o: Partial<Pick<SSLSettings, "force_https" | "hsts" | "http2" | "http3">>) { return this.req<Site>("PATCH", `/sites/${e(d)}/ssl`, o); }
+  removeSSL(d: string) { return this.req<Site>("DELETE", `/sites/${e(d)}/ssl`); }
+  certificates() { return this.get<CertInfo[]>("/ssl"); }
+  phpExtensions(v: string) { return this.get<PHPExtension[]>(`/php/${e(v)}/extensions`); }
+  changePHPExtension(v: string, name: string, install: boolean) { return this.req<Job>(install ? "POST" : "DELETE", `/php/${e(v)}/extensions/${e(name)}`); }
+
+  deployInfo(d: string) { return this.get<DeployInfo>(`/sites/${e(d)}/deploy`); }
+  configureDeploy(d: string, s: DeploySetup) { return this.req<DeployInfo>("PUT", `/sites/${e(d)}/deploy`, s); }
+  async disconnectDeploy(d: string) { await this.req("DELETE", `/sites/${e(d)}/deploy`); }
+  regenerateDeployKey(d: string) { return this.req<DeployInfo>("POST", `/sites/${e(d)}/deploy/key`); }
+  regenerateWebhookSecret(d: string) { return this.req<DeployInfo>("POST", `/sites/${e(d)}/deploy/webhook-secret`); }
+  deployments(d: string) { return this.get<Deployment[]>(`/sites/${e(d)}/deployments`); }
+  deploy(d: string, r?: { ref_type?: string; ref?: string }) { return this.req<Deployment>("POST", `/sites/${e(d)}/deployments`, r ?? {}); }
+  deployment(d: string, id: string) { return this.get<{ deployment: Deployment; log: string }>(`/sites/${e(d)}/deployments/${e(id)}`); }
+  rollback(d: string, id: string) { return this.req<Deployment>("POST", `/sites/${e(d)}/deployments/${e(id)}/rollback`); }
+  async cancelDeployment(d: string, id: string) { await this.req("POST", `/sites/${e(d)}/deployments/${e(id)}/cancel`); }
+  deployQueue() { return this.get<QueueStatus>("/deploy/queue"); }
+  async setDeploySettings(max: number) { await this.req("PUT", "/deploy/settings", { max_concurrent: max }); }
+
+  containers(a: string) { return this.get<Container[]>(`/accounts/${e(a)}/containers`); }
+  createContainer(a: string, spec: ContainerSpec) { return this.req<Container>("POST", `/accounts/${e(a)}/containers`, spec); }
+  async containerAction(a: string, n: string, action: string) { await this.req("POST", `/accounts/${e(a)}/containers/${e(n)}/${action}`); }
+  async containerLogs(a: string, n: string) { return (await this.get<{ log: string }>(`/accounts/${e(a)}/containers/${e(n)}/logs?lines=300`)).log; }
+  async containerExec(a: string, n: string, command: string) { return (await this.req<{ output: string }>("POST", `/accounts/${e(a)}/containers/${e(n)}/exec`, { command })).output; }
+  stacks(a: string) { return this.get<StackInfo[]>(`/accounts/${e(a)}/stacks`); }
+  stack(a: string, n: string) { return this.get<StackInfo>(`/accounts/${e(a)}/stacks/${e(n)}`); }
+  saveStack(a: string, n: string, compose: string) { return this.req<Job>("PUT", `/accounts/${e(a)}/stacks/${e(n)}`, { compose }); }
+  stackAction(a: string, n: string, action: string) { return this.req<Job>("POST", `/accounts/${e(a)}/stacks/${e(n)}/${action}`); }
+  async deleteStack(a: string, n: string, volumes: boolean) { await this.req("DELETE", `/accounts/${e(a)}/stacks/${e(n)}${volumes ? "?volumes=true" : ""}`); }
+  volumes(a: string) { return this.get<{ name: string; short: string }[]>(`/accounts/${e(a)}/volumes`); }
+  async createVolume(a: string, name: string) { await this.req("POST", `/accounts/${e(a)}/volumes`, { name }); }
+  async removeVolume(a: string, name: string) { await this.req("DELETE", `/accounts/${e(a)}/volumes/${e(name)}`); }
+  registries(a: string) { return this.get<string[]>(`/accounts/${e(a)}/registries`); }
+  async addRegistry(a: string, r: { registry: string; username: string; password: string }) { await this.req("POST", `/accounts/${e(a)}/registries`, r); }
+  async removeRegistry(a: string, reg: string) { await this.req("DELETE", `/accounts/${e(a)}/registries?registry=${e(reg)}`); }
+  dockerOverview() { return this.get<DockerOverview>("/docker"); }
+  allContainers() { return this.get<Container[]>("/docker/containers"); }
+  async pruneDocker() { return (await this.req<{ output: string }>("POST", "/docker/prune")).output; }
+  imageUpdates() { return this.get<ImageUpdate[]>("/docker/updates"); }
+  checkImageUpdates() { return this.req<Job>("POST", "/docker/updates/check"); }
+  kubeStatus() { return this.get<KubeStatus>("/kubernetes"); }
+  kubeWorkloads() { return this.get<KubeWorkloads>("/kubernetes/workloads"); }
+  async kubeApply(manifest: string) { return (await this.req<{ output: string }>("POST", "/kubernetes/apply", { manifest })).output; }
+  async kubeAction(kind: string, ns: string, name: string, action: "restart" | "delete" | "scale", replicas?: number) {
+    if (action === "delete") await this.req("DELETE", `/kubernetes/${e(kind)}/${e(ns)}/${e(name)}`);
+    else await this.req("POST", `/kubernetes/${e(kind)}/${e(ns)}/${e(name)}/${action}`, action === "scale" ? { replicas } : undefined);
+  }
 
   mailDomains() { return this.get<MailDomain[]>("/mail/domains"); }
   mailboxes(d: string) { return this.get<Mailbox[]>(`/mail/domains/${e(d)}/mailboxes`); }

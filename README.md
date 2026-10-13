@@ -30,6 +30,11 @@ An open-source, all-in-one hosting control panel for Linux VPS servers. It combi
 - **Staging sites:** copy a website (and its database) to staging, then push it live without touching the live config
 - **Resource limits and graphs:** CPU, memory, processes, disk and PHP workers per account, with 24-hour graphs
 - **Environment variables** per website, and HTTP health checks that restart a failing app
+- **Deploy from Git:** GitHub, GitLab, Bitbucket or any Git host; branches, tags (v*) or commits; deploy keys or tokens; push-to-deploy with signed webhooks; builds detected per language; atomic releases, zero-downtime blue-green for apps, rollback, preview websites per pull request, a build queue, and signed deployment notifications
+- **HTTPS everywhere:** free Let's Encrypt certificates renewed automatically, or upload your own; force HTTPS, HSTS, HTTP/2 and HTTP/3 (QUIC); expiry alerts
+- **Domains and redirects:** aliases, subdomains, *.wildcards, www handling, and redirect/rewrite rules
+- **More languages:** Java, Go and Dart apps next to PHP, Node.js and Python; Composer and 40 PHP extensions per version; per-website PHP-FPM settings
+- **Containers:** Docker containers and Compose stacks per account (policy-checked: no privileged or host-network containers), volumes, networks, private registries, image update alerts, Dockerfile/buildpack/image deployments, and optional Kubernetes (k3s) for admins
 - **cPanel migration:** reads a cPanel full backup and shows what will come across (restore is next)
 
 - **SSH per account**: none, SFTP-only (chrooted to the account's home) or full shell, with keys managed by the panel
@@ -78,6 +83,12 @@ Installer options:
 | `--agent-binary PATH` | Use a locally built agent instead of downloading a release |
 | `--mcp-binary PATH` | Use a locally built MCP server instead of downloading a release |
 | `--panel-binary PATH` | Use a locally built web panel instead of downloading a release |
+| `--java "17 21"`, `--maven` | OpenJDK versions, and Maven for Java builds |
+| `--go "1.24"` | Go versions from go.dev |
+| `--dart latest` | Dart SDK |
+| `--docker` | Docker Engine with Compose and Buildx (`--docker-for-accounts` lets account owners use it) |
+| `--buildpacks` | Cloud Native Buildpacks for Git deploys without a Dockerfile |
+| `--k3s` | Single-node Kubernetes for admins |
 | `--admin-user NAME --admin-email EMAIL` | The first admin sign-in |
 | `--wizard` | Ask for each choice interactively |
 
@@ -134,11 +145,11 @@ docs/         Design notes and roadmap
 
 ## Roadmap
 
-1. **Foundation** — installer, agent, web panel, sites, SSH/SFTP, MCP, databases, billing, alerts — *done except SSL*
-2. Hosting essentials — **SSL (Let's Encrypt) next**, DNS (PowerDNS), backups (restic), file manager, plans
+1. **Foundation** — installer, agent, web panel, sites, SSH/SFTP, MCP, databases, billing, alerts, HTTPS — *done*
+2. Hosting essentials — **DNS (PowerDNS) and wildcard certificates next**, backups (restic), file manager, plans
 3. Email — Postfix, Dovecot, Rspamd, DKIM, SMTP relay option (many VPS providers block port 25)
 4. Reseller layer — reseller accounts, branding, billing hooks (WHMCS, Paystack, Flutterwave, Stripe)
-5. App platform — Git deploys, Docker apps, one-click app catalog
+5. App platform — Git deploys, Docker, Compose and k3s — *done*; one-click app catalog next
 6. Scale — multi-server, server-to-server migration, cPanel backup importer
 
 See [docs/ROADMAP.md](docs/ROADMAP.md), the full [feature tracker](docs/FEATURES.md) and the [ports plan](docs/PORTS.md) (panel, reseller, admin, webmail, and SSL/TLS + STARTTLS mail ports).

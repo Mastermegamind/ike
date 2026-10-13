@@ -16,12 +16,12 @@ import { Appearance } from "./pages/Appearance";
 import { Migration, Security, Updates, Usage } from "./pages/Operations";
 import { Alerts, Billing, People } from "./pages/Business";
 import { Profile } from "./pages/Profile";
+import { Certificates, Containers, DockerHost, Kubernetes, PHPExtensions } from "./pages/Platform";
 import { Empty } from "./components/ui";
 import { PageHead } from "./components/common";
 import type { Role } from "./api/types";
 
 const soonText: Record<string, [string, string]> = {
-  ssl: ["SSL certificates", "Free Let's Encrypt certificates for every website and mail domain, renewed automatically, plus wildcard and custom certificates."],
   dns: ["DNS zones", "A zone editor for every record type, DNSSEC, and Cloudflare sync, powered by PowerDNS."],
   backups: ["Backups", "Scheduled, encrypted, incremental backups of websites, databases and email to S3, Backblaze B2 or another server, with one-click restore."],
   plans: ["Hosting plans", "Named plans that bundle disk, bandwidth, website and email limits, with recurring invoices and reseller branding. Invoices, payments and limits already work on their own."],
@@ -103,6 +103,11 @@ export function App() {
   else if (path === "/people") page = <People role={role} />;
   else if (path === "/alerts") page = <Alerts />;
   else if (path === "/profile") page = <Profile user={session.user} />;
+  else if (path === "/containers") page = <Containers route={route} role={role} />;
+  else if (path === "/ssl") page = <Certificates />;
+  else if (path === "/docker") page = <DockerHost />;
+  else if (path === "/kubernetes") page = <Kubernetes />;
+  else if (path === "/php-extensions") page = <PHPExtensions />;
   else if (path === "/more") page = <More role={role} route={route} />;
   else if (path.startsWith("/soon/")) page = <Soon id={path.slice(6)} />;
   else page = <Soon id="" />;

@@ -1,6 +1,6 @@
 # Ike feature checklist
 
-Marked against Ike v0.3.0.
+Marked against Ike v0.4.0.
 
 - `[x]` done: works end to end on a server
 - `[~]` partly done, or the screen is in the panel and the server side is still planned
@@ -26,11 +26,11 @@ Marked against Ike v0.3.0.
 
 - [x] Apache, Nginx, OpenLiteSpeed and Caddy integration — Nginx, Apache, Nginx+Apache; OLS/Caddy planned
 - [x] Virtual hosts and website creation
-- [ ] Domain, subdomain, wildcard and alias support
+- [x] Domain, subdomain, wildcard and alias support — aliases, *.wildcards, www handling, redirect to main domain
 - [x] Reverse proxy configuration — Node/Python apps, Nginx→Apache
-- [ ] HTTP/2 and HTTP/3 support where available
+- [x] HTTP/2 and HTTP/3 support where available — HTTP/3 with Nginx 1.25+ built with QUIC (nginx.org packages)
 - [x] Per-website access/error logs
-- [ ] URL redirects and rewrite rules
+- [x] URL redirects and rewrite rules — exact, prefix and pattern rules; 301/302/307/308
 - [x] Custom error pages and password protection — error pages; password protection planned
 - [x] PHP-FPM pools per website
 - [x] Website staging and cloning — staging copy with database, push to live
@@ -41,47 +41,48 @@ Marked against Ike v0.3.0.
 
 - [x] Multiple PHP versions installed side by side — 5.6 → 8.5
 - [x] Per-site PHP version selection
-- [~] PHP-FPM pool configuration — PHP workers and memory per website; raw pool editor planned
-- [ ] PHP extensions management
-- [ ] Composer integration
+- [x] PHP-FPM pool configuration — process manager, workers, memory, uploads, time limits, timezone
+- [x] PHP extensions management — 40 extensions per PHP version
+- [x] Composer integration — install/update/require from the panel; run on Git deploys
 - [x] Node.js and npm/pnpm/yarn management — Node versions; package managers via shell
 - [x] Python virtual environments and pip — venv per app
-- [ ] Java runtime and build tooling
-- [ ] Go runtime support
+- [x] Java runtime and build tooling — OpenJDK; Maven, Gradle wrapper on deploy
+- [x] Go runtime support — go.dev releases, checksum-verified
+- [x] Dart runtime support — Dart SDK from Google's archive
 - [x] Environment variable and secrets management — editor per website; apps restart on save
 - [x] Process management for long-running applications — systemd unit per app
 - [x] Runtime-specific health checks — HTTP health check per app, restart or alert
 
 ## Git, CI/CD and deployment
 
-- [ ] GitHub, GitLab and Bitbucket integration
-- [ ] Private repository authentication
-- [ ] Deploy from branch, tag or commit
-- [ ] Git push-triggered deployments
-- [ ] Automatic application builds
-- [ ] Dockerfile and buildpack deployments
-- [ ] Docker Compose project management
-- [ ] Build logs and deployment history
-- [ ] Zero-downtime deployment strategies
-- [ ] Rollback to previous release
-- [ ] Preview deployments
-- [ ] Deployment webhooks and API
-- [ ] Build queues and concurrency controls
+- [x] GitHub, GitLab and Bitbucket integration — deploy keys, tokens, signed webhooks, setup steps; OAuth sign-in planned
+- [x] Private repository authentication — SSH deploy keys or access tokens
+- [x] Deploy from branch, tag or commit — tag patterns like v*
+- [x] Git push-triggered deployments — GitHub, GitLab, Bitbucket, generic
+- [x] Automatic application builds — detected per runtime, sandboxed as the account user
+- [x] Dockerfile and buildpack deployments — plus registry images
+- [x] Docker Compose project management — policy-checked stacks per account
+- [x] Build logs and deployment history
+- [x] Zero-downtime deployment strategies — atomic release switch; blue-green for apps and containers
+- [x] Rollback to previous release
+- [x] Preview deployments — per pull request; forks never built
+- [x] Deployment webhooks and API — signed outgoing events, deploy API, MCP
+- [x] Build queues and concurrency controls
 
 ## Docker and orchestration
 
-- [ ] Docker Engine integration
-- [ ] Container creation, start, stop and restart
-- [ ] Image registry management
-- [ ] Docker Compose stack deployment
-- [ ] Container logs and shell
-- [ ] Volumes and persistent storage
-- [ ] Container networks and port mapping
-- [ ] Resource quotas per container
-- [ ] Container health checks
-- [ ] Private registry credentials
-- [ ] Image update notifications
-- [ ] Optional Kubernetes integration
+- [x] Docker Engine integration
+- [x] Container creation, start, stop and restart
+- [x] Image registry management — registry logins, images, cleanup
+- [x] Docker Compose stack deployment
+- [~] Container logs and shell — logs and one-off commands; interactive shell planned with the web terminal
+- [x] Volumes and persistent storage
+- [x] Container networks and port mapping — ports on 127.0.0.1, published through websites
+- [x] Resource quotas per container — plus the account's slice
+- [x] Container health checks
+- [x] Private registry credentials
+- [x] Image update notifications — daily check, alerts
+- [x] Optional Kubernetes integration — k3s single node for admins
 
 ## DNS and domain management
 
@@ -100,10 +101,10 @@ Marked against Ike v0.3.0.
 
 ## SSL and security
 
-- [ ] Let's Encrypt certificate issuance and renewal
+- [x] Let's Encrypt certificate issuance and renewal
 - [ ] Wildcard certificates with DNS-01 validation
-- [ ] Custom SSL certificate upload
-- [ ] Certificate expiration monitoring
+- [x] Custom SSL certificate upload
+- [x] Certificate expiration monitoring — alerts when renewal fails
 - [x] UFW, nftables and firewalld integration — UFW
 - [x] Fail2ban or CrowdSec integration — fail2ban
 - [x] Two-factor authentication and passkeys — TOTP + recovery codes; passkeys planned
@@ -225,4 +226,4 @@ Marked against Ike v0.3.0.
 - [x] Real-time activity feed — agent + panel audit log
 - [ ] Multi-language readiness
 
-**Totals:** 55 done, 17 partly done or screen only, 104 not yet, of 176.
+**Totals:** 91 done, 17 partly done or screen only, 69 not yet, of 177.
