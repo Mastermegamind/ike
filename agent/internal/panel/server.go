@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/YOUR-ORG/ike/agent/internal/client"
+	"github.com/YOUR-ORG/ike/agent/internal/kit"
 	"github.com/YOUR-ORG/ike/agent/internal/panel/alerts"
 	"github.com/YOUR-ORG/ike/agent/internal/panel/auth"
 	"github.com/YOUR-ORG/ike/agent/internal/panel/billing"
@@ -58,6 +59,14 @@ type Server struct {
 	sessions       map[string]*session // key: hash of token
 	siteAcct       sync.Map            // domain -> account (cache)
 	webhookLimiter rateLimiter
+
+	// Multi-server: the cluster authority lives in ClusterDir; joining
+	// servers check the panel certificate's CertFingerprint.
+	ClusterDir      string
+	CertFingerprint string
+	AdminPort       string // "2087"
+	LocalIP         string // this server's public address (cluster primaries)
+	remote          remotes
 }
 
 type ctxKey int
@@ -111,6 +120,16 @@ func (s *Server) Handler(l Listener) http.Handler {
 	mux.HandleFunc("POST /api/v1/alerts/test", s.authed(s.adminOnly(s.testAlert)))
 	mux.HandleFunc("GET /api/v1/alerts/events", s.authed(s.adminOnly(s.alertEvents)))
 
+	mux.HandleFunc("POST /cluster/join", s.join)
+	mux.HandleFunc("GET /api/v1/servers", s.authed(s.adminOnly(s.listServers)))
+	mux.HandleFunc("POST /api/v1/servers/join-token", s.authed(s.adminOnly(s.createJoinToken)))
+	mux.HandleFunc("PATCH /api/v1/servers/{id}", s.authed(s.adminOnly(s.updateServer)))
+	mux.HandleFunc("DELETE /api/v1/servers/{id}", s.authed(s.adminOnly(s.deleteServer)))
+	mux.HandleFunc("POST /api/v1/fanout", s.authed(s.adminOnly(s.fanout)))
+	mux.HandleFunc("GET /api/v1/clusters", s.authed(s.adminOnly(s.listClusters)))
+	mux.HandleFunc("POST /api/v1/clusters", s.authed(s.adminOnly(s.createCluster)))
+	mux.HandleFunc("POST /api/v1/clusters/{id}/promote", s.authed(s.adminOnly(s.promoteCluster)))
+	mux.HandleFunc("DELETE /api/v1/clusters/{id}", s.authed(s.adminOnly(s.deleteCluster)))
 	mux.HandleFunc("GET /s/{token}", s.shareLink)
 	mux.HandleFunc("POST /s/{token}", s.shareLink)
 	mux.HandleFunc("/api/v1/", s.authed(s.proxy))
@@ -152,11 +171,11 @@ func fail(w http.ResponseWriter, code int, msg string) {
 
 func failErr(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, store.ErrNotFound):
+	case errors.Is(err, store.ErrNotFound), errors.Is(err, kit.ErrNotFound):
 		fail(w, 404, err.Error())
 	case errors.Is(err, store.ErrExists):
 		fail(w, 409, err.Error())
-	case errors.Is(err, errForbidden):
+	case errors.Is(err, errForbidden), errors.Is(err, kit.ErrForbidden):
 		fail(w, 403, err.Error())
 	default:
 		fail(w, 400, err.Error())
@@ -164,6 +183,15 @@ func failErr(w http.ResponseWriter, err error) {
 }
 
 var errForbidden = errors.New("you don't have access to that")
+
+// decodeBody decodes JSON or answers 400.
+func decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
+	if err := decode(r, v); err != nil {
+		fail(w, 400, err.Error())
+		return false
+	}
+	return true
+}
 
 func decode(r *http.Request, v any) error {
 	d := json.NewDecoder(io.LimitReader(r.Body, 256<<10))

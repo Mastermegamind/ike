@@ -33,6 +33,7 @@ import (
 
 	"github.com/YOUR-ORG/ike/agent/internal/api"
 	"github.com/YOUR-ORG/ike/agent/internal/client"
+	"github.com/YOUR-ORG/ike/agent/internal/cluster"
 	"github.com/YOUR-ORG/ike/agent/internal/panel"
 	"github.com/YOUR-ORG/ike/agent/internal/panel/alerts"
 	"github.com/YOUR-ORG/ike/agent/internal/panel/auth"
@@ -48,6 +49,9 @@ type Config struct {
 	Store     string           `json:"store"`
 	PublicURL string           `json:"public_url"` // e.g. https://panel.example.com:2083
 	Hostname  string           `json:"hostname"`
+	// Multi-server management
+	ClusterDir string `json:"cluster_dir"`
+	PublicIP   string `json:"public_ipv4"`
 }
 
 func defaults() Config {
@@ -57,10 +61,11 @@ func defaults() Config {
 			{Name: "reseller", Addr: ":2086", Roles: []store.Role{store.Reseller, store.Admin}},
 			{Name: "admin", Addr: ":2087", Roles: []store.Role{store.Admin}},
 		},
-		TLSCert: "/etc/ike/tls/panel.crt",
-		TLSKey:  "/etc/ike/tls/panel.key",
-		Agent:   "/run/ike/agent.sock",
-		Store:   "/var/lib/ike/panel/panel.json",
+		TLSCert:    "/etc/ike/tls/panel.crt",
+		TLSKey:     "/etc/ike/tls/panel.key",
+		Agent:      "/run/ike/agent.sock",
+		Store:      "/var/lib/ike/panel/panel.json",
+		ClusterDir: "/var/lib/ike/panel/cluster",
 	}
 }
 
@@ -126,7 +131,16 @@ func run(cfgPath string) error {
 		cfg.PublicURL = "https://" + host + ":2083"
 	}
 	agent := client.Unix(cfg.Agent)
-	srv := &panel.Server{Store: st, Agent: agent, UI: ui.FS(), PublicURL: strings.TrimRight(cfg.PublicURL, "/"), TLS: true}
+	srv := &panel.Server{Store: st, Agent: agent, UI: ui.FS(), PublicURL: strings.TrimRight(cfg.PublicURL, "/"), TLS: true,
+		ClusterDir: cfg.ClusterDir, LocalIP: cfg.PublicIP}
+	if len(cert.Certificate) > 0 {
+		srv.CertFingerprint = cluster.Fingerprint(cert.Certificate[0])
+	}
+	for _, l := range cfg.Listeners {
+		if l.Name == "admin" {
+			_, srv.AdminPort, _ = net.SplitHostPort(l.Addr)
+		}
+	}
 	srv.Notifier = &alerts.Notifier{Settings: func() (a store.AlertSettings) { st.View(func(d *store.Data) { a = d.Alerts }); return }}
 	srv.Monitor = &alerts.Monitor{Notifier: srv.Notifier, Targets: func(ctx context.Context) ([]alerts.Target, error) {
 		var sites []struct {

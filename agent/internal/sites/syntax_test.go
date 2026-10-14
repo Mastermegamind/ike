@@ -49,7 +49,9 @@ func realSyntax(t *testing.T, stack string) {
 	_ = os.MkdirAll("/opt/ike/runtimes/node/22/bin", 0o755)
 	_ = os.WriteFile("/opt/ike/runtimes/node/22/bin/node", nil, 0o755)
 
-	reqs := []CreateRequest{{Domain: "php.syn.ng", Account: "syn"}, {Domain: "static.syn.ng", Account: "syn", Runtime: "static"}}
+	lb := &BalancerSettings{Method: "least_conn", Backends: []Backend{{Address: "10.0.0.5:80", Weight: 3}, {Address: "10.0.0.6:8080"}, {Address: "10.0.0.7:80", Backup: true}}}
+	reqs := []CreateRequest{{Domain: "php.syn.ng", Account: "syn"}, {Domain: "static.syn.ng", Account: "syn", Runtime: "static"},
+		{Domain: "lb.syn.ng", Account: "syn", Runtime: "balancer", Balancer: lb}}
 	if stack == "hybrid" {
 		reqs = append(reqs, CreateRequest{Domain: "ap.syn.ng", Account: "syn", WebServer: "nginx+apache"},
 			CreateRequest{Domain: "node.syn.ng", Account: "syn", Runtime: "node"},
@@ -108,7 +110,7 @@ http {
 	}
 	if _, err := exec.LookPath("apache2"); err == nil {
 		mods := []string{"mpm_event", "authz_core", "alias", "rewrite", "headers", "ssl", "http2", "proxy", "proxy_http",
-			"proxy_fcgi", "proxy_wstunnel", "setenvif", "dir", "mime", "socache_shmcb"}
+			"proxy_fcgi", "proxy_wstunnel", "setenvif", "dir", "mime", "socache_shmcb", "proxy_balancer", "slotmem_shm", "lbmethod_byrequests", "lbmethod_bybusyness"}
 		conf := "ServerRoot /etc/apache2\nPidFile " + dir + "/apache.pid\nMutex file:" + dir + "\nListen 18080\nErrorLog " + dir + "/apache.log\n"
 		for _, mod := range mods {
 			conf += "LoadModule " + mod + "_module /usr/lib/apache2/modules/mod_" + mod + ".so\n"

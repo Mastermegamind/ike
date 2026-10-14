@@ -191,6 +191,16 @@ func (s *Server) dbRoutes(h func(string, handler)) {
 		}
 		return ok(map[string]bool{"stopped": true}, d.StopReplica(r.Context(), body.Promote))
 	}))
+	h("POST /v1/databases/redis/primary", admin(func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		var body struct {
+			ReplicaIP string `json:"replica_ip"`
+		}
+		if !decode(w, r, &body) {
+			return 0, nil, nil
+		}
+		pw, port, err := d.RedisPrimary(r.Context(), body.ReplicaIP)
+		return ok(map[string]any{"password": pw, "port": port}, err)
+	}))
 	h("POST /v1/databases/redis/replicaof", admin(func(w http.ResponseWriter, r *http.Request) (int, any, error) {
 		var body struct {
 			Host     string `json:"host"`

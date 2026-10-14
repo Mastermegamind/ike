@@ -464,3 +464,48 @@ func (m *Manager) RedisReplicaOf(ctx context.Context, host string, port int, pas
 }
 
 var _ = time.Second
+
+// RedisPrimary opens the server-wide Redis to one replica: a password,
+// listening on the public address, and a firewall rule for that address only.
+func (m *Manager) RedisPrimary(ctx context.Context, replicaIP string) (string, int, error) {
+	if m.env.Cfg.Redis == "" {
+		return "", 0, fmt.Errorf("Redis %w", kit.ErrNotInstalled)
+	}
+	if !ipRe.MatchString(replicaIP) {
+		return "", 0, fmt.Errorf("replica address must be an IP address")
+	}
+	cli := "redis-cli"
+	if m.env.Cfg.Redis == "valkey" {
+		cli = "valkey-cli"
+	}
+	var saved struct {
+		Password string `json:"password"`
+	}
+	path := m.env.P("/etc/ike/redis-primary.json")
+	_ = kit.ReadJSON(path, &saved)
+	env := []string{"PATH=/usr/bin:/bin"}
+	if saved.Password != "" {
+		env = append(env, "REDISCLI_AUTH="+saved.Password)
+	} else {
+		saved.Password = kit.RandomHex(24)
+		if _, err := m.env.Run.Exec(ctx, runnerCmd(cli, []string{"CONFIG", "SET", "requirepass", saved.Password}, env)); err != nil {
+			return "", 0, err
+		}
+		if err := kit.WriteJSON(path, saved); err != nil {
+			return "", 0, err
+		}
+		env = append(env, "REDISCLI_AUTH="+saved.Password)
+	}
+	bind := "127.0.0.1 -::1"
+	if m.env.Cfg.PublicIPv4 != "" {
+		bind += " " + m.env.Cfg.PublicIPv4
+	}
+	for _, kv := range [][]string{{"bind", bind}, {"masterauth", saved.Password}} {
+		if _, err := m.env.Run.Exec(ctx, runnerCmd(cli, append([]string{"CONFIG", "SET"}, kv...), env)); err != nil {
+			return "", 0, err
+		}
+	}
+	_, _ = m.env.Run.Exec(ctx, runnerCmd(cli, []string{"CONFIG", "REWRITE"}, env))
+	_, _ = m.env.Run.Run(ctx, "ufw", "allow", "from", replicaIP, "to", "any", "port", "6379", "proto", "tcp", "comment", "Redis replica")
+	return saved.Password, 6379, nil
+}

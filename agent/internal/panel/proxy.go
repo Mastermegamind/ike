@@ -226,6 +226,13 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "Bad path.")
 		return
 	}
+	agent, err := s.resolveAgent(r, p)
+	if err != nil {
+		failErr(w, err)
+		return
+	}
+	r = r.WithContext(context.WithValue(r.Context(), keyAgent, agent))
+	r.URL.RawQuery = stripServerParam(r.URL.RawQuery)
 	if isWebSocket(r) {
 		s.wsTunnel(w, r, p, apiPath)
 		return
@@ -248,7 +255,7 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request) {
 		failErr(w, err)
 		return
 	}
-	target := s.Agent.BaseURL + apiPath
+	target := agent.BaseURL + apiPath
 	if r.URL.RawQuery != "" {
 		target += "?" + r.URL.RawQuery
 	}
@@ -262,7 +269,7 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Header.Set("X-Ike-Actor", actor)
 	req.Header.Set("X-Ike-Role", string(p.Role))
-	resp, err := s.Agent.HTTP.Do(req)
+	resp, err := agent.HTTP.Do(req)
 	if err != nil {
 		fail(w, 502, "The server agent isn't answering. Check that ike-agent is running.")
 		return

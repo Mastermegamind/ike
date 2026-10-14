@@ -45,11 +45,13 @@ import (
 	"github.com/YOUR-ORG/ike/agent/internal/databases"
 	"github.com/YOUR-ORG/ike/agent/internal/dns"
 	"github.com/YOUR-ORG/ike/agent/internal/files"
+	"github.com/YOUR-ORG/ike/agent/internal/infra"
 	"github.com/YOUR-ORG/ike/agent/internal/kit"
 	"github.com/YOUR-ORG/ike/agent/internal/mail"
 	"github.com/YOUR-ORG/ike/agent/internal/malware"
 	"github.com/YOUR-ORG/ike/agent/internal/secrets"
 	"github.com/YOUR-ORG/ike/agent/internal/sites"
+	"github.com/YOUR-ORG/ike/agent/internal/spec"
 	"github.com/YOUR-ORG/ike/agent/internal/storage"
 	"github.com/YOUR-ORG/ike/agent/internal/sysinfo"
 )
@@ -65,6 +67,8 @@ type Features struct {
 	Files   *files.Manager
 	Storage *storage.Manager
 	Backups *backups.Manager
+	Infra   *infra.Manager
+	Spec    *spec.Manager
 }
 
 // zoneAdapter lets the mail manager publish records through DNS.
@@ -131,6 +135,7 @@ func (s *Server) Setup() error {
 	}
 	s.F = f
 	f.Backups = backups.New(env, keys, f.Storage, s.backupSources())
+	s.setupInfra(f)
 	s.Sites.OnAccountDelete = func(ctx context.Context, account string) {
 		_ = f.DB.DeleteAccount(ctx, account)
 		if doms, err := f.Mail.Domains(account); err == nil {
@@ -157,6 +162,8 @@ func (s *Server) RunBackground(ctx context.Context) {
 	s.F.Mail.Detect(ctx)
 	go s.F.Malware.RunScheduler(ctx)
 	go s.F.Backups.RunScheduler(ctx)
+	go s.F.Infra.RunMaintenance(ctx)
+	go s.F.Infra.RunWebhooks(ctx)
 }
 
 func (s *Server) accountNames() []string {
@@ -231,6 +238,7 @@ func (s *Server) v5Routes(h func(string, handler)) {
 	s.dbRoutes(h)
 	s.fileRoutes(h)
 	s.backupRoutes(h)
+	s.infraRoutes(h)
 
 	// ---- DNS: admin ----
 	h("GET /v1/dns", func(w http.ResponseWriter, r *http.Request) (int, any, error) {

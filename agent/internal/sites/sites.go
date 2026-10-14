@@ -35,14 +35,15 @@ type Site struct {
 	CreatedAt    time.Time    `json:"created_at"`
 
 	// Domains: extra names served by this website.
-	Aliases         []string     `json:"aliases,omitempty"`          // other domains, subdomains or *.wildcards
-	WWW             string       `json:"www,omitempty"`              // both (default) | www | root | none
-	RedirectAliases bool         `json:"redirect_aliases,omitempty"` // aliases 301 to the main domain
-	Redirects       []Redirect   `json:"redirects,omitempty"`
-	PHP             *PHPSettings `json:"php,omitempty"`
-	SSL             *SSLSettings `json:"ssl,omitempty"`
-	Deploy          *DeployState `json:"deploy,omitempty"`
-	WAF             *WAFSettings `json:"waf,omitempty"`
+	Aliases         []string          `json:"aliases,omitempty"`          // other domains, subdomains or *.wildcards
+	WWW             string            `json:"www,omitempty"`              // both (default) | www | root | none
+	RedirectAliases bool              `json:"redirect_aliases,omitempty"` // aliases 301 to the main domain
+	Redirects       []Redirect        `json:"redirects,omitempty"`
+	PHP             *PHPSettings      `json:"php,omitempty"`
+	SSL             *SSLSettings      `json:"ssl,omitempty"`
+	Deploy          *DeployState      `json:"deploy,omitempty"`
+	WAF             *WAFSettings      `json:"waf,omitempty"`
+	Balancer        *BalancerSettings `json:"balancer,omitempty"`
 }
 
 // CreateRequest adds a website to an existing account.
@@ -54,6 +55,8 @@ type CreateRequest struct {
 	WebServer    string `json:"web_server,omitempty"` // default: the admin's choice for this server
 	StartCommand string `json:"start_command,omitempty"`
 	Port         int    `json:"port,omitempty"` // proxy runtime: the local port to forward to
+	// Balancer runtime: the backend pool.
+	Balancer *BalancerSettings `json:"balancer,omitempty"`
 }
 
 // UpdateRequest changes a website's runtime version, web server or start command.
@@ -109,6 +112,10 @@ type layout struct {
 	WAFRulesFile        string
 	WAFBlock            bool
 	WAFDisabled         []int
+	// Load balancer runtime
+	Balanced                                   bool
+	NginxUpstream, ApacheBalancer              string
+	UpstreamName, UpstreamScheme, UpstreamHost string
 }
 
 // siteID is a short, stable, filename-safe id for a domain.
@@ -160,6 +167,7 @@ func (m *Manager) layout(s *Site) layout {
 	m.applyDomainLayout(s, &L)
 	m.applySSLLayout(s, &L)
 	m.applyWAFLayout(s, &L)
+	m.applyBalancerLayout(s, &L)
 	L.applyPHP(s.PHP, lim)
 	if L.RedirectNames != "" && L.WebServer == "apache" {
 		L.ApacheRedirectListens = []string{L.ApacheListen}
@@ -247,6 +255,24 @@ func (m *Manager) Create(ctx context.Context, req CreateRequest) (*Site, error) 
 	if err := validate.Username(req.Account); err != nil {
 		return nil, fmt.Errorf("account: %w", err)
 	}
+	if req.Runtime == RuntimeBalancer {
+		if req.Balancer == nil {
+			return nil, fmt.Errorf("add the backend servers to balance across")
+		}
+		if err := req.Balancer.check(); err != nil {
+			return nil, err
+		}
+		if !m.cfg.DryRun {
+			if err := req.Balancer.resolvable(ctx); err != nil {
+				return nil, err
+			}
+		}
+		if req.WebServer == "nginx+apache" {
+			req.WebServer = "nginx"
+		}
+	} else {
+		req.Balancer = nil
+	}
 	if req.Runtime == RuntimeProxy {
 		if req.Port < 1 || req.Port > 65535 {
 			return nil, fmt.Errorf("give the local port to forward to (1-65535)")
@@ -283,7 +309,7 @@ func (m *Manager) Create(ctx context.Context, req CreateRequest) (*Site, error) 
 	site := &Site{
 		Domain: req.Domain, Account: req.Account, Runtime: req.Runtime, Version: req.Version,
 		WebServer: req.WebServer, StartCommand: req.StartCommand, Status: StatusActive, CreatedAt: time.Now().UTC(),
-		Port: req.Port,
+		Port: req.Port, Balancer: req.Balancer,
 	}
 	if IsApp(req.Runtime) || req.Runtime == RuntimeDocker {
 		if site.Port = m.nextPort(); site.Port == 0 {
@@ -295,7 +321,7 @@ func (m *Manager) Create(ctx context.Context, req CreateRequest) (*Site, error) 
 	if L.IsApp {
 		site.DocRoot = L.AppDir
 	}
-	if req.Runtime == RuntimeProxy || req.Runtime == RuntimeDocker {
+	if req.Runtime == RuntimeProxy || req.Runtime == RuntimeDocker || req.Runtime == RuntimeBalancer {
 		site.DocRoot = L.SiteDir
 	}
 	if _, err := os.Stat(m.p(L.StateFile)); err == nil {

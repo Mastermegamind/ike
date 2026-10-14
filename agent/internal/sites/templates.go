@@ -15,6 +15,11 @@ import "text/template"
 // Around it: an optional server block that redirects other names to the main
 // one, the port 80 server (or a redirect to HTTPS), and the HTTPS server.
 var nginxTmpl = template.Must(template.New("nginx").Parse(`# Managed by Ike. Manual changes will be overwritten.
+{{- if .NginxUpstream}}
+
+# Load balancer pool
+{{.NginxUpstream}}
+{{- end}}
 {{- if .RedirectNames}}
 
 # Other names for this website go to {{.CanonicalHost}}.
@@ -150,7 +155,24 @@ server {
     {{.}}
 {{- end}}
 {{- end}}
-{{- if .Proxied}}
+{{- if .Balanced}}
+
+    # Load balancer: spread over the backends in {{.UpstreamName}}
+    location / {
+        proxy_pass {{.UpstreamScheme}}://{{.UpstreamName}};
+        proxy_http_version 1.1;
+        proxy_set_header Host {{.UpstreamHost}};
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade_ike;
+        proxy_next_upstream error timeout http_502 http_503 http_504;
+        proxy_next_upstream_tries 3;
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 300;
+    }
+{{- else if .Proxied}}
 
     # {{.Runtime}} on 127.0.0.1:{{.ActivePort}}
     location / {
@@ -335,7 +357,11 @@ var apacheTmpl = template.Must(template.New("apache").Parse(`# Managed by Ike. M
     {{.}}
 {{- end}}
 {{- end}}
-{{- if .Proxied}}
+{{- if .Balanced}}
+
+    ProxyPreserveHost {{if eq .UpstreamHost "$host"}}On{{else}}Off{{end}}
+    {{.ApacheBalancer}}
+{{- else if .Proxied}}
 
     ProxyPreserveHost On
     ProxyPass /.well-known/acme-challenge/ !

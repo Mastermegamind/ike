@@ -205,3 +205,62 @@ func (a *testAPI) waitJob(id string) map[string]any {
 	a.t.Fatal("job still running")
 	return nil
 }
+
+func TestSpecPlanApply(t *testing.T) {
+	a := newTestAPI(t, func(c *config.Config) { c.MailServer = "postfix" })
+	sp := map[string]any{
+		"variables": map[string]string{"acct": "blog"},
+		"spec": json.RawMessage(`{"accounts":[{"name":"${acct}","ssh":"sftp"}],
+		  "sites":[{"domain":"${domain}","account":"${acct}","runtime":"static","aliases":["www2.${domain}"]}],
+		  "databases":[{"account":"${acct}","engine":"mariadb","name":"main"}],
+		  "dns":[{"account":"${acct}","name":"${domain}","template":"website","records":[{"name":"api","type":"A","content":"203.0.113.9"}]}],
+		  "mail":[{"account":"${acct}","domain":"${domain}","mailboxes":[{"local":"hello"}]}],
+		  "cron":[{"account":"${acct}","schedule":"@daily","command":"echo hi"}]}`),
+	}
+	if c := a.call("POST", "/v1/spec/plan", sp, "", nil); c != 400 {
+		t.Fatalf("missing variable accepted: %d", c)
+	}
+	sp["variables"] = map[string]string{"acct": "blog", "domain": "blog.ng"}
+	var plan []map[string]string
+	if c := a.call("POST", "/v1/spec/plan", sp, "", &plan); c != 200 {
+		t.Fatalf("plan %d", c)
+	}
+	creates := 0
+	for _, p := range plan {
+		if p["action"] == "create" {
+			creates++
+		}
+	}
+	if creates != 8 {
+		t.Fatalf("plan %+v", plan)
+	}
+	var job map[string]any
+	if c := a.call("POST", "/v1/spec/apply", sp, "", &job); c != 202 {
+		t.Fatalf("apply %d", c)
+	}
+	j := a.waitJob(job["id"].(string))
+	log, _ := json.Marshal(j["log"])
+	if !strings.Contains(string(log), `password`) {
+		t.Fatalf("no credentials in log: %s", log)
+	}
+	a.call("POST", "/v1/spec/plan", sp, "", &plan)
+	for _, p := range plan {
+		if p["action"] != "none" {
+			t.Fatalf("second plan not empty: %+v", p)
+		}
+	}
+	var exported map[string]any
+	a.call("GET", "/v1/spec/export", nil, "", &exported)
+	b, _ := json.Marshal(exported)
+	if !strings.Contains(string(b), `"domain":"blog.ng"`) || !strings.Contains(string(b), `"local":"hello"`) {
+		t.Fatalf("export %s", b)
+	}
+	// templates
+	if c := a.call("PUT", "/v1/spec/templates/wordpress-site", map[string]any{"description": "A WordPress site", "spec": json.RawMessage(`{"sites":[{"domain":"${domain}","account":"${account}"}]}`)}, "", nil); c != 200 {
+		t.Fatalf("template %d", c)
+	}
+	var tp []map[string]string
+	if c := a.call("POST", "/v1/spec/templates/wordpress-site/plan", map[string]any{"variables": map[string]string{"domain": "x.ng", "account": "blog"}}, "", &tp); c != 200 || len(tp) != 1 {
+		t.Fatalf("template plan %d %+v", c, tp)
+	}
+}

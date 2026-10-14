@@ -43,6 +43,9 @@ SERVER_HOSTNAME=""
 POSTGRES_VERSION=""         # "" = none, "default" = Ubuntu's, or 14-18 from apt.postgresql.org
 REDIS_KIND=""               # redis | valkey
 MONGODB_VERSION=""          # e.g. 8.0
+JOIN_URL=""                 # join another server's panel instead of being managed here
+JOIN_TOKEN=""
+JOIN_FINGERPRINT=""
 INSTALL_MODSEC=0            # ModSecurity web application firewall with the OWASP Core Rule Set
 INSTALL_SCANNER=0           # ClamAV for malware scans of websites (always on with --mail)
 FORCE=0
@@ -144,6 +147,11 @@ Databases
   --mongodb [VERSION]         MongoDB Community from mongodb.org (default 8.0)
   --phpmyadmin stable|6|none  phpMyAdmin channel (default: stable; "6" = 6.0 development snapshot)
 
+Multiple servers
+  --join URL                  Join this server to a panel on another server (https://panel.example.com:2087)
+  --join-token TOKEN          The one-time token from "Servers → Add server" in that panel
+  --join-fingerprint FP       That panel's certificate fingerprint (shown with the token)
+
 Other
   --force                     Install even if the server is not fresh
   --agent-binary PATH         Use a locally built ${AGENT_NAME}
@@ -177,6 +185,9 @@ while [ $# -gt 0 ]; do
 		--no-mariadb) INSTALL_MARIADB=0; shift ;;
 		--dns) INSTALL_DNS=1; shift ;;
 		--modsecurity) INSTALL_MODSEC=1; shift ;;
+		--join) JOIN_URL="${2:?}"; shift 2 ;;
+		--join-token) JOIN_TOKEN="${2:?}"; shift 2 ;;
+		--join-fingerprint) JOIN_FINGERPRINT="${2:?}"; shift 2 ;;
 		--postgres) if [[ "${2:-}" =~ ^1[4-9]$ ]]; then POSTGRES_VERSION="$2"; shift 2; else POSTGRES_VERSION="default"; shift; fi ;;
 		--redis) REDIS_KIND="redis"; shift ;;
 		--valkey) REDIS_KIND="valkey"; shift ;;
@@ -294,6 +305,11 @@ for v in $PYTHON_VERSIONS; do [[ "$v" =~ ^3\.[0-9]{1,2}$ ]] || die "Invalid Pyth
 [ -z "$DEFAULT_PHP" ] || [[ "$DEFAULT_PHP" =~ ^[5-9]\.[0-9]$ ]] || die "Invalid --default-php"
 [ -z "$SERVER_HOSTNAME" ] || [[ "$SERVER_HOSTNAME" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$ ]] || die "--hostname must be a full name like mail.example.com"
 if [ "$INSTALL_MAIL" -eq 0 ]; then INSTALL_RSPAMD=0; INSTALL_CLAMAV=0; INSTALL_WEBMAIL=0; fi
+if [ -n "$JOIN_URL" ]; then
+	[[ "$JOIN_URL" =~ ^https://[A-Za-z0-9.:-]+(/)?$ ]] || die "--join takes the panel's address, like https://panel.example.com:2087"
+	[[ "$JOIN_TOKEN" =~ ^[0-9a-f]{48}$ ]] || die "--join-token is the 48-character token from the panel"
+	[[ "$JOIN_FINGERPRINT" =~ ^[0-9A-Fa-f:]{64,95}$ ]] || die "--join-fingerprint is shown in the panel next to the token"
+fi
 
 # ----------------------------------------------------------------- checks ----
 
@@ -422,7 +438,7 @@ install_apache() {
 	info "Installing Apache (${WEB_STACK} mode)"
 	apt_install apache2
 	a2dismod -q php* mpm_prefork >>"$LOG_FILE" 2>&1 || true
-	a2enmod -q mpm_event proxy proxy_fcgi proxy_http proxy_wstunnel rewrite headers remoteip setenvif alias ssl http2 socache_shmcb >>"$LOG_FILE" 2>&1
+	a2enmod -q mpm_event proxy proxy_fcgi proxy_http proxy_wstunnel proxy_balancer slotmem_shm lbmethod_byrequests lbmethod_bybusyness rewrite headers remoteip setenvif alias ssl http2 socache_shmcb >>"$LOG_FILE" 2>&1
 	a2dissite -q 000-default >>"$LOG_FILE" 2>&1 || true
 	mkdir -p "$APACHE_SITES_DIR"
 
@@ -1808,7 +1824,7 @@ install_panel() {
 	fetch_binary "ike-panel" "/usr/local/bin/ike-panel" "$PANEL_BINARY"
 	# The panel runs unprivileged; the ike group lets it talk to the agent socket.
 	getent passwd ike >/dev/null || useradd --system --gid "$PANEL_NAME" --home-dir "${STATE_DIR}/panel" --shell /usr/sbin/nologin ike
-	install -d -m 0700 -o ike -g "$PANEL_NAME" "${STATE_DIR}/panel" "${CONF_DIR}/tls"
+	install -d -m 0700 -o ike -g "$PANEL_NAME" "${STATE_DIR}/panel" "${STATE_DIR}/panel/cluster" "${CONF_DIR}/tls"
 	local host
 	host=$(hostname -f 2>/dev/null || hostname)
 	if [ ! -f "${CONF_DIR}/panel.json" ]; then
@@ -1824,6 +1840,8 @@ install_panel() {
   "agent_socket": "/run/${PANEL_NAME}/agent.sock",
   "store": "${STATE_DIR}/panel/panel.json",
   "hostname": "${host}",
+  "cluster_dir": "${STATE_DIR}/panel/cluster",
+  "public_ipv4": "${PUBLIC_IPV4}",
   "public_url": "https://${host}:2083"
 }
 JSON
@@ -1868,6 +1886,13 @@ UNIT
 	systemctl daemon-reload
 	systemctl enable --now ike-panel >>"$LOG_FILE" 2>&1
 	systemctl restart ike-panel
+}
+
+join_cluster() {
+	[ -n "$JOIN_URL" ] || return 0
+	info "Joining the panel at ${JOIN_URL}"
+	/usr/local/bin/${AGENT_NAME} join "$JOIN_URL" "$JOIN_TOKEN" "$JOIN_FINGERPRINT" \
+		|| warn "Joining failed. Fix the problem shown above, make a new token in the panel and run: sudo ${AGENT_NAME} join ${JOIN_URL} <token> <fingerprint>"
 }
 
 summary() {
@@ -1953,6 +1978,7 @@ main() {
 	install_scanner
 	install_agent
 	install_panel
+	join_cluster
 	summary
 }
 

@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"flag"
 	"fmt"
@@ -18,6 +19,7 @@ import (
 	"time"
 
 	"github.com/YOUR-ORG/ike/agent/internal/api"
+	"github.com/YOUR-ORG/ike/agent/internal/cluster"
 	"github.com/YOUR-ORG/ike/agent/internal/config"
 	"github.com/YOUR-ORG/ike/agent/internal/firewall"
 	"github.com/YOUR-ORG/ike/agent/internal/jobs"
@@ -29,6 +31,9 @@ import (
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "dns-hook" {
 		os.Exit(dnsHook(os.Args[2:]))
+	}
+	if len(os.Args) > 1 && os.Args[1] == "join" {
+		os.Exit(join(os.Args[2:]))
 	}
 	var (
 		socket  = flag.String("socket", "/run/ike/agent.sock", "unix socket to listen on")
@@ -126,6 +131,26 @@ func run(socket, cfgPath, root, group string, dryRun bool) error {
 	}
 	go mgr.RunImageUpdateChecks(ctx)
 	srv.RunBackground(ctx)
+
+	if cfg.ClusterListen != "" && !dryRun {
+		tc, err := cluster.ServerTLS(cfg.ClusterDir)
+		if err != nil {
+			slog.Error("cluster listener disabled: certificates missing", "err", err)
+		} else {
+			tl, err := tls.Listen("tcp", cfg.ClusterListen, tc)
+			if err != nil {
+				return fmt.Errorf("cluster listener: %w", err)
+			}
+			ths := &http.Server{Handler: hs.Handler, ReadHeaderTimeout: 10 * time.Second}
+			go func() { <-ctx.Done(); _ = ths.Close() }()
+			go func() {
+				slog.Info("accepting the panel over mutual TLS", "addr", cfg.ClusterListen)
+				if err := ths.Serve(tl); err != nil && !errors.Is(err, http.ErrServerClosed) {
+					slog.Error("cluster listener stopped", "err", err)
+				}
+			}()
+		}
+	}
 
 	slog.Info("ike-agent listening", "version", api.Version, "socket", socket)
 	if err := hs.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {

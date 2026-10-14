@@ -45,7 +45,12 @@ func (s *Server) streamProxy(w http.ResponseWriter, r *http.Request, p *store.Pe
 		failErr(w, err)
 		return
 	}
-	target := s.Agent.BaseURL + apiPath
+	// big files: lift the server's normal read/write time limits for this request
+	rc := http.NewResponseController(w)
+	_ = rc.SetReadDeadline(time.Now().Add(6 * time.Hour))
+	_ = rc.SetWriteDeadline(time.Now().Add(6 * time.Hour))
+	agent := s.agentFor(r)
+	target := agent.BaseURL + apiPath
 	if r.URL.RawQuery != "" {
 		target += "?" + r.URL.RawQuery
 	}
@@ -57,7 +62,7 @@ func (s *Server) streamProxy(w http.ResponseWriter, r *http.Request, p *store.Pe
 	req.ContentLength = r.ContentLength
 	req.Header.Set("Content-Type", "application/octet-stream")
 	s.actorHeaders(req, p)
-	resp, err := s.Agent.Stream.Do(req)
+	resp, err := agent.Stream.Do(req)
 	if err != nil {
 		fail(w, 502, "The server agent isn't answering. Check that ike-agent is running.")
 		return
@@ -114,13 +119,14 @@ func (s *Server) wsTunnel(w http.ResponseWriter, r *http.Request, p *store.Perso
 		failErr(w, err)
 		return
 	}
-	if s.Agent.Dial == nil {
+	agent := s.agentFor(r)
+	if agent.Dial == nil {
 		fail(w, 502, "The terminal isn't available.")
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-	ac, err := s.Agent.Dial(ctx)
+	ac, err := agent.Dial(ctx)
 	if err != nil {
 		fail(w, 502, "The server agent isn't answering.")
 		return

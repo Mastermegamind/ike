@@ -110,13 +110,13 @@ func (m *Manager) checkRuntime(runtime, version string) error {
 		if _, err := os.Stat(m.p(filepath.Join(m.runtimeBin(runtime, version), runtimeProbe[runtime]))); err != nil {
 			return fmt.Errorf("%s %s is not installed on this server", runtimeNames[runtime], version)
 		}
-	case RuntimeStatic, RuntimeProxy:
+	case RuntimeStatic, RuntimeProxy, RuntimeBalancer:
 	case RuntimeDocker:
 		if _, err := os.Stat(m.p(m.cfg.DockerSocket)); err != nil {
 			return fmt.Errorf("Docker isn't installed on this server")
 		}
 	default:
-		return fmt.Errorf("runtime must be one of php, node, python, java, go, dart, static, proxy or docker")
+		return fmt.Errorf("runtime must be one of php, node, python, java, go, dart, static, proxy, docker or balancer")
 	}
 	return nil
 }

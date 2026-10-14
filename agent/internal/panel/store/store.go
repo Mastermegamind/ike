@@ -140,6 +140,9 @@ type data struct {
 	Alerts      AlertSettings      `json:"alerts"`
 	Events      []string           `json:"processed_events"` // webhook ids already handled
 	JobOwner    map[string]string  `json:"job_owner"`
+	Servers     []*RemoteServer    `json:"servers"`
+	JoinTokens  []JoinToken        `json:"join_tokens"`
+	Clusters    []*DBCluster       `json:"clusters"`
 }
 
 type Store struct {
