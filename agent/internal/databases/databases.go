@@ -531,3 +531,16 @@ func (m *Manager) mongoEval(ctx context.Context, js string) error {
 func (m *Manager) mongoCreateUser(ctx context.Context, dbName, user, pass, role string) error {
 	return m.mongoEval(ctx, fmt.Sprintf(`db.getSiblingDB(%q).createUser({user: %q, pwd: %q, roles: [{role: %q, db: %q}]})`, dbName, user, pass, role, dbName))
 }
+
+// Names lists an account's PostgreSQL and MongoDB databases as "engine:name".
+func (m *Manager) Names(account string) []string {
+	a, err := m.load(account)
+	if err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(a.DBs))
+	for _, d := range a.DBs {
+		out = append(out, d.Engine+":"+d.Name)
+	}
+	return out
+}

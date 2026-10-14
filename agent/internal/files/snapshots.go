@@ -164,4 +164,3 @@ func (m *Manager) DeleteSnapshot(ctx context.Context, account, id string) error 
 	_, err := m.env.Run.Run(ctx, "rm", "-rf", "--one-file-system", path.Join(m.snapDir(account), id))
 	return err
 }
-

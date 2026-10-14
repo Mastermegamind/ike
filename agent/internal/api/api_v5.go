@@ -41,6 +41,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/YOUR-ORG/ike/agent/internal/backups"
 	"github.com/YOUR-ORG/ike/agent/internal/databases"
 	"github.com/YOUR-ORG/ike/agent/internal/dns"
 	"github.com/YOUR-ORG/ike/agent/internal/files"
@@ -63,6 +64,7 @@ type Features struct {
 	DB      *databases.Manager
 	Files   *files.Manager
 	Storage *storage.Manager
+	Backups *backups.Manager
 }
 
 // zoneAdapter lets the mail manager publish records through DNS.
@@ -128,6 +130,7 @@ func (s *Server) Setup() error {
 		return []dns.Record{{Name: name, Type: "TXT", Content: val}}
 	}
 	s.F = f
+	f.Backups = backups.New(env, keys, f.Storage, s.backupSources())
 	s.Sites.OnAccountDelete = func(ctx context.Context, account string) {
 		_ = f.DB.DeleteAccount(ctx, account)
 		if doms, err := f.Mail.Domains(account); err == nil {
@@ -153,6 +156,7 @@ func (s *Server) RunBackground(ctx context.Context) {
 	go s.F.DNS.RunExpiryChecks(ctx)
 	s.F.Mail.Detect(ctx)
 	go s.F.Malware.RunScheduler(ctx)
+	go s.F.Backups.RunScheduler(ctx)
 }
 
 func (s *Server) accountNames() []string {
@@ -226,6 +230,7 @@ func (s *Server) v5Routes(h func(string, handler)) {
 	s.securityRoutes(h)
 	s.dbRoutes(h)
 	s.fileRoutes(h)
+	s.backupRoutes(h)
 
 	// ---- DNS: admin ----
 	h("GET /v1/dns", func(w http.ResponseWriter, r *http.Request) (int, any, error) {

@@ -1085,3 +1085,16 @@ func lastLines(s string, n int) string {
 	}
 	return strings.Join(l, "\n")
 }
+
+// RepublishAll writes every local zone again (after a server restore or a
+// name server change).
+func (m *Manager) RepublishAll(ctx context.Context) error {
+	if !m.Local() {
+		return nil
+	}
+	if err := m.writeBindConf(); err != nil {
+		return err
+	}
+	_, _ = m.env.Run.Run(ctx, "pdns_control", "rediscover")
+	return m.republishAll(ctx)
+}

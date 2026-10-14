@@ -732,3 +732,16 @@ func (d *Domain) hasMailbox(local string) bool {
 	}
 	return false
 }
+
+// Rebuild rewrites every Postfix and Dovecot table from saved state (after a
+// server restore).
+func (m *Manager) Rebuild(ctx context.Context) error {
+	if !m.Installed() {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s, _ := m.Settings()
+	_ = m.applySettings(ctx, s)
+	return m.apply(ctx)
+}

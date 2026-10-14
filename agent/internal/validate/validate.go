@@ -100,3 +100,8 @@ func RelPath(p string) error {
 	}
 	return nil
 }
+
+var safeNameRe = regexp.MustCompile(`^[a-z0-9_]{1,64}$`)
+
+// SafeName is a database or user name made of lowercase letters, digits and underscores.
+func SafeName(s string) bool { return safeNameRe.MatchString(s) }
