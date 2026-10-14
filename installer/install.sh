@@ -40,6 +40,8 @@ INSTALL_CLAMAV=1            # antivirus for mail and malware scans (with --mail)
 INSTALL_WEBMAIL=1           # Roundcube (with --mail)
 WEBMAIL_PORT=2096
 SERVER_HOSTNAME=""
+INSTALL_MODSEC=0            # ModSecurity web application firewall with the OWASP Core Rule Set
+INSTALL_SCANNER=0           # ClamAV for malware scans of websites (always on with --mail)
 FORCE=0
 AGENT_BINARY=""
 MCP_BINARY=""
@@ -127,6 +129,11 @@ DNS and email
   --no-webmail                With --mail: skip Roundcube
   --hostname mail.example.com This server's name (mail greeting, reverse DNS); default: hostname -f
 
+Security
+  --modsecurity               Web application firewall (ModSecurity + OWASP Core Rule Set), switched on per website.
+                              With Nginx this uses Ubuntu's Nginx package, which the ModSecurity module is built for.
+  --clamav                    ClamAV for malware scans of websites (included with --mail)
+
 Databases
   --no-mariadb                Do not install MariaDB
   --phpmyadmin stable|6|none  phpMyAdmin channel (default: stable; "6" = 6.0 development snapshot)
@@ -163,6 +170,8 @@ while [ $# -gt 0 ]; do
 		--k3s) INSTALL_K3S=1; shift ;;
 		--no-mariadb) INSTALL_MARIADB=0; shift ;;
 		--dns) INSTALL_DNS=1; shift ;;
+		--modsecurity) INSTALL_MODSEC=1; shift ;;
+		--clamav) INSTALL_SCANNER=1; shift ;;
 		--mail) INSTALL_MAIL=1; shift ;;
 		--no-antivirus) INSTALL_CLAMAV=0; shift ;;
 		--no-webmail) INSTALL_WEBMAIL=0; shift ;;
@@ -224,6 +233,12 @@ run_wizard() {
 		[ "$REPLY" = "no" ] && INSTALL_WEBMAIL=0
 		ask "This server's hostname (used in mail headers and reverse DNS)" "$(hostname -f 2>/dev/null || hostname)"
 		SERVER_HOSTNAME="$REPLY"
+	fi
+	ask "Web application firewall, ModSecurity (yes/no)" "no"
+	[ "$REPLY" = "yes" ] && INSTALL_MODSEC=1
+	if [ "$INSTALL_MAIL" -eq 0 ]; then
+		ask "ClamAV for malware scans of websites (needs about 1 GB of memory) (yes/no)" "no"
+		[ "$REPLY" = "yes" ] && INSTALL_SCANNER=1
 	fi
 	ask "Install MariaDB (yes/no)" "yes"
 	if [ "$REPLY" = "no" ]; then INSTALL_MARIADB=0; fi
@@ -344,7 +359,10 @@ install_nginx() {
 	info "Installing Nginx"
 	local key=/usr/share/keyrings/nginx-archive-keyring.gpg url="https://nginx.org/packages/ubuntu"
 	NGINX_SOURCE="ubuntu"
-	if curl -fsS --max-time 15 "${url}/dists/${OS_CODENAME}/Release" -o /dev/null 2>>"$LOG_FILE" \
+	if [ "$INSTALL_MODSEC" -eq 1 ]; then
+		info "Using Ubuntu's Nginx: the ModSecurity module is built for it"
+		rm -f /etc/apt/sources.list.d/nginx.list /etc/apt/preferences.d/99nginx
+	elif curl -fsS --max-time 15 "${url}/dists/${OS_CODENAME}/Release" -o /dev/null 2>>"$LOG_FILE" \
 		&& curl -fsS --max-time 15 https://nginx.org/keys/nginx_signing.key | gpg --dearmor --yes -o "$key" 2>>"$LOG_FILE"; then
 		echo "deb [signed-by=${key}] ${url} ${OS_CODENAME} nginx" >/etc/apt/sources.list.d/nginx.list
 		printf 'Package: *\nPin: origin nginx.org\nPin-Priority: 900\n' >/etc/apt/preferences.d/99nginx
@@ -1008,6 +1026,52 @@ EOF
 	ufw allow 53/udp comment 'DNS' >>"$LOG_FILE" 2>&1
 }
 
+# ------------------------------------------------------------- security ----
+
+install_modsecurity() {
+	[ "$INSTALL_MODSEC" -eq 1 ] || return 0
+	info "Installing the web application firewall (ModSecurity, OWASP Core Rule Set)"
+	apt_install modsecurity-crs
+	install -d -m 0755 -o root -g root "${CONF_DIR}/modsec"
+	if [ "$WEB_STACK" != "apache" ]; then
+		apt_install libnginx-mod-http-modsecurity
+		cat >"${CONF_DIR}/modsec/main.conf" <<EOF
+# Written by the Ike installer: shared by every website with the firewall on.
+Include /etc/nginx/modsecurity.conf
+SecRuleEngine DetectionOnly
+SecRequestBodyLimit 1073741824
+SecRequestBodyLimitAction ProcessPartial
+SecResponseBodyAccess Off
+SecAuditEngine RelevantOnly
+SecAuditLogRelevantStatus "^(?:5|4(?!04))"
+SecAuditLogParts ABIJDEFHZ
+SecAuditLogType Serial
+SecAuditLog ${PANEL_LOG_DIR}/modsec_audit.log
+Include /etc/modsecurity/crs/crs-setup.conf
+Include /usr/share/modsecurity-crs/rules/*.conf
+EOF
+		nginx -t >>"$LOG_FILE" 2>&1 || die "Nginx rejected the ModSecurity module; see ${LOG_FILE}"
+		systemctl reload nginx
+	fi
+	if [ "$WEB_STACK" != "nginx" ]; then
+		apt_install libapache2-mod-security2
+		[ -f /etc/modsecurity/modsecurity.conf ] || cp /etc/modsecurity/modsecurity.conf-recommended /etc/modsecurity/modsecurity.conf
+		# Off for the whole server; each website turns it on in its own vhost.
+		sed -i 's/^SecRuleEngine .*/SecRuleEngine Off/; s/^SecResponseBodyAccess .*/SecResponseBodyAccess Off/; s/^SecRequestBodyLimitAction .*/SecRequestBodyLimitAction ProcessPartial/' /etc/modsecurity/modsecurity.conf
+		a2enmod security2 >>"$LOG_FILE" 2>&1
+		apache2ctl configtest >>"$LOG_FILE" 2>&1 || die "Apache rejected ModSecurity; see ${LOG_FILE}"
+		systemctl restart apache2
+	fi
+}
+
+install_scanner() {
+	[ "$INSTALL_SCANNER" -eq 1 ] || [ "$INSTALL_CLAMAV" -eq 1 ] || return 0
+	info "Installing ClamAV for malware scans"
+	apt_install clamav clamav-freshclam
+	systemctl enable --now clamav-freshclam >>"$LOG_FILE" 2>&1 || true
+	install -d -m 0700 -o root -g root "${STATE_DIR}/quarantine" "${STATE_DIR}/scans" "${STATE_DIR}/scans/reports"
+}
+
 # ----------------------------------------------------------------- mail ----
 
 install_mail() {
@@ -1572,8 +1636,9 @@ install_agent() {
   "mail_state": "${STATE_DIR}/mail",
   "mail_conf_dir": "${CONF_DIR}/mail",
   "spam_filter": "$( [ "$INSTALL_RSPAMD" -eq 1 ] && echo rspamd )",
-  "antivirus": "$( [ "$INSTALL_CLAMAV" -eq 1 ] && echo clamav )",
   "webmail": "$( [ "$INSTALL_WEBMAIL" -eq 1 ] && echo roundcube )",
+  "modsecurity": $( [ "$INSTALL_MODSEC" -eq 1 ] && echo true || echo false ),
+  "antivirus": "$( { [ "$INSTALL_CLAMAV" -eq 1 ] || [ "$INSTALL_SCANNER" -eq 1 ]; } && echo clamav )",
   "docker_for_accounts": $( [ "$DOCKER_FOR_ACCOUNTS" -eq 1 ] && echo true || echo false ),
   "protected_ports": [${protected%, }]
 }
@@ -1756,8 +1821,10 @@ main() {
 	install_docker
 	install_pack
 	install_k3s
+	install_modsecurity
 	install_dns
 	install_mail
+	install_scanner
 	install_agent
 	install_panel
 	summary

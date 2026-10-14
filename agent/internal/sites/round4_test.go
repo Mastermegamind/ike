@@ -8,6 +8,8 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"math/big"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -375,3 +377,42 @@ func TestNewAppRuntimesAndProxy(t *testing.T) {
 }
 
 func ptr[T any](v T) *T { return &v }
+
+func TestWAF(t *testing.T) {
+	m, r, root := newTestManager(t)
+	mustAccount(t, m, "waf")
+	if _, err := m.Create(ctx, CreateRequest{Domain: "waf.ng", Account: "waf"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.SetWAF(ctx, "waf.ng", WAFSettings{Mode: "block"}); err == nil {
+		t.Fatal("WAF on without ModSecurity installed")
+	}
+	m.cfg.ModSecurity = true
+	s, err := m.SetWAF(ctx, "waf.ng", WAFSettings{Mode: "block", DisabledRules: []int{942100, 920350, 942100}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.WAF.DisabledRules) != 2 {
+		t.Fatalf("%+v", s.WAF)
+	}
+	vh := read(t, root, "etc/nginx/ike/sites/waf.ng.conf")
+	has(t, "nginx", vh, "modsecurity on;", "modsecurity_rules_file /etc/ike/modsec/waf.ng.conf;")
+	has(t, "rules", read(t, root, "etc/ike/modsec/waf.ng.conf"), "Include /etc/ike/modsec/main.conf", "SecRuleEngine On", "SecRuleRemoveById 920350\nSecRuleRemoveById 942100")
+	if _, err := m.SetWAF(ctx, "waf.ng", WAFSettings{Mode: "off"}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(read(t, root, "etc/nginx/ike/sites/waf.ng.conf"), "modsecurity") {
+		t.Fatal("WAF still on")
+	}
+	// events from the error log
+	logs := filepath.Join(root, "var/log/ike/waf.ng")
+	_ = os.MkdirAll(logs, 0o755)
+	_ = os.WriteFile(filepath.Join(logs, "error.log"), []byte(`2026/10/14 03:00:01 [error] 12#12: *5 [client 198.51.100.4] ModSecurity: Access denied with code 403 (phase 2). Matched "Operator `+"`"+`Ge' with parameter `+"`"+`5' against variable `+"`"+`TX:ANOMALY_SCORE' [file "/usr/share/modsecurity-crs/rules/REQUEST-949-BLOCKING-EVALUATION.conf"] [line "80"] [id "949110"] [msg "Inbound Anomaly Score Exceeded (Total Score: 5)"] [uri "/wp-login.php"] [unique_id "1"], client: 198.51.100.4, server: waf.ng
+2026/10/14 03:00:01 [error] 12#12: *5 [client 198.51.100.4] ModSecurity: Warning. detected SQLi [id "942100"] [msg "SQL Injection Attack Detected via libinjection"] [uri "/?id=1' or 1=1"] [unique_id "1"], client: 198.51.100.4
+`), 0o644)
+	ev, err := m.WAFEvents("waf.ng", 0)
+	if err != nil || len(ev) != 2 || ev[0].RuleID != "942100" || !ev[1].Blocked || ev[1].URI != "/wp-login.php" || ev[0].Client != "198.51.100.4" {
+		t.Fatalf("%+v %v", ev, err)
+	}
+	_ = r
+}

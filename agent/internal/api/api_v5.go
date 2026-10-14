@@ -44,6 +44,7 @@ import (
 	"github.com/YOUR-ORG/ike/agent/internal/dns"
 	"github.com/YOUR-ORG/ike/agent/internal/kit"
 	"github.com/YOUR-ORG/ike/agent/internal/mail"
+	"github.com/YOUR-ORG/ike/agent/internal/malware"
 	"github.com/YOUR-ORG/ike/agent/internal/secrets"
 	"github.com/YOUR-ORG/ike/agent/internal/sites"
 	"github.com/YOUR-ORG/ike/agent/internal/sysinfo"
@@ -51,10 +52,11 @@ import (
 
 // Features holds the 0.5 feature managers.
 type Features struct {
-	Env  *kit.Env
-	Keys *secrets.Keyring
-	DNS  *dns.Manager
-	Mail *mail.Manager
+	Env     *kit.Env
+	Keys    *secrets.Keyring
+	DNS     *dns.Manager
+	Mail    *mail.Manager
+	Malware *malware.Manager
 }
 
 // zoneAdapter lets the mail manager publish records through DNS.
@@ -98,6 +100,8 @@ func (s *Server) Setup() error {
 	f.Mail = mail.New(env, keys)
 	f.Mail.Zone = zoneAdapter{f.DNS}
 	f.Mail.OwnerOf = s.domainOwner
+	f.Malware = malware.New(env)
+	f.Malware.Accounts = s.accountNames
 	mail.NginxH2Directive = func() bool { return s.Sites.Features().H2Directive }
 	dns.DKIMRecords = func(domain string) []dns.Record {
 		name, val, err := f.Mail.DKIMRecord(domain)
@@ -117,6 +121,16 @@ func (s *Server) RunBackground(ctx context.Context) {
 	}
 	go s.F.DNS.RunExpiryChecks(ctx)
 	s.F.Mail.Detect(ctx)
+	go s.F.Malware.RunScheduler(ctx)
+}
+
+func (s *Server) accountNames() []string {
+	accts, _ := s.Sites.Accounts()
+	out := make([]string, 0, len(accts))
+	for _, a := range accts {
+		out = append(out, a.Name)
+	}
+	return out
 }
 
 // domainOwner says which account holds a website or DNS zone for a domain.
@@ -178,6 +192,7 @@ func (s *Server) v5Routes(h func(string, handler)) {
 	}))
 
 	s.mailRoutes(h)
+	s.securityRoutes(h)
 
 	// ---- DNS: admin ----
 	h("GET /v1/dns", func(w http.ResponseWriter, r *http.Request) (int, any, error) {

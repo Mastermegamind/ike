@@ -2,6 +2,7 @@ package sites
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 )
 
@@ -77,4 +78,5 @@ func (m *Manager) applyDeployLayout(s *Site, L *layout) {
 func (m *Manager) cleanupExtras(ctx context.Context, s *Site, L layout) {
 	m.deleteCertificate(ctx, s)
 	m.removeDeployState(ctx, s, L)
+	_ = os.Remove(m.p(m.wafFile(s.Domain)))
 }

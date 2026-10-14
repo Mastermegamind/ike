@@ -90,6 +90,12 @@ server {
     error_log  {{.LogDir}}/error.log;
 
     client_max_body_size {{.BodyLimitMB}}m;
+{{- if .WAFNginx}}
+
+    # Web application firewall (ModSecurity with the OWASP Core Rule Set)
+    modsecurity on;
+    modsecurity_rules_file {{.WAFRulesFile}};
+{{- end}}
 {{- if .Staging}}
 
     # Staging copy: keep it out of search results.
@@ -276,6 +282,16 @@ var apacheTmpl = template.Must(template.New("apache").Parse(`# Managed by Ike. M
 {{define "body"}}
     ErrorLog {{.LogDir}}/apache-error.log
     CustomLog {{.LogDir}}/apache-access.log combined
+{{- if .WAFApache}}
+
+    # Web application firewall (ModSecurity with the OWASP Core Rule Set)
+    <IfModule security2_module>
+        SecRuleEngine {{if .WAFBlock}}On{{else}}DetectionOnly{{end}}
+{{- range .WAFDisabled}}
+        SecRuleRemoveById {{.}}
+{{- end}}
+    </IfModule>
+{{- end}}
 {{- if not .ApacheTLS}}
 
     # HTTPS ends at Nginx in front; tell PHP the original scheme.

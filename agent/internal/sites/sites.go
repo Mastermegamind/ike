@@ -42,6 +42,7 @@ type Site struct {
 	PHP             *PHPSettings `json:"php,omitempty"`
 	SSL             *SSLSettings `json:"ssl,omitempty"`
 	Deploy          *DeployState `json:"deploy,omitempty"`
+	WAF             *WAFSettings `json:"waf,omitempty"`
 }
 
 // CreateRequest adds a website to an existing account.
@@ -103,6 +104,11 @@ type layout struct {
 	IsApp, Staging                        bool
 	Slice                                 string
 	PHPWorkers, PHPMemoryMB               int
+	// ModSecurity: on in Nginx when Nginx serves the site, otherwise in Apache.
+	WAFNginx, WAFApache bool
+	WAFRulesFile        string
+	WAFBlock            bool
+	WAFDisabled         []int
 }
 
 // siteID is a short, stable, filename-safe id for a domain.
@@ -153,6 +159,7 @@ func (m *Manager) layout(s *Site) layout {
 	m.applyDeployLayout(s, &L)
 	m.applyDomainLayout(s, &L)
 	m.applySSLLayout(s, &L)
+	m.applyWAFLayout(s, &L)
 	L.applyPHP(s.PHP, lim)
 	if L.RedirectNames != "" && L.WebServer == "apache" {
 		L.ApacheRedirectListens = []string{L.ApacheListen}
