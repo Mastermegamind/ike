@@ -51,6 +51,10 @@ type Manager struct {
 	healthy func(ctx context.Context, port int, host, path string) error
 	// notify posts deployment events; tests replace it.
 	notify func(ctx context.Context, url, secret string, body []byte) error
+
+	// OnAccountDelete removes what other features keep for an account (mail,
+	// DNS zones, PostgreSQL, Redis). Set by the API server.
+	OnAccountDelete func(ctx context.Context, account string)
 }
 
 func NewManager(cfg config.Config, r runner.Runner) *Manager {

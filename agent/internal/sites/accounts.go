@@ -132,6 +132,9 @@ func (m *Manager) DeleteAccount(ctx context.Context, name string, withSites bool
 	_ = removeIfExists(m.keysFile(name))
 	_ = m.disableCron(name)
 	_ = removeIfExists(m.p(m.sliceFile(name)))
+	if m.OnAccountDelete != nil {
+		m.OnAccountDelete(ctx, name)
+	}
 	for _, d := range acctDBs(m, name) {
 		_ = m.deleteDatabase(ctx, name, d.Name)
 	}

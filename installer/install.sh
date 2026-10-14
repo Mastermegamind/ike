@@ -40,6 +40,9 @@ INSTALL_CLAMAV=1            # antivirus for mail and malware scans (with --mail)
 INSTALL_WEBMAIL=1           # Roundcube (with --mail)
 WEBMAIL_PORT=2096
 SERVER_HOSTNAME=""
+POSTGRES_VERSION=""         # "" = none, "default" = Ubuntu's, or 14-18 from apt.postgresql.org
+REDIS_KIND=""               # redis | valkey
+MONGODB_VERSION=""          # e.g. 8.0
 INSTALL_MODSEC=0            # ModSecurity web application firewall with the OWASP Core Rule Set
 INSTALL_SCANNER=0           # ClamAV for malware scans of websites (always on with --mail)
 FORCE=0
@@ -136,6 +139,9 @@ Security
 
 Databases
   --no-mariadb                Do not install MariaDB
+  --postgres [VERSION]        PostgreSQL: Ubuntu's version, or 14-18 from the PostgreSQL project's repository
+  --redis | --valkey          Redis or Valkey: a private instance per account, on a unix socket
+  --mongodb [VERSION]         MongoDB Community from mongodb.org (default 8.0)
   --phpmyadmin stable|6|none  phpMyAdmin channel (default: stable; "6" = 6.0 development snapshot)
 
 Other
@@ -171,6 +177,10 @@ while [ $# -gt 0 ]; do
 		--no-mariadb) INSTALL_MARIADB=0; shift ;;
 		--dns) INSTALL_DNS=1; shift ;;
 		--modsecurity) INSTALL_MODSEC=1; shift ;;
+		--postgres) if [[ "${2:-}" =~ ^1[4-9]$ ]]; then POSTGRES_VERSION="$2"; shift 2; else POSTGRES_VERSION="default"; shift; fi ;;
+		--redis) REDIS_KIND="redis"; shift ;;
+		--valkey) REDIS_KIND="valkey"; shift ;;
+		--mongodb) if [[ "${2:-}" =~ ^[5-9]\.[0-9]$ ]]; then MONGODB_VERSION="$2"; shift 2; else MONGODB_VERSION="8.0"; shift; fi ;;
 		--clamav) INSTALL_SCANNER=1; shift ;;
 		--mail) INSTALL_MAIL=1; shift ;;
 		--no-antivirus) INSTALL_CLAMAV=0; shift ;;
@@ -245,6 +255,12 @@ run_wizard() {
 	if [ "$INSTALL_MARIADB" -eq 1 ]; then
 		ask "phpMyAdmin (stable, 6 for the 6.0 preview, none)" "$PMA_CHANNEL"; PMA_CHANNEL="$REPLY"
 	fi
+	ask "PostgreSQL (no, yes, or a version 14-18)" "no"
+	case "$REPLY" in yes) POSTGRES_VERSION="default" ;; 1[4-9]) POSTGRES_VERSION="$REPLY" ;; esac
+	ask "Redis for apps (no, redis, valkey)" "no"
+	case "$REPLY" in redis|valkey) REDIS_KIND="$REPLY" ;; esac
+	ask "MongoDB (no, yes, or a version like 8.0)" "no"
+	case "$REPLY" in yes) MONGODB_VERSION="8.0" ;; [5-9].[0-9]) MONGODB_VERSION="$REPLY" ;; esac
 	ask "First panel admin username" "$ADMIN_USER"; ADMIN_USER="$REPLY"
 	ask "Admin email" "${ADMIN_EMAIL:-admin@$(hostname -f 2>/dev/null || hostname)}"; ADMIN_EMAIL="$REPLY"
 	ask "Install now? (yes/no)" "yes"
@@ -464,7 +480,10 @@ install_php() {
 		fi
 		apt_install "php${v}-fpm" "php${v}-cli" "php${v}-common"
 		# One by one: some extensions are built in on newer PHP (e.g. opcache in 8.5).
-		for ext in mysql curl gd mbstring xml zip intl bcmath opcache readline soap imagick redis; do
+		local exts="mysql curl gd mbstring xml zip intl bcmath opcache readline soap imagick redis"
+		[ -n "$POSTGRES_VERSION" ] && exts="$exts pgsql"
+		[ -n "$MONGODB_VERSION" ] && exts="$exts mongodb"
+		for ext in $exts; do
 			if pkg_available "php${v}-${ext}"; then
 				apt_install "php${v}-${ext}" || warn "php${v}-${ext} failed to install"
 			fi
@@ -783,6 +802,103 @@ DROP DATABASE IF EXISTS test;
 DELETE FROM mysql.db WHERE Db='test' OR Db='test\_%';
 FLUSH PRIVILEGES;
 SQL
+}
+
+install_postgres() {
+	[ -n "$POSTGRES_VERSION" ] || return 0
+	if [ "$POSTGRES_VERSION" = "default" ]; then info "Installing PostgreSQL (Ubuntu's version)"; else info "Installing PostgreSQL ${POSTGRES_VERSION}"; fi
+	if [ "$POSTGRES_VERSION" = "default" ]; then
+		apt_install postgresql postgresql-contrib
+	else
+		local key=/usr/share/keyrings/postgresql.gpg
+		curl -fsS --max-time 30 https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor --yes -o "$key" \
+			|| die "Could not download the PostgreSQL signing key"
+		echo "deb [signed-by=${key}] https://apt.postgresql.org/pub/repos/apt ${OS_CODENAME}-pgdg main" >/etc/apt/sources.list.d/pgdg.list
+		apt-get update -q >>"$LOG_FILE" 2>&1
+		apt_install "postgresql-${POSTGRES_VERSION}" "postgresql-contrib-${POSTGRES_VERSION}" 2>/dev/null || apt_install "postgresql-${POSTGRES_VERSION}"
+	fi
+	POSTGRES_INSTALLED=$(ls /usr/lib/postgresql | sort -V | tail -1)
+	local hba="/etc/postgresql/${POSTGRES_INSTALLED}/main/pg_hba.conf"
+	# Apps sign in with passwords over 127.0.0.1; the postgres superuser only through its own Linux user.
+	grep -q "^host\s\+all\s\+all\s\+127.0.0.1/32\s\+scram-sha-256" "$hba" \
+		|| echo "host    all    all    127.0.0.1/32    scram-sha-256" >>"$hba"
+	systemctl enable --now postgresql >>"$LOG_FILE" 2>&1
+	systemctl reload postgresql >>"$LOG_FILE" 2>&1 || true
+}
+
+install_redis() {
+	[ -n "$REDIS_KIND" ] || return 0
+	info "Installing ${REDIS_KIND} (a private instance per account)"
+	local bin=/usr/bin/redis-server
+	if [ "$REDIS_KIND" = "valkey" ]; then
+		pkg_available valkey-server || die "Valkey isn't packaged for Ubuntu ${OS_VERSION}; use --redis"
+		apt_install valkey-server valkey-tools 2>/dev/null || apt_install valkey-server
+		bin=/usr/bin/valkey-server
+	else
+		apt_install redis-server redis-tools
+	fi
+	install -d -m 0755 -o root -g root /etc/ike/redis
+	cat >/etc/systemd/system/ike-redis@.service <<EOF
+[Unit]
+Description=${REDIS_KIND} for hosting account %i
+After=network.target
+
+[Service]
+Type=notify
+User=%i
+Group=%i
+ExecStart=${bin} /etc/ike/redis/%i.conf --supervised systemd --daemonize no
+Slice=ike-acct-%i.slice
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/home/%i/.redis
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
+EOF
+	systemctl daemon-reload
+}
+
+install_mongodb() {
+	[ -n "$MONGODB_VERSION" ] || return 0
+	info "Installing MongoDB ${MONGODB_VERSION}"
+	local key=/usr/share/keyrings/mongodb-server-${MONGODB_VERSION}.gpg
+	local url="https://repo.mongodb.org/apt/ubuntu"
+	if ! curl -fsS --max-time 15 "${url}/dists/${OS_CODENAME}/mongodb-org/${MONGODB_VERSION}/Release" -o /dev/null 2>>"$LOG_FILE"; then
+		warn "MongoDB ${MONGODB_VERSION} has no packages for Ubuntu ${OS_VERSION} yet; skipped. Run the installer again with --mongodb once it does."
+		MONGODB_VERSION=""
+		return 0
+	fi
+	curl -fsS --max-time 30 "https://pgp.mongodb.com/server-${MONGODB_VERSION}.asc" | gpg --dearmor --yes -o "$key" || die "Could not download MongoDB's signing key"
+	echo "deb [arch=amd64,arm64 signed-by=${key}] ${url} ${OS_CODENAME}/mongodb-org/${MONGODB_VERSION} multiverse" >/etc/apt/sources.list.d/mongodb-org.list
+	apt-get update -q >>"$LOG_FILE" 2>&1
+	apt_install mongodb-org mongodb-mongosh mongodb-database-tools
+	systemctl enable --now mongod >>"$LOG_FILE" 2>&1
+	local _
+	for _ in $(seq 1 30); do mongosh --quiet --eval 'db.runCommand({ping:1}).ok' >/dev/null 2>&1 && break; sleep 1; done
+	if [ ! -f /etc/ike/mongodb.json ]; then
+		local pw
+		pw=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')
+		# The script (with the password) goes through stdin, not the command line.
+		printf 'db = connect("mongodb://127.0.0.1:27017/admin");\ndb.createUser({user: "ike-admin", pwd: "%s", roles: ["root"]});\n' "$pw" \
+			| mongosh --quiet --nodb >>"$LOG_FILE" 2>&1 || die "Could not create the MongoDB admin user"
+		umask 077
+		printf '{"admin_password": "%s"}\n' "$pw" >/etc/ike/mongodb.json
+		umask 022
+	fi
+	# Sign-in required from now on, and only this server can connect.
+	if ! grep -q "^security:" /etc/mongod.conf; then
+		printf '\nsecurity:\n  authorization: enabled\n' >>/etc/mongod.conf
+	fi
+	sed -i 's/^\(\s*bindIp:\).*/\1 127.0.0.1/' /etc/mongod.conf
+	systemctl restart mongod
 }
 
 # phpMyAdmin runs on its own PHP-FPM pool and user, independent of website PHP
@@ -1637,6 +1753,11 @@ install_agent() {
   "mail_conf_dir": "${CONF_DIR}/mail",
   "spam_filter": "$( [ "$INSTALL_RSPAMD" -eq 1 ] && echo rspamd )",
   "webmail": "$( [ "$INSTALL_WEBMAIL" -eq 1 ] && echo roundcube )",
+  "postgres": $( [ -n "$POSTGRES_VERSION" ] && echo true || echo false ),
+  "postgres_version": "${POSTGRES_INSTALLED:-}",
+  "redis": "${REDIS_KIND}",
+  "mongodb": $( [ -n "$MONGODB_VERSION" ] && echo true || echo false ),
+  "data_dir": "${STATE_DIR}/data",
   "modsecurity": $( [ "$INSTALL_MODSEC" -eq 1 ] && echo true || echo false ),
   "antivirus": "$( { [ "$INSTALL_CLAMAV" -eq 1 ] || [ "$INSTALL_SCANNER" -eq 1 ]; } && echo clamav )",
   "docker_for_accounts": $( [ "$DOCKER_FOR_ACCOUNTS" -eq 1 ] && echo true || echo false ),
@@ -1815,6 +1936,9 @@ main() {
 	install_go
 	install_dart
 	install_mariadb
+	install_postgres
+	install_redis
+	install_mongodb
 	install_phpmyadmin
 	configure_ssh
 	configure_firewall

@@ -41,6 +41,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/YOUR-ORG/ike/agent/internal/databases"
 	"github.com/YOUR-ORG/ike/agent/internal/dns"
 	"github.com/YOUR-ORG/ike/agent/internal/kit"
 	"github.com/YOUR-ORG/ike/agent/internal/mail"
@@ -57,6 +58,7 @@ type Features struct {
 	DNS     *dns.Manager
 	Mail    *mail.Manager
 	Malware *malware.Manager
+	DB      *databases.Manager
 }
 
 // zoneAdapter lets the mail manager publish records through DNS.
@@ -102,6 +104,15 @@ func (s *Server) Setup() error {
 	f.Mail.OwnerOf = s.domainOwner
 	f.Malware = malware.New(env)
 	f.Malware.Accounts = s.accountNames
+	f.DB = databases.New(env)
+	f.DB.MariaDBOf = func(account string) []string {
+		dbs, _ := s.Sites.Databases(account)
+		out := make([]string, 0, len(dbs))
+		for _, d := range dbs {
+			out = append(out, d.Name)
+		}
+		return out
+	}
 	mail.NginxH2Directive = func() bool { return s.Sites.Features().H2Directive }
 	dns.DKIMRecords = func(domain string) []dns.Record {
 		name, val, err := f.Mail.DKIMRecord(domain)
@@ -111,6 +122,20 @@ func (s *Server) Setup() error {
 		return []dns.Record{{Name: name, Type: "TXT", Content: val}}
 	}
 	s.F = f
+	s.Sites.OnAccountDelete = func(ctx context.Context, account string) {
+		_ = f.DB.DeleteAccount(ctx, account)
+		if doms, err := f.Mail.Domains(account); err == nil {
+			for _, d := range doms {
+				_ = f.Mail.RemoveDomain(ctx, account, d.Domain.Domain, true)
+			}
+		}
+		if zones, err := f.DNS.List(account); err == nil {
+			for _, z := range zones {
+				_ = f.DNS.Delete(ctx, account, z.Name)
+			}
+		}
+		f.Env.Publish("account.deleted", account, nil)
+	}
 	return nil
 }
 
@@ -193,6 +218,7 @@ func (s *Server) v5Routes(h func(string, handler)) {
 
 	s.mailRoutes(h)
 	s.securityRoutes(h)
+	s.dbRoutes(h)
 
 	// ---- DNS: admin ----
 	h("GET /v1/dns", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
