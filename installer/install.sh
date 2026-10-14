@@ -33,6 +33,13 @@ DOCKER_FOR_ACCOUNTS=0
 INSTALL_PACK=0
 INSTALL_K3S=0
 INSTALL_MARIADB=1
+INSTALL_DNS=0               # PowerDNS for hosting DNS zones
+INSTALL_MAIL=0              # Postfix + Dovecot email hosting
+INSTALL_RSPAMD=1            # spam filter and DKIM signing (with --mail)
+INSTALL_CLAMAV=1            # antivirus for mail and malware scans (with --mail)
+INSTALL_WEBMAIL=1           # Roundcube (with --mail)
+WEBMAIL_PORT=2096
+SERVER_HOSTNAME=""
 FORCE=0
 AGENT_BINARY=""
 MCP_BINARY=""
@@ -113,6 +120,13 @@ Containers
   --buildpacks                Install the Cloud Native Buildpacks tool (pack) for Git deploys without a Dockerfile
   --k3s                       Install Kubernetes (k3s, single node) for server admins
 
+DNS and email
+  --dns                       Run a DNS server (PowerDNS) for your domains' zones
+  --mail                      Email hosting: Postfix, Dovecot, Rspamd (spam, DKIM), ClamAV and Roundcube webmail
+  --no-antivirus              With --mail: skip ClamAV (saves about 1 GB of memory)
+  --no-webmail                With --mail: skip Roundcube
+  --hostname mail.example.com This server's name (mail greeting, reverse DNS); default: hostname -f
+
 Databases
   --no-mariadb                Do not install MariaDB
   --phpmyadmin stable|6|none  phpMyAdmin channel (default: stable; "6" = 6.0 development snapshot)
@@ -148,6 +162,11 @@ while [ $# -gt 0 ]; do
 		--buildpacks) INSTALL_DOCKER=1; INSTALL_PACK=1; shift ;;
 		--k3s) INSTALL_K3S=1; shift ;;
 		--no-mariadb) INSTALL_MARIADB=0; shift ;;
+		--dns) INSTALL_DNS=1; shift ;;
+		--mail) INSTALL_MAIL=1; shift ;;
+		--no-antivirus) INSTALL_CLAMAV=0; shift ;;
+		--no-webmail) INSTALL_WEBMAIL=0; shift ;;
+		--hostname) SERVER_HOSTNAME="${2:?}"; shift 2 ;;
 		--phpmyadmin) PMA_CHANNEL="${2:?}"; shift 2 ;;
 		--force) FORCE=1; shift ;;
 		--agent-binary) AGENT_BINARY="${2:?}"; shift 2 ;;
@@ -194,6 +213,18 @@ run_wizard() {
 	fi
 	ask "Install Kubernetes (k3s) for admins (yes/no)" "no"
 	[ "$REPLY" = "yes" ] && INSTALL_K3S=1
+	ask "Run a DNS server for your domains (yes/no)" "no"
+	[ "$REPLY" = "yes" ] && INSTALL_DNS=1
+	ask "Host email (Postfix, Dovecot, spam filter, webmail) (yes/no)" "no"
+	if [ "$REPLY" = "yes" ]; then
+		INSTALL_MAIL=1
+		ask "Scan mail for viruses with ClamAV (needs about 1 GB of memory) (yes/no)" "yes"
+		[ "$REPLY" = "no" ] && INSTALL_CLAMAV=0
+		ask "Install Roundcube webmail (yes/no)" "yes"
+		[ "$REPLY" = "no" ] && INSTALL_WEBMAIL=0
+		ask "This server's hostname (used in mail headers and reverse DNS)" "$(hostname -f 2>/dev/null || hostname)"
+		SERVER_HOSTNAME="$REPLY"
+	fi
 	ask "Install MariaDB (yes/no)" "yes"
 	if [ "$REPLY" = "no" ]; then INSTALL_MARIADB=0; fi
 	if [ "$INSTALL_MARIADB" -eq 1 ]; then
@@ -230,6 +261,8 @@ for v in $PHP_VERSIONS; do [[ "$v" =~ ^[5-9]\.[0-9]$ ]] || die "Invalid PHP vers
 for v in $NODE_VERSIONS; do [[ "$v" =~ ^[1-9][0-9]?$ ]] || die "Invalid Node.js version: $v (use the major version, e.g. 22)"; done
 for v in $PYTHON_VERSIONS; do [[ "$v" =~ ^3\.[0-9]{1,2}$ ]] || die "Invalid Python version: $v"; done
 [ -z "$DEFAULT_PHP" ] || [[ "$DEFAULT_PHP" =~ ^[5-9]\.[0-9]$ ]] || die "Invalid --default-php"
+[ -z "$SERVER_HOSTNAME" ] || [[ "$SERVER_HOSTNAME" =~ ^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$ ]] || die "--hostname must be a full name like mail.example.com"
+if [ "$INSTALL_MAIL" -eq 0 ]; then INSTALL_RSPAMD=0; INSTALL_CLAMAV=0; INSTALL_WEBMAIL=0; fi
 
 # ----------------------------------------------------------------- checks ----
 
@@ -923,6 +956,554 @@ logpath  = /var/log/ike/*/access.log"
 	systemctl restart fail2ban
 }
 
+# ------------------------------------------------------------ identity ----
+
+detect_identity() {
+	SERVER_HOSTNAME="${SERVER_HOSTNAME:-$(hostname -f 2>/dev/null || hostname)}"
+	PUBLIC_IPV4="${PUBLIC_IPV4:-$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<NF;i++) if($i=="src") print $(i+1)}' | head -1)}"
+	PUBLIC_IPV6="${PUBLIC_IPV6:-$(ip -6 route get 2606:4700:4700::1111 2>/dev/null | awk '{for(i=1;i<NF;i++) if($i=="src") print $(i+1)}' | head -1)}"
+	case "$PUBLIC_IPV4" in 10.*|192.168.*|172.1[6-9].*|172.2[0-9].*|172.3[01].*|100.6[4-9].*|100.[7-9][0-9].*|100.1[01][0-9].*|100.12[0-7].*)
+		# behind NAT: ask the outside world
+		PUBLIC_IPV4=$(curl -4 -fsS --max-time 5 https://api.ipify.org 2>/dev/null || echo "$PUBLIC_IPV4") ;;
+	esac
+	case "$PUBLIC_IPV6" in fe80:*|fd*|fc*|"") PUBLIC_IPV6="" ;; esac
+}
+
+# ------------------------------------------------------------------ DNS ----
+
+install_dns() {
+	[ "$INSTALL_DNS" -eq 1 ] || return 0
+	info "Installing the DNS server (PowerDNS, bind backend)"
+	# systemd-resolved listens on 127.0.0.53:53 only, so PowerDNS can take the public addresses.
+	apt_install pdns-server pdns-backend-bind
+	install -d -m 0750 -o root -g pdns "${STATE_DIR}/dns" "${STATE_DIR}/dns/zones"
+	install -d -m 0770 -o root -g pdns "${STATE_DIR}/dns/secondary"
+	install -d -m 0700 -o root -g root "${STATE_DIR}/dns/state"
+	[ -f /etc/powerdns/ike-zones.conf ] || : >/etc/powerdns/ike-zones.conf
+	chmod 0644 /etc/powerdns/ike-zones.conf
+	local listen="0.0.0.0"
+	[ -s /proc/net/if_inet6 ] && listen="0.0.0.0, ::"
+	cat >/etc/powerdns/pdns.d/ike.conf <<EOF
+# Written by the Ike installer. Zones are managed in the panel.
+launch=bind
+bind-config=/etc/powerdns/ike-zones.conf
+bind-dnssec-db=/var/lib/powerdns/bind-dnssec-db.sqlite3
+local-address=${listen}
+primary=yes
+secondary=yes
+default-ttl=3600
+version-string=anonymous
+max-tcp-connections=200
+EOF
+	# The Ubuntu package ships a bind.conf that loads the system named.conf.
+	rm -f /etc/powerdns/pdns.d/bind.conf /etc/powerdns/pdns.d/pdns.local.gsqlite3.conf
+	if [ ! -f /var/lib/powerdns/bind-dnssec-db.sqlite3 ]; then
+		install -d -m 0750 -o pdns -g pdns /var/lib/powerdns
+		pdnsutil create-bind-db /var/lib/powerdns/bind-dnssec-db.sqlite3 >>"$LOG_FILE" 2>&1 || die "PowerDNS DNSSEC database could not be created"
+		chown pdns:pdns /var/lib/powerdns/bind-dnssec-db.sqlite3
+	fi
+	systemctl enable pdns >>"$LOG_FILE" 2>&1
+	systemctl restart pdns || die "PowerDNS did not start. Check: journalctl -u pdns"
+	ufw allow 53/tcp comment 'DNS' >>"$LOG_FILE" 2>&1
+	ufw allow 53/udp comment 'DNS' >>"$LOG_FILE" 2>&1
+}
+
+# ----------------------------------------------------------------- mail ----
+
+install_mail() {
+	[ "$INSTALL_MAIL" -eq 1 ] || return 0
+	info "Installing email hosting (Postfix, Dovecot$( [ "$INSTALL_RSPAMD" = 1 ] && echo ", Rspamd")$( [ "$INSTALL_CLAMAV" = 1 ] && echo ", ClamAV"))"
+	local host="$SERVER_HOSTNAME"
+	echo "postfix postfix/main_mailer_type select Internet Site" | debconf-set-selections
+	echo "postfix postfix/mailname string ${host}" | debconf-set-selections
+	apt_install postfix postfix-lmdb dovecot-core dovecot-imapd dovecot-pop3d dovecot-lmtpd dovecot-sieve dovecot-managesieved
+	[ "$INSTALL_RSPAMD" = 1 ] && apt_install rspamd redis-server
+	[ "$INSTALL_CLAMAV" = 1 ] && apt_install clamav-daemon clamav-freshclam
+
+	getent group vmail >/dev/null || groupadd --system vmail
+	getent passwd vmail >/dev/null || useradd --system -g vmail -d /var/mail/vhosts -s /usr/sbin/nologin vmail
+	local vuid vgid
+	vuid=$(id -u vmail); vgid=$(id -g vmail)
+	install -d -m 0770 -o vmail -g vmail /var/mail/vhosts
+	install -d -m 0755 -o root -g root "${CONF_DIR}/mail" /etc/dovecot/sieve
+	install -d -m 0700 -o root -g root "${STATE_DIR}/mail" "${STATE_DIR}/mail/domains"
+	local f
+	for f in domains mailboxes aliases senders sni dkim_selectors; do
+		[ -f "${CONF_DIR}/mail/${f}" ] || : >"${CONF_DIR}/mail/${f}"
+	done
+	[ -f "${CONF_DIR}/mail/users" ] || : >"${CONF_DIR}/mail/users"
+	[ -f "${CONF_DIR}/mail/relay_password" ] || : >"${CONF_DIR}/mail/relay_password"
+	chown root:dovecot "${CONF_DIR}/mail/users"; chmod 0640 "${CONF_DIR}/mail/users"
+	chmod 0600 "${CONF_DIR}/mail/relay_password"
+	postmap -F "lmdb:${CONF_DIR}/mail/sni"
+
+	# Default certificate: the server's own Let's Encrypt certificate when it
+	# exists, otherwise a self-signed one until a domain gets its own.
+	local cert="/etc/ssl/certs/ssl-cert-snakeoil.pem" key="/etc/ssl/private/ssl-cert-snakeoil.key"
+	if [ -f "/etc/letsencrypt/live/${host}/fullchain.pem" ]; then
+		cert="/etc/letsencrypt/live/${host}/fullchain.pem"; key="/etc/letsencrypt/live/${host}/privkey.pem"
+	elif [ ! -f "$cert" ]; then
+		apt_install ssl-cert
+		make-ssl-cert generate-default-snakeoil >>"$LOG_FILE" 2>&1
+	fi
+
+	local milter=""
+	[ "$INSTALL_RSPAMD" = 1 ] && milter="inet:127.0.0.1:11332"
+	postconf -e \
+		"myhostname = ${host}" \
+		"myorigin = \$myhostname" \
+		"mydestination = localhost" \
+		"mynetworks = 127.0.0.0/8 [::ffff:127.0.0.0]/104 [::1]/128" \
+		"inet_interfaces = all" \
+		"inet_protocols = all" \
+		"smtpd_banner = \$myhostname ESMTP" \
+		"biff = no" \
+		"append_dot_mydomain = no" \
+		"recipient_delimiter = +" \
+		"mailbox_size_limit = 0" \
+		"message_size_limit = 52428800" \
+		"smtpd_tls_cert_file = ${cert}" \
+		"smtpd_tls_key_file = ${key}" \
+		"smtpd_tls_security_level = may" \
+		"smtpd_tls_auth_only = yes" \
+		"smtpd_tls_mandatory_protocols = >=TLSv1.2" \
+		"smtpd_tls_protocols = >=TLSv1.2" \
+		"smtp_tls_security_level = may" \
+		"smtp_tls_loglevel = 1" \
+		"tls_server_sni_maps = lmdb:${CONF_DIR}/mail/sni" \
+		"virtual_mailbox_domains = texthash:${CONF_DIR}/mail/domains" \
+		"virtual_mailbox_maps = texthash:${CONF_DIR}/mail/mailboxes" \
+		"virtual_alias_maps = texthash:${CONF_DIR}/mail/aliases" \
+		"virtual_transport = lmtp:unix:private/dovecot-lmtp" \
+		"smtpd_sasl_type = dovecot" \
+		"smtpd_sasl_path = private/auth" \
+		"smtpd_sasl_auth_enable = no" \
+		"smtpd_sender_login_maps = texthash:${CONF_DIR}/mail/senders" \
+		"smtpd_helo_required = yes" \
+		"disable_vrfy_command = yes" \
+		"strict_rfc821_envelopes = yes" \
+		"smtpd_relay_restrictions = permit_mynetworks, permit_sasl_authenticated, defer_unauth_destination" \
+		"smtpd_recipient_restrictions = permit_mynetworks, permit_sasl_authenticated, reject_unauth_destination, reject_unknown_recipient_domain, check_policy_service inet:127.0.0.1:12340" \
+		"smtpd_milters = ${milter}" \
+		"non_smtpd_milters = ${milter}" \
+		"milter_default_action = accept" \
+		"milter_protocol = 6" \
+		"relayhost =" \
+		"smtp_sasl_auth_enable = no" \
+		"compatibility_level = 3.6" >>"$LOG_FILE" 2>&1 || die "Postfix configuration failed"
+	# Submission (587, STARTTLS) and submissions (465, TLS): signed-in users only,
+	# and only as addresses they own.
+	local sub_opts="-o syslog_name=postfix/submission -o smtpd_tls_security_level=encrypt -o smtpd_sasl_auth_enable=yes \
+-o smtpd_tls_auth_only=yes -o smtpd_reject_unlisted_recipient=no \
+-o smtpd_client_restrictions=permit_sasl_authenticated,reject \
+-o smtpd_sender_restrictions=reject_sender_login_mismatch \
+-o smtpd_relay_restrictions=permit_sasl_authenticated,reject \
+-o smtpd_recipient_restrictions=permit_sasl_authenticated,reject \
+-o milter_macro_daemon_name=ORIGINATING"
+	# shellcheck disable=SC2086
+	postconf -M "submission/inet=submission inet n - y - - smtpd ${sub_opts}" >>"$LOG_FILE" 2>&1
+	# shellcheck disable=SC2086
+	postconf -M "submissions/inet=submissions inet n - y - - smtpd ${sub_opts/syslog_name=postfix\/submission/syslog_name=postfix\/submissions} -o smtpd_tls_wrappermode=yes" >>"$LOG_FILE" 2>&1
+	postfix check >>"$LOG_FILE" 2>&1 || die "Postfix rejected its configuration; see ${LOG_FILE}"
+
+	local dv
+	dv=$(dovecot --version 2>/dev/null | cut -d' ' -f1)
+	DOVECOT_LISTEN="*"
+	[ -s /proc/net/if_inet6 ] && DOVECOT_LISTEN="*, ::"
+	[ -f /etc/dovecot/dovecot.conf.ike-orig ] || cp /etc/dovecot/dovecot.conf /etc/dovecot/dovecot.conf.ike-orig
+	: >/etc/dovecot/conf.d/99-ike-sni.conf
+	case "$dv" in
+		2.3*) write_dovecot23 "$cert" "$key" "$vuid" "$vgid" ;;
+		*) write_dovecot24 "$cert" "$key" "$vuid" "$vgid" "$dv" ;;
+	esac
+	cat >/etc/dovecot/sieve/ike-junk.sieve <<'EOF'
+# Written by Ike: spam goes to Junk.
+require ["fileinto", "mailbox"];
+if anyof (header :contains "X-Spam" "Yes", header :contains "X-Spam-Flag" "YES") {
+  fileinto :create "Junk";
+  stop;
+}
+EOF
+	sievec /etc/dovecot/sieve/ike-junk.sieve >>"$LOG_FILE" 2>&1 || true
+	doveconf -n >/dev/null 2>>"$LOG_FILE" || die "Dovecot ${dv} rejected its configuration; see ${LOG_FILE}"
+
+	if [ "$INSTALL_RSPAMD" = 1 ]; then
+		install -d -m 0750 -o _rspamd -g _rspamd /var/lib/rspamd/dkim
+		cat >/etc/rspamd/local.d/worker-proxy.inc <<'EOF'
+# Written by Ike: Postfix talks to Rspamd as a milter.
+milter = yes;
+timeout = 120s;
+upstream "local" {
+  default = yes;
+  self_scan = yes;
+}
+bind_socket = "127.0.0.1:11332";
+EOF
+		cat >/etc/rspamd/local.d/milter_headers.conf <<'EOF'
+# Written by Ike
+use = ["x-spamd-bar", "x-spam-level", "authentication-results"];
+extended_spam_headers = false;
+EOF
+		cat >/etc/rspamd/local.d/redis.conf <<'EOF'
+servers = "127.0.0.1:6379";
+EOF
+		cat >/etc/rspamd/local.d/dkim_signing.conf <<EOF
+# Written by Ike
+enabled = true;
+sign_authenticated = true;
+sign_local = true;
+use_domain = "header";
+allow_username_mismatch = true;
+selector_map = "${CONF_DIR}/mail/dkim_selectors";
+path = "/var/lib/rspamd/dkim/\$domain.\$selector.key";
+EOF
+		cp /etc/rspamd/local.d/dkim_signing.conf /etc/rspamd/local.d/arc.conf
+		if [ "$INSTALL_CLAMAV" = 1 ]; then
+			cat >/etc/rspamd/local.d/antivirus.conf <<'EOF'
+# Written by Ike
+clamav {
+  scan_mime_parts = true;
+  symbol = "CLAM_VIRUS";
+  type = "clamav";
+  action = "reject";
+  servers = "/run/clamav/clamd.ctl";
+}
+EOF
+			systemctl enable --now clamav-freshclam >>"$LOG_FILE" 2>&1 || true
+			systemctl enable clamav-daemon >>"$LOG_FILE" 2>&1 || true
+			# clamd starts once freshclam has downloaded signatures (a few minutes)
+			systemctl start clamav-daemon >>"$LOG_FILE" 2>&1 || warn "ClamAV starts once virus signatures are downloaded"
+		fi
+		rspamadm configtest >>"$LOG_FILE" 2>&1 || die "Rspamd rejected its configuration; see ${LOG_FILE}"
+		systemctl enable --now redis-server rspamd >>"$LOG_FILE" 2>&1
+		systemctl restart rspamd
+	fi
+	systemctl enable postfix dovecot >>"$LOG_FILE" 2>&1
+	systemctl restart dovecot || die "Dovecot did not start. Check: journalctl -u dovecot"
+	systemctl restart postfix || die "Postfix did not start. Check: journalctl -u postfix"
+
+	local p
+	for p in 25 465 587 143 993 110 995 4190; do ufw allow "${p}/tcp" comment 'Mail' >>"$LOG_FILE" 2>&1; done
+	cat >/etc/fail2ban/jail.d/${PANEL_NAME}-mail.conf <<'EOF'
+[postfix-sasl]
+enabled  = true
+backend  = systemd
+maxretry = 5
+bantime  = 1h
+
+[dovecot]
+enabled  = true
+backend  = systemd
+maxretry = 5
+bantime  = 1h
+EOF
+	systemctl restart fail2ban >>"$LOG_FILE" 2>&1 || true
+	if ! timeout 6 bash -c 'exec 3<>/dev/tcp/gmail-smtp-in.l.google.com/25' 2>/dev/null; then
+		warn "Outgoing port 25 is blocked by your VPS provider. Set up an SMTP relay in the panel (Email → Settings) or ask them to unblock it."
+	fi
+	install_webmail
+}
+
+write_dovecot23() { # cert key uid gid
+	cat >/etc/dovecot/dovecot.conf <<EOF
+# Written by the Ike installer (Dovecot 2.3). Mailboxes are managed in the panel.
+protocols = imap pop3 lmtp sieve
+listen = ${DOVECOT_LISTEN}
+log_path = syslog
+mail_location = maildir:~/Maildir
+mail_uid = vmail
+mail_gid = vmail
+first_valid_uid = ${3}
+last_valid_uid = ${3}
+mail_privileged_group = mail
+mail_plugins = \$mail_plugins quota
+
+ssl = required
+ssl_cert = <${1}
+ssl_key = <${2}
+ssl_min_protocol = TLSv1.2
+ssl_prefer_server_ciphers = yes
+
+auth_mechanisms = plain login
+disable_plaintext_auth = yes
+passdb {
+  driver = passwd-file
+  args = scheme=SHA512-CRYPT username_format=%u ${CONF_DIR}/mail/users
+}
+userdb {
+  driver = passwd-file
+  args = username_format=%u ${CONF_DIR}/mail/users
+  default_fields = uid=vmail gid=vmail
+}
+
+namespace inbox {
+  inbox = yes
+  separator = /
+  mailbox Drafts {
+    special_use = \Drafts
+    auto = subscribe
+  }
+  mailbox Junk {
+    special_use = \Junk
+    auto = subscribe
+    autoexpunge = 30d
+  }
+  mailbox Sent {
+    special_use = \Sent
+    auto = subscribe
+  }
+  mailbox Trash {
+    special_use = \Trash
+    auto = subscribe
+    autoexpunge = 30d
+  }
+  mailbox Archive {
+    special_use = \Archive
+    auto = subscribe
+  }
+}
+
+service lmtp {
+  unix_listener /var/spool/postfix/private/dovecot-lmtp {
+    mode = 0600
+    user = postfix
+    group = postfix
+  }
+}
+service auth {
+  unix_listener /var/spool/postfix/private/auth {
+    mode = 0660
+    user = postfix
+    group = postfix
+  }
+  unix_listener auth-userdb {
+    mode = 0600
+    user = vmail
+  }
+}
+service auth-worker {
+  user = \$default_internal_user
+}
+service quota-status {
+  executable = quota-status -p postfix
+  inet_listener {
+    address = 127.0.0.1
+    port = 12340
+  }
+  client_limit = 1
+}
+service managesieve-login {
+  inet_listener sieve {
+    port = 4190
+  }
+}
+
+protocol lmtp {
+  mail_plugins = \$mail_plugins sieve
+  postmaster_address = postmaster@${SERVER_HOSTNAME}
+}
+protocol imap {
+  mail_plugins = \$mail_plugins imap_quota
+  mail_max_userip_connections = 30
+}
+
+plugin {
+  quota = maildir:User quota
+  quota_grace = 10%%
+  quota_status_success = DUNNO
+  quota_status_nouser = DUNNO
+  quota_status_overquota = "552 5.2.2 Mailbox is full"
+  sieve = file:~/sieve;active=~/.dovecot.sieve
+  sieve_before = /etc/dovecot/sieve/ike-junk.sieve
+  sieve_max_redirects = 10
+}
+
+!include_try conf.d/99-ike-sni.conf
+EOF
+}
+
+write_dovecot24() { # cert key uid gid version
+	cat >/etc/dovecot/dovecot.conf <<EOF
+# Written by the Ike installer (Dovecot 2.4). Mailboxes are managed in the panel.
+dovecot_config_version = ${5}
+dovecot_storage_version = ${5}
+protocols {
+  imap = yes
+  pop3 = yes
+  lmtp = yes
+  sieve = yes
+}
+listen = ${DOVECOT_LISTEN}
+log_path = syslog
+mail_driver = maildir
+mail_path = ~/Maildir
+mail_uid = vmail
+mail_gid = vmail
+first_valid_uid = ${3}
+last_valid_uid = ${3}
+mail_privileged_group = mail
+mail_plugins {
+  quota = yes
+}
+
+ssl = required
+ssl_server_cert_file = ${1}
+ssl_server_key_file = ${2}
+ssl_min_protocol = TLSv1.2
+
+auth_mechanisms = plain login
+auth_allow_cleartext = no
+passdb passwd-file {
+  passwd_file_path = ${CONF_DIR}/mail/users
+  default_password_scheme = SHA512-CRYPT
+}
+userdb passwd-file {
+  passwd_file_path = ${CONF_DIR}/mail/users
+  fields {
+    uid = vmail
+    gid = vmail
+  }
+}
+
+namespace inbox {
+  inbox = yes
+  separator = /
+  mailbox Drafts {
+    special_use = \Drafts
+    auto = subscribe
+  }
+  mailbox Junk {
+    special_use = \Junk
+    auto = subscribe
+    autoexpunge = 30d
+  }
+  mailbox Sent {
+    special_use = \Sent
+    auto = subscribe
+  }
+  mailbox Trash {
+    special_use = \Trash
+    auto = subscribe
+    autoexpunge = 30d
+  }
+  mailbox Archive {
+    special_use = \Archive
+    auto = subscribe
+  }
+}
+
+service lmtp {
+  unix_listener /var/spool/postfix/private/dovecot-lmtp {
+    mode = 0600
+    user = postfix
+    group = postfix
+  }
+}
+service auth {
+  unix_listener /var/spool/postfix/private/auth {
+    mode = 0660
+    user = postfix
+    group = postfix
+  }
+}
+service quota-status {
+  executable = quota-status postfix
+  inet_listener quota-status {
+    listen = 127.0.0.1
+    port = 12340
+  }
+  client_limit = 1
+}
+
+quota "User quota" {
+  driver = maildir
+}
+quota_status_success = DUNNO
+quota_status_nouser = DUNNO
+quota_status_overquota = "552 5.2.2 Mailbox is full"
+
+protocol lmtp {
+  mail_plugins {
+    sieve = yes
+  }
+  postmaster_address = postmaster@${SERVER_HOSTNAME}
+}
+protocol imap {
+  mail_plugins {
+    imap_quota = yes
+  }
+}
+
+sieve_script personal {
+  driver = file
+  path = ~/sieve
+  active_path = ~/.dovecot.sieve
+}
+sieve_script ike-junk {
+  type = before
+  path = /etc/dovecot/sieve/ike-junk.sieve
+}
+
+!include_try conf.d/99-ike-sni.conf
+EOF
+}
+
+install_webmail() {
+	[ "$INSTALL_WEBMAIL" = 1 ] || return 0
+	info "Installing webmail (Roundcube on port ${WEBMAIL_PORT})"
+	local php="${DEFAULT_PHP}"
+	[ -n "$php" ] || php=$(echo "$PHP_INSTALLED" | tr ' ' '\n' | sort -V | tail -1)
+	[ -n "$php" ] || { warn "Webmail needs PHP; skipped"; return 0; }
+	echo "roundcube-core roundcube/dbconfig-install boolean true" | debconf-set-selections
+	echo "roundcube-core roundcube/database-type select sqlite3" | debconf-set-selections
+	echo "roundcube-core roundcube/restart-webserver boolean false" | debconf-set-selections
+	echo "roundcube-core roundcube/reconfigure-webserver multiselect" | debconf-set-selections
+	apt_install roundcube-core roundcube-sqlite3 roundcube-plugins "php${php}-intl" "php${php}-sqlite3" "php${php}-mbstring" "php${php}-xml" "php${php}-zip" "php${php}-gd" "php${php}-curl"
+	getent passwd ike-webmail >/dev/null || useradd --system --no-create-home -d /var/lib/roundcube -s /usr/sbin/nologin -G www-data ike-webmail
+	chown -R ike-webmail:www-data /var/lib/roundcube /var/log/roundcube 2>/dev/null || true
+	[ -d /etc/roundcube ] && chgrp -R ike-webmail /etc/roundcube && chmod -R g+r /etc/roundcube
+	cat >/etc/roundcube/config.inc.php.ike <<'EOF'
+<?php
+// Written by Ike. Local changes go in /etc/roundcube/ike-local.inc.php.
+$config['imap_host'] = 'ssl://127.0.0.1:993';
+$config['smtp_host'] = 'tls://127.0.0.1:587';
+$config['smtp_user'] = '%u';
+$config['smtp_pass'] = '%p';
+$config['imap_conn_options'] = $config['smtp_conn_options'] = ['ssl' => ['verify_peer' => false, 'verify_peer_name' => false]];
+$config['product_name'] = 'Webmail';
+$config['login_autocomplete'] = 2;
+$config['ip_check'] = true;
+$config['session_lifetime'] = 60;
+$config['plugins'] = ['archive', 'zipdownload', 'managesieve', 'markasjunk', 'newmail_notifier'];
+$config['managesieve_host'] = 'tls://127.0.0.1';
+$config['managesieve_conn_options'] = $config['imap_conn_options'];
+$config['skin'] = 'elastic';
+$config['enable_installer'] = false;
+@include '/etc/roundcube/ike-local.inc.php';
+EOF
+	if ! grep -q "config.inc.php.ike" /etc/roundcube/config.inc.php 2>/dev/null; then
+		printf "\n@include '/etc/roundcube/config.inc.php.ike';\n" >>/etc/roundcube/config.inc.php
+	fi
+	cat >"/etc/php/${php}/fpm/pool.d/ike-webmail.conf" <<EOF
+; Written by Ike: Roundcube webmail
+[ike-webmail]
+user = ike-webmail
+group = ike-webmail
+listen = /run/php/ike-webmail.sock
+listen.owner = ${WEB_USER}
+listen.group = ${WEB_GROUP}
+listen.mode = 0660
+pm = ondemand
+pm.max_children = 10
+pm.process_idle_timeout = 30s
+php_admin_value[upload_max_filesize] = 50M
+php_admin_value[post_max_size] = 55M
+php_admin_value[open_basedir] = /usr/share/roundcube:/var/lib/roundcube:/etc/roundcube:/var/log/roundcube:/usr/share/php:/usr/share/javascript:/tmp
+EOF
+	systemctl restart "php${php}-fpm" >>"$LOG_FILE" 2>&1
+	ufw allow "${WEBMAIL_PORT}/tcp" comment 'Webmail' >>"$LOG_FILE" 2>&1
+}
+
 fetch_binary() { # name dest local_path
 	local name="$1" dest="$2" local_path="$3" url tmp
 	if [ -n "$local_path" ]; then
@@ -982,6 +1563,17 @@ install_agent() {
   "repo": "${REPO}",
   "default_php": "${DEFAULT_PHP}",
   "admin_email": "${ADMIN_EMAIL}",
+  "hostname": "${SERVER_HOSTNAME}",
+  "public_ipv4": "${PUBLIC_IPV4}",
+  "public_ipv6": "${PUBLIC_IPV6}",
+  "dns_server": "$( [ "$INSTALL_DNS" -eq 1 ] && echo powerdns )",
+  "dns_dir": "${STATE_DIR}/dns",
+  "mail_server": "$( [ "$INSTALL_MAIL" -eq 1 ] && echo postfix )",
+  "mail_state": "${STATE_DIR}/mail",
+  "mail_conf_dir": "${CONF_DIR}/mail",
+  "spam_filter": "$( [ "$INSTALL_RSPAMD" -eq 1 ] && echo rspamd )",
+  "antivirus": "$( [ "$INSTALL_CLAMAV" -eq 1 ] && echo clamav )",
+  "webmail": "$( [ "$INSTALL_WEBMAIL" -eq 1 ] && echo roundcube )",
   "docker_for_accounts": $( [ "$DOCKER_FOR_ACCOUNTS" -eq 1 ] && echo true || echo false ),
   "protected_ports": [${protected%, }]
 }
@@ -1145,6 +1737,7 @@ main() {
 	check_system
 	info "Installing ${PANEL_NAME} on Ubuntu ${OS_VERSION} (${OS_CODENAME}, ${ARCH})"
 	install_base
+	detect_identity
 	install_nginx
 	install_apache
 	detect_web_user
@@ -1163,9 +1756,12 @@ main() {
 	install_docker
 	install_pack
 	install_k3s
+	install_dns
+	install_mail
 	install_agent
 	install_panel
 	summary
 }
 
-main "$@"
+# IKE_INSTALL_LIB=1 loads the functions without installing (tests).
+[ "${IKE_INSTALL_LIB:-0}" = 1 ] || main "$@"

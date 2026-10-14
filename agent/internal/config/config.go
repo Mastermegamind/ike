@@ -172,7 +172,7 @@ func Default() Config {
 		MailState:      "/var/lib/ike/mail",
 		MailConfDir:    "/etc/ike/mail",
 		DKIMDir:        "/var/lib/rspamd/dkim",
-		WebmailDir:     "/var/lib/roundcube",
+		WebmailDir:     "/var/lib/roundcube/public_html",
 		QuarantineDir:  "/var/lib/ike/quarantine",
 		ScanDir:        "/var/lib/ike/scans",
 		PostgresVer:    "16",

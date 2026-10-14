@@ -66,6 +66,13 @@ func defaults() Config {
 
 func main() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	if len(os.Args) > 1 && os.Args[1] == "reset-password" {
+		if err := resetPassword(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if len(os.Args) > 1 && os.Args[1] == "create-admin" {
 		if err := createAdmin(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
@@ -293,6 +300,66 @@ func createAdmin(args []string) error {
 	} else {
 		fmt.Printf("Created admin %s.\n", *username)
 	}
+	return nil
+}
+
+// resetPassword sets a new password for a panel login (run as root or the
+// ike user on the server). The new password is read from stdin, or generated
+// and printed once. --disable-2fa also turns off two-factor sign-in.
+//
+//	systemctl stop ike-panel
+//	sudo -u ike ike-panel reset-password --username andre [--disable-2fa]
+//	systemctl start ike-panel
+//
+// Stop the panel first: it keeps its data in memory and would overwrite the change.
+func resetPassword(args []string) error {
+	fs := flag.NewFlagSet("reset-password", flag.ExitOnError)
+	username := fs.String("username", "", "login to reset")
+	no2fa := fs.Bool("disable-2fa", false, "also turn off two-factor sign-in")
+	storePath := fs.String("store", defaults().Store, "panel data file")
+	_ = fs.Parse(args)
+	if *username == "" {
+		return errors.New("--username is required")
+	}
+	pw := ""
+	if fi, _ := os.Stdin.Stat(); fi.Mode()&os.ModeCharDevice == 0 {
+		line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+		pw = strings.TrimRight(line, "\r\n")
+	}
+	generated := false
+	if pw == "" {
+		pw, generated = auth.RandomToken(12), true
+	}
+	if len(pw) < 10 {
+		return errors.New("use at least 10 characters")
+	}
+	h, err := auth.HashPassword(pw)
+	if err != nil {
+		return err
+	}
+	st, err := store.Open(*storePath)
+	if err != nil {
+		return err
+	}
+	if err := st.Update(func(d *store.Data) error {
+		p, err := d.Person(*username)
+		if err != nil {
+			return err
+		}
+		p.PasswordHash, p.Disabled = h, false
+		if *no2fa {
+			p.TOTPEnabled, p.TOTPSecret, p.RecoveryCodes = false, "", nil
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	if generated {
+		fmt.Printf("New password for %s: %s\n", *username, pw)
+	} else {
+		fmt.Printf("Password changed for %s.\n", *username)
+	}
+	fmt.Println("Start the panel again if you stopped it: systemctl start ike-panel")
 	return nil
 }
 

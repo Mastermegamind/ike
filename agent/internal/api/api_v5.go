@@ -43,6 +43,7 @@ import (
 
 	"github.com/YOUR-ORG/ike/agent/internal/dns"
 	"github.com/YOUR-ORG/ike/agent/internal/kit"
+	"github.com/YOUR-ORG/ike/agent/internal/mail"
 	"github.com/YOUR-ORG/ike/agent/internal/secrets"
 	"github.com/YOUR-ORG/ike/agent/internal/sites"
 	"github.com/YOUR-ORG/ike/agent/internal/sysinfo"
@@ -53,6 +54,34 @@ type Features struct {
 	Env  *kit.Env
 	Keys *secrets.Keyring
 	DNS  *dns.Manager
+	Mail *mail.Manager
+}
+
+// zoneAdapter lets the mail manager publish records through DNS.
+type zoneAdapter struct{ d *dns.Manager }
+
+func (z zoneAdapter) SetManagedTXT(ctx context.Context, tag, domain string, recs []mail.DNSRecord) (bool, error) {
+	zone := z.d.ZoneFor(domain)
+	if zone == nil {
+		return false, nil
+	}
+	var out []dns.Record
+	for _, r := range recs {
+		name := r.Name
+		if rel := dns.RelativeTo(domain, zone.Name); rel != "@" {
+			if name == "@" {
+				name = rel
+			} else {
+				name = name + "." + rel
+			}
+		}
+		content := r.Content
+		if (r.Type == "MX" || r.Type == "CNAME" || r.Type == "SRV") && content == "mail" && domain != zone.Name {
+			content = "mail." + domain + "."
+		}
+		out = append(out, dns.Record{Name: name, Type: r.Type, Content: content, Priority: r.Priority, Port: r.Port, Weight: r.Weight})
+	}
+	return z.d.SetManaged(ctx, tag+":"+domain, domain, out)
 }
 
 // Setup builds the feature managers. Call it before Handler.
@@ -66,6 +95,17 @@ func (s *Server) Setup() error {
 	f := &Features{Env: env, Keys: keys}
 	f.DNS = dns.New(env, keys)
 	sites.DNSValidation = f.DNS.CanIssueWildcard
+	f.Mail = mail.New(env, keys)
+	f.Mail.Zone = zoneAdapter{f.DNS}
+	f.Mail.OwnerOf = s.domainOwner
+	mail.NginxH2Directive = func() bool { return s.Sites.Features().H2Directive }
+	dns.DKIMRecords = func(domain string) []dns.Record {
+		name, val, err := f.Mail.DKIMRecord(domain)
+		if err != nil {
+			return nil
+		}
+		return []dns.Record{{Name: name, Type: "TXT", Content: val}}
+	}
 	s.F = f
 	return nil
 }
@@ -76,6 +116,20 @@ func (s *Server) RunBackground(ctx context.Context) {
 		return
 	}
 	go s.F.DNS.RunExpiryChecks(ctx)
+	s.F.Mail.Detect(ctx)
+}
+
+// domainOwner says which account holds a website or DNS zone for a domain.
+func (s *Server) domainOwner(domain string) string {
+	if site, err := s.Sites.Get(domain); err == nil {
+		return site.Account
+	}
+	if s.F != nil {
+		if z := s.F.DNS.ZoneFor(domain); z != nil {
+			return z.Account
+		}
+	}
+	return ""
 }
 
 func pathAcct(r *http.Request) string { return r.PathValue("a") }
@@ -122,6 +176,8 @@ func (s *Server) v5Routes(h func(string, handler)) {
 		}
 		return ok(st, err)
 	}))
+
+	s.mailRoutes(h)
 
 	// ---- DNS: admin ----
 	h("GET /v1/dns", func(w http.ResponseWriter, r *http.Request) (int, any, error) {

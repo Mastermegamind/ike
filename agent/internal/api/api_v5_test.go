@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/YOUR-ORG/ike/agent/internal/config"
 	"github.com/YOUR-ORG/ike/agent/internal/jobs"
@@ -148,4 +149,59 @@ func TestServicesAndSecrets(t *testing.T) {
 	if c := a.call("POST", "/v1/secrets/rotate", nil, "", &st); c != 200 || st["keys"].(float64) != 1 {
 		t.Fatalf("rotate: %d %v", c, st)
 	}
+}
+
+func TestMailRoutes(t *testing.T) {
+	a := newTestAPI(t, func(c *config.Config) { c.MailServer, c.SpamFilter = "postfix", "rspamd" })
+	var zone map[string]any
+	a.call("POST", "/v1/accounts/shop/dns/zones", map[string]any{"name": "shop.ng"}, "user", &zone)
+	var d map[string]any
+	if c := a.call("POST", "/v1/accounts/shop/mail/domains", map[string]string{"domain": "shop.ng"}, "user", &d); c != 201 {
+		t.Fatalf("add domain %d", c)
+	}
+	// mail records went into the zone
+	a.call("GET", "/v1/accounts/shop/dns/zones/shop.ng", nil, "", &zone)
+	b, _ := json.Marshal(zone)
+	for _, want := range []string{`"type":"MX"`, `ike._domainkey`, `"managed":"mail:shop.ng"`} {
+		if !strings.Contains(string(b), want) {
+			t.Errorf("zone missing %s", want)
+		}
+	}
+	var mb map[string]any
+	if c := a.call("POST", "/v1/accounts/shop/mail/domains/shop.ng/mailboxes", map[string]any{"local": "info"}, "user", &mb); c != 201 || mb["password"] == "" {
+		t.Fatalf("mailbox %d %v", c, mb)
+	}
+	if c := a.call("PUT", "/v1/mail", map[string]any{}, "user", nil); c != 403 {
+		t.Fatalf("user changed mail settings: %d", c)
+	}
+	if c := a.call("GET", "/v1/mail/queue", nil, "user", nil); c != 403 {
+		t.Fatalf("user saw the whole queue: %d", c)
+	}
+	var job map[string]any
+	if c := a.call("POST", "/v1/accounts/shop/mail/domains/shop.ng/tls", nil, "user", &job); c != 202 {
+		t.Fatalf("tls job %d", c)
+	}
+	a.waitJob(job["id"].(string))
+	var recs []map[string]any
+	a.call("GET", "/v1/accounts/shop/mail/domains/shop.ng/records", nil, "user", &recs)
+	if len(recs) < 6 {
+		t.Fatalf("records %v", recs)
+	}
+}
+
+func (a *testAPI) waitJob(id string) map[string]any {
+	a.t.Helper()
+	for i := 0; i < 200; i++ {
+		var j map[string]any
+		a.call("GET", "/v1/jobs/"+id, nil, "", &j)
+		if j["status"] != "running" {
+			if j["status"] != "done" {
+				a.t.Fatalf("job failed: %v", j)
+			}
+			return j
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	a.t.Fatal("job still running")
+	return nil
 }
