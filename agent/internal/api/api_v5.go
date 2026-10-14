@@ -43,11 +43,13 @@ import (
 
 	"github.com/YOUR-ORG/ike/agent/internal/databases"
 	"github.com/YOUR-ORG/ike/agent/internal/dns"
+	"github.com/YOUR-ORG/ike/agent/internal/files"
 	"github.com/YOUR-ORG/ike/agent/internal/kit"
 	"github.com/YOUR-ORG/ike/agent/internal/mail"
 	"github.com/YOUR-ORG/ike/agent/internal/malware"
 	"github.com/YOUR-ORG/ike/agent/internal/secrets"
 	"github.com/YOUR-ORG/ike/agent/internal/sites"
+	"github.com/YOUR-ORG/ike/agent/internal/storage"
 	"github.com/YOUR-ORG/ike/agent/internal/sysinfo"
 )
 
@@ -59,6 +61,8 @@ type Features struct {
 	Mail    *mail.Manager
 	Malware *malware.Manager
 	DB      *databases.Manager
+	Files   *files.Manager
+	Storage *storage.Manager
 }
 
 // zoneAdapter lets the mail manager publish records through DNS.
@@ -104,6 +108,8 @@ func (s *Server) Setup() error {
 	f.Mail.OwnerOf = s.domainOwner
 	f.Malware = malware.New(env)
 	f.Malware.Accounts = s.accountNames
+	f.Files = files.New(env)
+	f.Storage = storage.New(env, keys)
 	f.DB = databases.New(env)
 	f.DB.MariaDBOf = func(account string) []string {
 		dbs, _ := s.Sites.Databases(account)
@@ -219,6 +225,7 @@ func (s *Server) v5Routes(h func(string, handler)) {
 	s.mailRoutes(h)
 	s.securityRoutes(h)
 	s.dbRoutes(h)
+	s.fileRoutes(h)
 
 	// ---- DNS: admin ----
 	h("GET /v1/dns", func(w http.ResponseWriter, r *http.Request) (int, any, error) {

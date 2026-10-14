@@ -363,7 +363,7 @@ install_base() {
 	apt-get update -q >>"$LOG_FILE" 2>&1
 	info "Installing base packages"
 	apt_install ca-certificates curl gnupg software-properties-common lsb-release \
-		ufw fail2ban unzip xz-utils acl openssl cron logrotate python3 rsync unattended-upgrades quota \
+		ufw fail2ban zip unzip xz-utils bzip2 restic acl openssl cron logrotate python3 rsync unattended-upgrades quota \
 		git certbot
 	systemctl enable --now cron >>"$LOG_FILE" 2>&1
 }
@@ -1717,6 +1717,8 @@ install_agent() {
 	install -d -m 0750 -o root -g adm "${PANEL_LOG_DIR}/deploys"
 	install -d -m 0755 -o root -g root "${RUNTIMES_DIR}/java" "${RUNTIMES_DIR}/go" "${RUNTIMES_DIR}/dart"
 	install -d -m 0750 -o root -g adm "$PANEL_LOG_DIR"
+	install -d -m 0711 -o root -g root /var/backups/ike /var/backups/ike/snapshots "$STATE_DIR/data" "$STATE_DIR/shares"
+	install -d -m 0700 -o root -g root /var/backups/ike/databases "$STATE_DIR/specs" "${CONF_DIR}/cluster"
 
 	fetch_binary "$AGENT_NAME" "/usr/local/bin/${AGENT_NAME}" "$AGENT_BINARY"
 	fetch_binary "$MCP_NAME" "/usr/local/bin/${MCP_NAME}" "$MCP_BINARY"

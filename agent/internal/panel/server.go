@@ -111,6 +111,8 @@ func (s *Server) Handler(l Listener) http.Handler {
 	mux.HandleFunc("POST /api/v1/alerts/test", s.authed(s.adminOnly(s.testAlert)))
 	mux.HandleFunc("GET /api/v1/alerts/events", s.authed(s.adminOnly(s.alertEvents)))
 
+	mux.HandleFunc("GET /s/{token}", s.shareLink)
+	mux.HandleFunc("POST /s/{token}", s.shareLink)
 	mux.HandleFunc("/api/v1/", s.authed(s.proxy))
 	mux.HandleFunc("/", s.static)
 

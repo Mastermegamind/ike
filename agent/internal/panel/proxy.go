@@ -226,6 +226,14 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "Bad path.")
 		return
 	}
+	if isWebSocket(r) {
+		s.wsTunnel(w, r, p, apiPath)
+		return
+	}
+	if isStream(r.Method, apiPath) {
+		s.streamProxy(w, r, p, apiPath)
+		return
+	}
 	body, err := readAll(r, 1<<20)
 	if err != nil {
 		fail(w, 400, err.Error())
@@ -233,6 +241,10 @@ func (s *Server) proxy(w http.ResponseWriter, r *http.Request) {
 	}
 	filter, after, err := s.authorize(r.Context(), p, r.Method, apiPath, body)
 	if err != nil {
+		failErr(w, err)
+		return
+	}
+	if err := s.checkPackageLimits(r.Context(), p, r.Method, apiPath, body); err != nil {
 		failErr(w, err)
 		return
 	}

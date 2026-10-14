@@ -17,6 +17,10 @@ type Client struct {
 	BaseURL string
 	HTTP    *http.Client
 	Actor   string // sent as X-Ike-Actor for the audit log
+	// Stream has no overall timeout, for downloads and uploads.
+	Stream *http.Client
+	// Dial opens a raw connection to the agent (WebSocket tunnels).
+	Dial func(ctx context.Context) (net.Conn, error)
 }
 
 // Unix returns a client for the agent's unix socket.
@@ -27,7 +31,12 @@ func Unix(socket string) *Client {
 			return d.DialContext(ctx, "unix", socket)
 		},
 	}
-	return &Client{BaseURL: "http://ike-agent", HTTP: &http.Client{Transport: tr, Timeout: 6 * time.Minute}}
+	return &Client{BaseURL: "http://ike-agent", HTTP: &http.Client{Transport: tr, Timeout: 6 * time.Minute},
+		Stream: &http.Client{Transport: tr},
+		Dial: func(ctx context.Context) (net.Conn, error) {
+			var d net.Dialer
+			return d.DialContext(ctx, "unix", socket)
+		}}
 }
 
 // Do sends a request and decodes the JSON response into out (if non-nil).

@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -62,7 +63,9 @@ func setup(t *testing.T) *env {
 	_ = st.Update(func(d *store.Data) error {
 		return d.AddPerson(&store.Person{Username: "andre", Email: "andre@ike.ng", Role: store.Admin, PasswordHash: h})
 	})
-	s := &Server{Store: st, Agent: &client.Client{BaseURL: agentHTTP.URL, HTTP: http.DefaultClient}, PublicURL: "https://panel.test"}
+	agentAddr := strings.TrimPrefix(agentHTTP.URL, "http://")
+	s := &Server{Store: st, Agent: &client.Client{BaseURL: agentHTTP.URL, HTTP: http.DefaultClient, Stream: http.DefaultClient,
+		Dial: func(ctx context.Context) (net.Conn, error) { return (&net.Dialer{}).DialContext(ctx, "tcp", agentAddr) }}, PublicURL: "https://panel.test"}
 	e := &env{t: t, srv: s, st: st}
 	e.panel = httptest.NewServer(s.Handler(Listener{Name: "panel", Roles: []store.Role{store.User, store.Reseller, store.Admin}}))
 	e.reseller = httptest.NewServer(s.Handler(Listener{Name: "reseller", Roles: []store.Role{store.Reseller, store.Admin}}))

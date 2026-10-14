@@ -726,3 +726,8 @@ func (m *Manager) RemoveImage(ctx context.Context, ref string) error {
 	_, err := m.docker(ctx, "", nil, "image", "rm", ref)
 	return err
 }
+
+// OwnContainer resolves an account's container (web terminal).
+func (m *Manager) OwnContainer(ctx context.Context, account, short string) (string, error) {
+	return m.ownContainer(ctx, account, short)
+}
