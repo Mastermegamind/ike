@@ -97,7 +97,16 @@ func (m *Manager) applySSLLayout(s *Site, L *layout) {
 type IssueRequest struct {
 	Email          string `json:"email,omitempty"`
 	IncludeAliases bool   `json:"include_aliases,omitempty"`
+	// Wildcard adds *.domain. It needs the domain's DNS zone in Ike.
+	Wildcard bool `json:"wildcard,omitempty"`
 }
+
+// DNSValidation reports whether Ike can publish DNS-01 challenges for a name
+// (its zone is managed here). Set by the API server when DNS is available.
+var DNSValidation func(name string) bool
+
+// DNSHookCommand is what certbot runs to publish and remove challenges.
+var DNSHookCommand = "/usr/local/bin/ike-agent dns-hook"
 
 var emailRe = regexp.MustCompile(`^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$`)
 
@@ -121,19 +130,44 @@ func (m *Manager) IssueCertificate(ctx context.Context, domain string, req Issue
 	if wwwMode(site.WWW) != "none" {
 		names = append(names, "www."+domain)
 	}
+	canDNS := func(n string) bool { return DNSValidation != nil && DNSValidation(n) }
+	useDNS := false
+	if req.Wildcard {
+		if !canDNS("*." + domain) {
+			return nil, fmt.Errorf("a wildcard certificate needs %s's DNS zone to be managed here; add it under DNS first", domain)
+		}
+		names = append(names, "*."+domain)
+		useDNS = true
+	}
 	if req.IncludeAliases {
 		for _, a := range site.Aliases {
 			if strings.HasPrefix(a, "*.") {
-				log("Skipping %s: wildcard certificates need DNS validation, which isn't supported yet.", a)
-				continue
+				if !canDNS(a) {
+					log("Skipping %s: wildcard certificates need the domain's DNS zone to be managed here.", a)
+					continue
+				}
+				useDNS = true
 			}
 			names = append(names, a)
 		}
 	}
+	if useDNS {
+		// One certbot run uses one challenge type: every name must be in a zone here.
+		var keep []string
+		for _, n := range names {
+			if canDNS(n) {
+				keep = append(keep, n)
+			} else {
+				log("Skipping %s: its DNS zone isn't managed here, and this certificate is validated through DNS.", n)
+			}
+		}
+		names = keep
+		log("Validating through DNS (DNS-01): Ike adds and removes the _acme-challenge records itself.")
+	}
 	// Names without DNS records would make the whole request fail.
 	var ok []string
 	for _, n := range names {
-		if m.cfg.DryRun {
+		if m.cfg.DryRun || useDNS {
 			ok = append(ok, n)
 			continue
 		}
@@ -157,6 +191,11 @@ func (m *Manager) IssueCertificate(ctx context.Context, domain string, req Issue
 	}
 	args := []string{"certonly", "--webroot", "-w", m.cfg.AcmeDir, "--cert-name", domain,
 		"--non-interactive", "--agree-tos", "--keep-until-expiring", "--expand", "--deploy-hook", reload}
+	if useDNS {
+		args = []string{"certonly", "--manual", "--preferred-challenges", "dns",
+			"--manual-auth-hook", DNSHookCommand + " auth", "--manual-cleanup-hook", DNSHookCommand + " cleanup",
+			"--cert-name", domain, "--non-interactive", "--agree-tos", "--keep-until-expiring", "--expand", "--deploy-hook", reload}
+	}
 	if req.Email != "" {
 		args = append(args, "-m", req.Email)
 	} else {
@@ -167,6 +206,9 @@ func (m *Manager) IssueCertificate(ctx context.Context, domain string, req Issue
 	}
 	log("Asking Let's Encrypt for a certificate for %s", strings.Join(ok, ", "))
 	if _, err := m.run.Exec(ctx, runner.Command{Name: "certbot", Args: args, Output: logWriter(log), Timeout: 5 * time.Minute}); err != nil {
+		if useDNS {
+			return nil, fmt.Errorf("Let's Encrypt didn't issue the certificate. Check that the domain's name servers at the registrar are the ones shown under DNS: %w", err)
+		}
 		return nil, fmt.Errorf("Let's Encrypt didn't issue the certificate. Check that every name points to this server and port 80 is open: %w", err)
 	}
 	m.mu.Lock()

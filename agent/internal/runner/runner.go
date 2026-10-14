@@ -35,6 +35,12 @@ type Command struct {
 	Dir string
 	// Stdin feeds the program.
 	Stdin string
+	// StdinReader streams large input (database imports, uploads). Used
+	// instead of Stdin when set.
+	StdinReader io.Reader
+	// Stdout, when set, receives only standard output (database dumps,
+	// downloads); standard error is kept for the error message.
+	Stdout io.Writer
 	// Output, when set, receives combined output as it is produced (build logs);
 	// Exec then returns only the last 64 KB.
 	Output  io.Writer
@@ -81,12 +87,19 @@ func (Exec) Exec(ctx context.Context, c Command) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, c.Name, c.Args...)
 	cmd.Env, cmd.Dir = c.Env, c.Dir
 	cmd.WaitDelay = 5 * time.Second
-	if c.Stdin != "" {
+	if c.StdinReader != nil {
+		cmd.Stdin = c.StdinReader
+	} else if c.Stdin != "" {
 		cmd.Stdin = strings.NewReader(c.Stdin)
 	}
 	var out []byte
 	var err error
-	if c.Output != nil {
+	if c.Stdout != nil {
+		t := &tail{n: 16 << 10}
+		cmd.Stdout, cmd.Stderr = c.Stdout, t
+		err = cmd.Run()
+		out = t.buf
+	} else if c.Output != nil {
 		t := &tail{n: 64 << 10}
 		w := io.MultiWriter(c.Output, t)
 		cmd.Stdout, cmd.Stderr = w, w
@@ -128,6 +141,13 @@ func (d *DryRun) RunInput(ctx context.Context, stdin string, name string, args .
 
 func (d *DryRun) Exec(_ context.Context, c Command) ([]byte, error) {
 	cmd := strings.TrimSpace(c.Name + " " + strings.Join(c.Args, " "))
+	if c.StdinReader != nil {
+		b, _ := io.ReadAll(io.LimitReader(c.StdinReader, 1<<20))
+		c.Stdin = string(b)
+		if c.Stdin == "" {
+			c.Stdin = "<stream>"
+		}
+	}
 	d.mu.Lock()
 	if c.Stdin != "" {
 		d.Stdin = append(d.Stdin, c.Stdin)
@@ -156,6 +176,9 @@ func (d *DryRun) Exec(_ context.Context, c Command) ([]byte, error) {
 	slog.Debug("dry-run", "cmd", cmd)
 	if c.Output != nil && resp != "" {
 		_, _ = io.Copy(c.Output, bytes.NewBufferString(resp))
+	}
+	if c.Stdout != nil && resp != "" {
+		_, _ = io.Copy(c.Stdout, bytes.NewBufferString(resp))
 	}
 	if fail {
 		return []byte("simulated failure"), fmt.Errorf("%s: simulated failure", cmd)

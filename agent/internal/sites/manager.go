@@ -20,13 +20,23 @@ import (
 	"text/template"
 
 	"github.com/YOUR-ORG/ike/agent/internal/config"
+	"github.com/YOUR-ORG/ike/agent/internal/kit"
 	"github.com/YOUR-ORG/ike/agent/internal/runner"
 )
 
 var (
-	ErrExists   = errors.New("already exists")
-	ErrNotFound = errors.New("not found")
+	ErrExists   = kit.ErrExists
+	ErrNotFound = kit.ErrNotFound
 )
+
+// AccountExists lets feature packages check an account without loading it.
+func (m *Manager) AccountExists(name string) error {
+	_, err := m.GetAccount(name)
+	return err
+}
+
+// Config returns the agent configuration.
+func (m *Manager) Config() config.Config { return m.cfg }
 
 type Manager struct {
 	cfg config.Config

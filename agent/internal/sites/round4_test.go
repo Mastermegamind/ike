@@ -265,6 +265,28 @@ func TestLetsEncryptIssue(t *testing.T) {
 		t.Error("vhost points at a missing certificate")
 	}
 	has(t, "acme", read(t, root, "etc/nginx/ike/sites/lets.ng.conf"), "root /var/lib/ike/acme;")
+
+	// With the zone managed here, wildcards go through DNS-01.
+	if _, err := m.IssueCertificate(ctx, "lets.ng", IssueRequest{Wildcard: true}, log); err == nil {
+		t.Error("wildcard without a DNS zone accepted")
+	}
+	DNSValidation = func(n string) bool { return strings.HasSuffix(n, "lets.ng") }
+	defer func() { DNSValidation = nil }()
+	if _, err := m.IssueCertificate(ctx, "lets.ng", IssueRequest{Wildcard: true, IncludeAliases: true}, log); err != nil {
+		t.Fatal(err)
+	}
+	h := r.History()
+	has(t, "dns-01", h[len(h)-4:][0]+strings.Join(h, "\n"),
+		"certbot certonly --manual --preferred-challenges dns --manual-auth-hook /usr/local/bin/ike-agent dns-hook auth --manual-cleanup-hook /usr/local/bin/ike-agent dns-hook cleanup --cert-name lets.ng")
+	last := ""
+	for _, c := range h {
+		if strings.HasPrefix(c, "certbot certonly --manual") {
+			last = c
+		}
+	}
+	if !strings.Contains(last, "-d *.lets.ng") || strings.Contains(last, "-d lets.com") {
+		t.Errorf("DNS-01 names: %s", last)
+	}
 }
 
 func TestPHPSettings(t *testing.T) {

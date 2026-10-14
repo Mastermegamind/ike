@@ -27,6 +27,9 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "dns-hook" {
+		os.Exit(dnsHook(os.Args[2:]))
+	}
 	var (
 		socket  = flag.String("socket", "/run/ike/agent.sock", "unix socket to listen on")
 		cfgPath = flag.String("config", "/etc/ike/agent.json", "config file")
@@ -81,6 +84,9 @@ func run(socket, cfgPath, root, group string, dryRun bool) error {
 	srv := &api.Server{Sites: mgr, Updates: up, Jobs: jm, Firewall: fw, Runner: r, Config: cfg,
 		AuditPath: filepath.Join(root, "var/log/ike/agent-audit.log")}
 	_ = os.MkdirAll(filepath.Dir(srv.AuditPath), 0o750)
+	if err := srv.Setup(); err != nil {
+		return err
+	}
 
 	if err := os.MkdirAll(filepath.Dir(socket), 0o750); err != nil {
 		return err
@@ -119,6 +125,7 @@ func run(socket, cfgPath, root, group string, dryRun bool) error {
 		slog.Info("web server features", "nginx", f.NginxVersion, "http2_directive", f.H2Directive, "http3", f.HTTP3)
 	}
 	go mgr.RunImageUpdateChecks(ctx)
+	srv.RunBackground(ctx)
 
 	slog.Info("ike-agent listening", "version", api.Version, "socket", socket)
 	if err := hs.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {

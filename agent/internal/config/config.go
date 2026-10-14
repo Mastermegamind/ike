@@ -65,6 +65,52 @@ type Config struct {
 	RegistriesFile    string `json:"registries_file"`
 	PackPath          string `json:"pack_path"` // Cloud Native Buildpacks CLI
 	K3sPath           string `json:"k3s_path"`  // optional Kubernetes (k3s)
+
+	// Server identity
+	Hostname   string `json:"hostname"`    // the server's own name (mail, reverse DNS)
+	PublicIPv4 string `json:"public_ipv4"` // detected at install time
+	PublicIPv6 string `json:"public_ipv6"`
+	MasterKey  string `json:"master_key"` // AES key ring for stored credentials
+
+	// DNS (PowerDNS with the bind backend). Empty DNSServer means no local DNS server.
+	DNSServer    string `json:"dns_server"`     // "powerdns" or ""
+	DNSDir       string `json:"dns_dir"`        // zone state, zone files, secondary zones
+	PdnsBindConf string `json:"pdns_bind_conf"` // zone list read by PowerDNS
+
+	// Mail. Empty MailServer means mail hosting was not installed.
+	MailServer  string `json:"mail_server"`   // "postfix" or ""
+	MailDir     string `json:"mail_dir"`      // /var/mail/vhosts
+	MailState   string `json:"mail_state"`    // domains, mailboxes, aliases
+	MailConfDir string `json:"mail_conf_dir"` // generated maps for Postfix and Dovecot
+	DKIMDir     string `json:"dkim_dir"`
+	Webmail     string `json:"webmail"` // "roundcube" or ""
+	WebmailDir  string `json:"webmail_dir"`
+	SpamFilter  string `json:"spam_filter"` // "rspamd" or ""
+	Antivirus   string `json:"antivirus"`   // "clamav" or ""
+
+	// Security
+	ModSecurity   bool   `json:"modsecurity"`
+	QuarantineDir string `json:"quarantine_dir"`
+	ScanDir       string `json:"scan_dir"` // scan state and reports
+
+	// Databases
+	Postgres    bool   `json:"postgres"`
+	PostgresVer string `json:"postgres_version"`
+	Redis       string `json:"redis"` // "redis", "valkey" or ""
+	MongoDB     bool   `json:"mongodb"`
+	DBBackupDir string `json:"db_backup_dir"`
+	DataDir     string `json:"data_dir"` // per-account services (Redis instances)
+	StorageFile string `json:"storage_file"`
+
+	// Files
+	SnapshotDir string `json:"snapshot_dir"`
+	ShareDir    string `json:"share_dir"`
+
+	// Infrastructure
+	ClusterDir    string `json:"cluster_dir"`    // CA, server certificates, join tokens
+	ClusterListen string `json:"cluster_listen"` // ":2089" when this server is managed remotely
+	SpecDir       string `json:"spec_dir"`
+	DiskQuotas    bool   `json:"disk_quotas"`
 }
 
 // WebServers lists the per-website choices this stack allows, default first.
@@ -119,6 +165,24 @@ func Default() Config {
 		RegistriesFile: "/etc/ike/registries.json",
 		PackPath:       "/usr/local/bin/pack",
 		K3sPath:        "/usr/local/bin/k3s",
+		MasterKey:      "/etc/ike/master.key",
+		DNSDir:         "/var/lib/ike/dns",
+		PdnsBindConf:   "/etc/powerdns/ike-zones.conf",
+		MailDir:        "/var/mail/vhosts",
+		MailState:      "/var/lib/ike/mail",
+		MailConfDir:    "/etc/ike/mail",
+		DKIMDir:        "/var/lib/rspamd/dkim",
+		WebmailDir:     "/var/lib/roundcube",
+		QuarantineDir:  "/var/lib/ike/quarantine",
+		ScanDir:        "/var/lib/ike/scans",
+		PostgresVer:    "16",
+		DBBackupDir:    "/var/backups/ike/databases",
+		DataDir:        "/var/lib/ike/data",
+		StorageFile:    "/etc/ike/storage.json",
+		SnapshotDir:    "/var/backups/ike/snapshots",
+		ShareDir:       "/var/lib/ike/shares",
+		ClusterDir:     "/etc/ike/cluster",
+		SpecDir:        "/var/lib/ike/specs",
 	}
 }
 

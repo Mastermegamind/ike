@@ -92,13 +92,14 @@ import (
 	"github.com/YOUR-ORG/ike/agent/internal/config"
 	"github.com/YOUR-ORG/ike/agent/internal/firewall"
 	"github.com/YOUR-ORG/ike/agent/internal/jobs"
+	"github.com/YOUR-ORG/ike/agent/internal/kit"
 	"github.com/YOUR-ORG/ike/agent/internal/runner"
 	"github.com/YOUR-ORG/ike/agent/internal/sites"
 	"github.com/YOUR-ORG/ike/agent/internal/sysinfo"
 	"github.com/YOUR-ORG/ike/agent/internal/updates"
 )
 
-const Version = "0.4.0"
+const Version = "0.5.0"
 
 type Server struct {
 	Sites     *sites.Manager
@@ -108,6 +109,7 @@ type Server struct {
 	Runner    runner.Runner
 	Config    config.Config
 	AuditPath string // JSON lines; empty disables
+	F         *Features
 
 	auditMu sync.Mutex
 }
@@ -543,6 +545,7 @@ func (s *Server) Handler() http.Handler {
 	})
 
 	s.moreRoutes(func(p string, fn handler) { h(p, fn) })
+	s.v5Routes(func(p string, fn handler) { h(p, fn) })
 	if s.Firewall != nil {
 		sites.SetPublicPortHook(func(ctx context.Context, port int, proto string) {
 			_, _ = s.Firewall.OpenPort(ctx, strconv.Itoa(port), proto, "container")
@@ -624,7 +627,11 @@ func (s *Server) readAudit(lines int) ([]map[string]any, error) {
 }
 
 func decode(w http.ResponseWriter, r *http.Request, v any) bool {
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
+	return decodeLimit(w, r, v, 64<<10)
+}
+
+func decodeLimit(w http.ResponseWriter, r *http.Request, v any, limit int64) bool {
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, limit))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON: " + err.Error()})
@@ -645,6 +652,10 @@ func writeErr(w http.ResponseWriter, err error) {
 	case errors.Is(err, sites.ErrNotFound), errors.Is(err, firewall.ErrNotFound):
 		code = http.StatusNotFound
 	case errors.Is(err, sites.ErrExists), errors.Is(err, firewall.ErrExists):
+		code = http.StatusConflict
+	case errors.Is(err, kit.ErrForbidden):
+		code = http.StatusForbidden
+	case errors.Is(err, kit.ErrNotInstalled):
 		code = http.StatusConflict
 	}
 	writeJSON(w, code, map[string]string{"error": err.Error()})

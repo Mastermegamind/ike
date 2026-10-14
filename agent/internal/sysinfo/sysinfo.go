@@ -116,6 +116,60 @@ func PHPVersions(root string) []string {
 type ServiceStatus struct {
 	Name   string `json:"name"`
 	Active string `json:"active"`
+	// Controllable services can be started and stopped from the panel.
+	Controllable bool `json:"controllable"`
+}
+
+// optionalServices appear when the admin installed them.
+var optionalServices = []string{
+	"postfix", "dovecot", "rspamd", "clamav-daemon", "clamav-freshclam", "redis-server", "valkey-server",
+	"postgresql", "mongod", "pdns", "docker", "containerd", "k3s", "memcached", "opendkim",
+}
+
+// protectedServices are never stopped from the panel: losing them locks the
+// admin out or takes the panel itself down.
+var protectedServices = map[string]bool{"ssh": true, "sshd": true, "ike-agent": true, "ike-panel": true,
+	"systemd-journald": true, "systemd-networkd": true, "systemd-resolved": true, "dbus": true}
+
+func unitExists(root, name string) bool {
+	for _, d := range []string{"/lib/systemd/system", "/usr/lib/systemd/system", "/etc/systemd/system"} {
+		if _, err := os.Stat(filepath.Join(root, d, name+".service")); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+// ControlService starts, stops, restarts or reloads one of the services the
+// panel lists. ssh and Ike itself can only be restarted.
+func ControlService(ctx context.Context, r runner.Runner, root, webStack, name, action string) error {
+	switch action {
+	case "start", "stop", "restart", "reload", "enable", "disable":
+	default:
+		return fmt.Errorf("action must be start, stop, restart, reload, enable or disable")
+	}
+	known := false
+	for _, s := range Services(ctx, r, root, webStack) {
+		if s.Name == name {
+			known = true
+		}
+	}
+	if !known {
+		return fmt.Errorf("%s is not a service Ike manages", name)
+	}
+	if protectedServices[name] && action != "restart" && action != "reload" {
+		return fmt.Errorf("%s can only be restarted from the panel, so you are never locked out", name)
+	}
+	args := []string{action, name}
+	if action == "enable" || action == "disable" {
+		args = []string{action, "--now", name}
+	}
+	if (name == "ike-agent" || name == "ike-panel") && action == "restart" {
+		// restart after this request has been answered
+		args = []string{"--no-block", "restart", name}
+	}
+	_, err := r.Run(ctx, "systemctl", args...)
+	return err
 }
 
 // Services reports systemd state of the services the panel manages.
@@ -127,9 +181,14 @@ func Services(ctx context.Context, r runner.Runner, root, webStack string) []Ser
 	if webStack == "apache" || webStack == "hybrid" {
 		names = append(names, "apache2")
 	}
-	names = append(names, "mariadb", "fail2ban", "cron", "ike-agent")
+	names = append(names, "mariadb", "fail2ban", "cron", "ike-agent", "ike-panel")
 	for _, v := range PHPVersions(root) {
 		names = append(names, "php"+v+"-fpm")
+	}
+	for _, n := range optionalServices {
+		if unitExists(root, n) {
+			names = append(names, n)
+		}
 	}
 	out := make([]ServiceStatus, 0, len(names))
 	for _, n := range names {
@@ -138,7 +197,7 @@ func Services(ctx context.Context, r runner.Runner, root, webStack string) []Ser
 		if state == "" {
 			state = "unknown"
 		}
-		out = append(out, ServiceStatus{Name: n, Active: state})
+		out = append(out, ServiceStatus{Name: n, Active: state, Controllable: true})
 	}
 	return out
 }
