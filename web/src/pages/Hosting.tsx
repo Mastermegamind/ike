@@ -53,7 +53,7 @@ function Packages() {
               </dl>
               <div className="row small muted">{[p.limits.shell && "Shell", p.limits.containers && "Containers", p.limits.backups && "Own backups"].filter(Boolean).join(" · ") || "No extras"}</div>
               <div className="row" style={{ justifyContent: "space-between", marginTop: "auto" }}>
-                <span className="small muted">{p.accounts ?? 0} accounts</span>
+                <span className="small muted">{p.accounts ?? 0} {(p.accounts ?? 0) === 1 ? "account" : "accounts"}</span>
                 <span className="row"><Button size="sm" variant="ghost" icon aria-label={`Edit ${p.name}`} onClick={() => setEdit(p)}><Pencil size={15} /></Button>
                   <Button size="sm" variant="ghost" icon aria-label={`Delete ${p.name}`} onClick={() => setDel(p)}><Trash2 size={15} /></Button></span>
               </div>
@@ -274,7 +274,7 @@ export function TokensPage({ role }: { role: Role }) {
             <tbody>{list.data.map((t) => (
               <tr key={t.id}>
                 <td className="lead">{t.name}<div className="small muted">{t.expires && new Date(t.expires).getFullYear() > 2000 ? `Expires ${dateTime(t.expires)}` : "Never expires"}</div></td>
-                <td className="small">{t.read_only ? <Badge>Read only</Badge> : null} {t.limited ? Object.entries(t.scopes ?? {}).map(([a, l]) => <Badge key={a} tone={l === "write" ? "accent" : undefined}>{a}: {l}</Badge>) : <Badge tone="warn">Full access</Badge>}
+                <td className="small">{t.read_only ? <Badge>Read only</Badge> : null} {t.limited ? Object.entries(t.scopes ?? {}).map(([a, l]) => <Badge key={a} tone={l === "write" ? "accent" : undefined}>{a}: {l}</Badge>) : <Badge tone="warn">{t.read_only ? "All areas" : "Full access"}</Badge>}
                   {t.accounts?.length ? <div className="muted">Accounts: {(t.accounts ?? []).join(", ")}</div> : null}{t.allow_ips?.length ? <div className="muted mono">From {(t.allow_ips ?? []).join(", ")}</div> : null}</td>
                 <td className="small muted" data-hide-sm>{t.last_used && new Date(t.last_used).getFullYear() > 2000 ? timeAgo(t.last_used) : "Never"}</td>
                 <td style={{ textAlign: "right" }}><Button size="sm" variant="ghost" icon aria-label={`Delete ${t.name}`} onClick={() => setDel(t)}><Trash2 size={15} /></Button></td>
@@ -288,7 +288,7 @@ export function TokensPage({ role }: { role: Role }) {
         <div className="panel-body stack">
           <Field label="API">{() => <CopyBlock value={`curl -H "Authorization: Bearer ike_…" ${panel}/api/v1/sites`} />}</Field>
           <Field label="ike command-line tool">{() => <CopyBlock value={`ike login ${panel} --token ike_…\nike sites\nike deploy shop.ng --wait`} />}</Field>
-          <Field label="AI agents (Claude Desktop, Claude Code and other MCP clients)">{() => <CopyBlock value={JSON.stringify({ mcpServers: { ike: { command: "ike-mcp", args: ["--panel", panel, "--token", "ike_…"] } } }, null, 2)} />}</Field>
+          <Field label="AI agents (Claude Desktop, Claude Code and other MCP clients)">{() => <CopyBlock value={JSON.stringify({ mcpServers: { ike: { command: "ike-mcp", args: ["--panel", panel, "--allow-write"], env: { IKE_TOKEN: "ike_…" } } } }, null, 2)} />}</Field>
           <p className="small muted">An AI agent can only do what its token allows. Give it a limited, read-only token to start, and add write access for the areas you want it to change.</p>
         </div>
       </section>
