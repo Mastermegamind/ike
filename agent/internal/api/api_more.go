@@ -5,6 +5,10 @@ package api
 //
 //	PUT    /v1/sites/{domain}/domains          {"aliases","www","redirect_aliases"}
 //	PUT    /v1/sites/{domain}/redirects        [{"kind","match","from","to","code","keep_query"}]
+//	GET    /v1/sites/{domain}/protection       password-protected paths and their users (never passwords)
+//	PUT    /v1/sites/{domain}/protection/paths [{"path","realm","users","allow_ips"}] ("/" protects the whole website)
+//	PUT    /v1/sites/{domain}/protection/users/{user}  {"password"} (empty: one is made up and returned once)
+//	DELETE /v1/sites/{domain}/protection/users/{user}
 //	PUT    /v1/sites/{domain}/php              pool and php.ini settings
 //	POST   /v1/sites/{domain}/composer         {"action","package","dev"} → job
 //	POST   /v1/sites/{domain}/ssl              {"email","include_aliases"} Let's Encrypt → job
@@ -92,6 +96,43 @@ func (s *Server) moreRoutes(h func(string, handler)) {
 		ctx, cancel := long(r)
 		defer cancel()
 		return ok(s.Sites.SetDomains(ctx, d(r), req))
+	})
+	// Password protection
+	h("GET /v1/sites/{domain}/protection", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		return ok(s.Sites.GetProtection(d(r)))
+	})
+	h("PUT /v1/sites/{domain}/protection/paths", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		var paths []sites.ProtectedPath
+		if !decode(w, r, &paths) {
+			return 0, nil, nil
+		}
+		ctx, cancel := long(r)
+		defer cancel()
+		return ok(s.Sites.SetProtectedPaths(ctx, d(r), paths))
+	})
+	h("PUT /v1/sites/{domain}/protection/users/{user}", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		var body struct {
+			Password string `json:"password"`
+		}
+		if !decode(w, r, &body) {
+			return 0, nil, nil
+		}
+		ctx, cancel := long(r)
+		defer cancel()
+		made, err := s.Sites.SetAuthUser(ctx, d(r), r.PathValue("user"), body.Password)
+		if err != nil {
+			return ok(nil, err)
+		}
+		out := map[string]string{"user": r.PathValue("user")}
+		if made != "" {
+			out["password"] = made // made up here; shown once
+		}
+		return ok(out, nil)
+	})
+	h("DELETE /v1/sites/{domain}/protection/users/{user}", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		ctx, cancel := long(r)
+		defer cancel()
+		return ok(map[string]string{"deleted": r.PathValue("user")}, s.Sites.DeleteAuthUser(ctx, d(r), r.PathValue("user")))
 	})
 	h("PUT /v1/sites/{domain}/redirects", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
 		var rules []sites.Redirect

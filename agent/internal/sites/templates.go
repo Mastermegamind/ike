@@ -15,6 +15,16 @@ import "text/template"
 // Around it: an optional server block that redirects other names to the main
 // one, the port 80 server (or a redirect to HTTPS), and the HTTPS server.
 var nginxTmpl = template.Must(template.New("nginx").Parse(`# Managed by Ike. Manual changes will be overwritten.
+{{- range .AuthRules}}{{if .IPs}}
+
+# Addresses that open {{.Regex}} without a password
+geo {{.Geo}} {
+    default 0;
+{{- range .IPs}}
+    {{.}} 1;
+{{- end}}
+}
+{{- end}}{{end}}
 {{- if .NginxUpstream}}
 
 # Load balancer pool
@@ -95,6 +105,26 @@ server {
     error_log  {{.LogDir}}/error.log;
 
     client_max_body_size {{.BodyLimitMB}}m;
+{{- if .AuthRules}}
+
+    # Password protection: the longest matching path decides.
+    set $ike_auth off;
+    set $ike_auth_rule "";
+{{- range .AuthRules}}
+    if ($uri ~ "{{.Regex}}") { set $ike_auth_rule {{.ID}}; }
+{{- end}}
+{{- range .AuthRules}}
+    if ($ike_auth_rule = {{.ID}}) { set $ike_auth "{{.Realm}}"; set $ike_auth_file {{.File}}; }
+{{- if .IPs}}
+    if ($ike_auth_rule = {{.ID}}) { set $ike_auth_ip {{.Geo}}; }
+{{- end}}
+{{- end}}
+{{- if .AuthAnyIPs}}
+    if ($ike_auth_ip = 1) { set $ike_auth off; }
+{{- end}}
+    auth_basic $ike_auth;
+    auth_basic_user_file $ike_auth_file;
+{{- end}}
 {{- if .WAFNginx}}
 
     # Web application firewall (ModSecurity with the OWASP Core Rule Set)
@@ -110,6 +140,9 @@ server {
     location ^~ /.well-known/acme-challenge/ {
         root {{.AcmeDir}};
         allow all;
+{{- if .AuthRules}}
+        auth_basic off;
+{{- end}}
     }
 {{- if .NginxRedirects}}
 
@@ -128,6 +161,9 @@ server {
     error_page {{.ErrorCodes}} /__ike_error/$status.html;
     location ^~ /__ike_error/ {
         internal;
+{{- if .AuthRules}}
+        auth_basic off;
+{{- end}}
         root /;
         try_files {{.ErrorsDir}}/$status.html {{.PagesDir}}/errors/$status.html =404;
     }
@@ -143,6 +179,9 @@ server {
     error_page 503 /__ike_status.html;
     location = /__ike_status.html {
         internal;
+{{- if .AuthRules}}
+        auth_basic off;
+{{- end}}
         root /;
         add_header Retry-After 3600 always;
         try_files {{.StatusPage}} =503;
@@ -349,6 +388,26 @@ var apacheTmpl = template.Must(template.New("apache").Parse(`# Managed by Ike. M
     RewriteCond %{REMOTE_ADDR} !^{{.}}$
 {{- end}}
     RewriteRule ^ - [R=503,L]
+{{- end}}
+{{- if and .AuthRules (eq .WebServer "apache")}}
+
+    # Password protection: later blocks win, so the longest path comes last.
+{{- range .AuthRules}}
+    <LocationMatch "{{.Regex}}">
+        AuthType Basic
+        AuthName "{{.Realm}}"
+        AuthUserFile {{.File}}
+        <RequireAny>
+            Require valid-user
+{{- range .IPs}}
+            Require ip {{.}}
+{{- end}}
+        </RequireAny>
+    </LocationMatch>
+{{- end}}
+    <LocationMatch "^/(\.well-known/acme-challenge/|__ike_error/|__ike_status\.html$)">
+        Require all granted
+    </LocationMatch>
 {{- end}}
 {{- if and .ApacheRules (eq .WebServer "apache")}}
 

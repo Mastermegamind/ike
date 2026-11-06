@@ -62,6 +62,10 @@ export class Demo5 {
   private tokens: APIToken[];
   private events: ServerEvent[];
   private readUpTo = 0;
+  private protection: Record<string, { paths: { id: string; path: string; realm: string; users?: string[]; allow_ips?: string[] }[]; users: { name: string; created: string }[] }> = {
+    "naijabites.ng": { paths: [{ id: "a1b2c3d4", path: "/wp-login.php", realm: "Naija Bites staff", allow_ips: ["102.89.0.0/16"] }],
+      users: [{ name: "chidi", created: ago(30 * day) }, { name: "kitchen", created: ago(12 * day) }] },
+  };
   private dbs: Record<string, { engine: "postgres" | "mongodb"; name: string; owner: string; note?: string; roles?: { name: string; access: string }[]; created_at: string; size_mb?: number }[]> = {
     kelechi: [{ engine: "postgres", name: "kelechi_api", owner: "kelechi_api", note: "API (Prisma)", created_at: ago(5 * day), size_mb: 48.2, roles: [{ name: "kelechi_reports", access: "read" }] },
       { engine: "mongodb", name: "kelechi_events", owner: "kelechi_events", created_at: ago(3 * day), size_mb: 210.5 }],
@@ -214,6 +218,39 @@ export class Demo5 {
       return out;
     };
     let p: Record<string, string> | null;
+
+    // ---- password protection
+    if ((p = is("GET", "/sites/:d/protection"))) return this.protection[p.d] ?? { paths: [], users: [] };
+    if ((p = is("PUT", "/sites/:d/protection/paths"))) {
+      const pr = (this.protection[p.d] ??= { paths: [], users: [] });
+      if ((body as unknown[]).length && !pr.users.length) bad("add a user first, so someone can sign in");
+      const seen = new Set<string>();
+      pr.paths = (body as typeof pr.paths).map((x, i) => {
+        const path = (x.path || "/").trim();
+        if (!/^\/[A-Za-z0-9._~%/:@,+=-]*$/.test(path) || path.includes("..")) bad(`path ${i + 1}: "${path}" is not a path on the website, like / or /admin/`);
+        if (seen.has(path)) bad(`${path} is listed twice`);
+        seen.add(path);
+        for (const a of x.allow_ips ?? []) if (!/^[0-9a-f.:]+(\/\d{1,3})?$/i.test(a)) bad(`path ${i + 1}: "${a}" is not an IP address or range`);
+        return { ...x, id: x.id || hex(4), path, realm: x.realm?.trim() || "Restricted area" };
+      }).sort((a, b) => b.path.length - a.path.length);
+      return pr;
+    }
+    if ((p = is("PUT", "/sites/:d/protection/users/:u"))) {
+      if (!/^[A-Za-z0-9._@-]{1,64}$/.test(p.u)) bad("user names can use letters, digits and . _ @ - (64 at most)");
+      if (b.password && String(b.password).length < 8) bad("the password must be 8-200 characters");
+      const pr = (this.protection[p.d] ??= { paths: [], users: [] });
+      if (!pr.users.some((u) => u.name === p!.u)) pr.users.push({ name: p.u, created: now() });
+      pr.users.sort((a, b2) => a.name.localeCompare(b2.name));
+      return b.password ? { user: p.u } : { user: p.u, password: pw() + pw().slice(0, 4) };
+    }
+    if ((p = is("DELETE", "/sites/:d/protection/users/:u"))) {
+      const pr = this.protection[p.d] ?? nf("User");
+      if (pr!.users.length === 1 && pr!.paths.length) bad(`${p.u} is the last user; remove the protected paths first, or add another user`);
+      for (const x of pr!.paths) if (x.users?.length === 1 && x.users[0] === p.u) bad(`${p.u} is the only user allowed on ${x.path}; change that path first`);
+      pr!.users = pr!.users.filter((u) => u.name !== p!.u);
+      for (const x of pr!.paths) x.users = x.users?.filter((u) => u !== p!.u);
+      return { deleted: p.u };
+    }
 
     // ---- server metrics
     if (is("GET", "/server/metrics")) {

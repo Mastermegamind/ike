@@ -304,6 +304,10 @@ Hosting
   ike deploy DOMAIN [--ref REF] [--wait]         ike deployments DOMAIN
   ike rollback DOMAIN DEPLOYMENT_ID
   ike ssl DOMAIN [--wildcard] [--wait]
+  ike protect DOMAIN                           password-protected paths and users
+  ike protect DOMAIN user NAME [--password P]  add a sign-in user, or a new password
+  ike protect DOMAIN path /admin/ [--realm R] [--user U ...] [--allow IP ...]
+  ike protect DOMAIN unpath PATH | rm-user NAME
 
 DNS
   ike dns zones [--account A]
@@ -672,6 +676,8 @@ func run(args []string) error {
 		return serversCmd(c)
 	case "metrics":
 		return metricsCmd(c)
+	case "protect":
+		return protectCmd(c, pos, fs)
 	case "tokens":
 		return tokensCmd(c, pos, fs)
 	case "keys":

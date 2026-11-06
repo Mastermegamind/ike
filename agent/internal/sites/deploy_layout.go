@@ -79,4 +79,5 @@ func (m *Manager) cleanupExtras(ctx context.Context, s *Site, L layout) {
 	m.deleteCertificate(ctx, s)
 	m.removeDeployState(ctx, s, L)
 	_ = os.Remove(m.p(m.wafFile(s.Domain)))
+	_ = os.RemoveAll(m.p(htpasswdDir(s.Domain))) // password protection users
 }

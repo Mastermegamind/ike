@@ -44,6 +44,7 @@ type Site struct {
 	Deploy          *DeployState      `json:"deploy,omitempty"`
 	WAF             *WAFSettings      `json:"waf,omitempty"`
 	Balancer        *BalancerSettings `json:"balancer,omitempty"`
+	Protection      *Protection       `json:"protection,omitempty"`
 }
 
 // CreateRequest adds a website to an existing account.
@@ -112,6 +113,9 @@ type layout struct {
 	WAFRulesFile        string
 	WAFBlock            bool
 	WAFDisabled         []int
+	// Password protection, shortest path first
+	AuthRules  []authRule
+	AuthAnyIPs bool // some protected path lets addresses in without a password
 	// Load balancer runtime
 	Balanced                                   bool
 	NginxUpstream, ApacheBalancer              string
@@ -168,6 +172,7 @@ func (m *Manager) layout(s *Site) layout {
 	m.applySSLLayout(s, &L)
 	m.applyWAFLayout(s, &L)
 	m.applyBalancerLayout(s, &L)
+	m.applyProtectionLayout(s, &L)
 	L.applyPHP(s.PHP, lim)
 	if L.RedirectNames != "" && L.WebServer == "apache" {
 		L.ApacheRedirectListens = []string{L.ApacheListen}

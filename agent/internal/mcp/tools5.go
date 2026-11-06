@@ -136,6 +136,35 @@ func (s *Server) tools5() []tool {
 	}
 
 	return []tool{
+		// ------------------------------------------------- password protection
+		{Name: "get_site_protection", Title: "Password-protected paths", area: "sites", Annotations: readOnly(),
+			Description: "A website's password-protected paths (who can open each, which addresses skip the password) and its sign-in users. Passwords are never shown.",
+			InputSchema: obj(map[string]any{"domain": argDomain}, "domain"),
+			handler:     s.get(func(a map[string]any) string { return "/v1/sites/" + esc(argStr(a, "domain")) + "/protection" })},
+		{Name: "set_protection_user", Title: "Add a sign-in user", area: "sites", write: true, Annotations: write(false, true),
+			Description: "Add a user who can open a website's protected paths, or give them a new password. Leave out the password to have one made up; it's returned once, so give it to the human.",
+			InputSchema: obj(map[string]any{"domain": argDomain, "user": str("User name: letters, digits, . _ @ -"), "password": str("8+ characters (optional)")}, "domain", "user"),
+			handler: s.call("PUT", func(a map[string]any) string {
+				return "/v1/sites/" + esc(argStr(a, "domain")) + "/protection/users/" + esc(argStr(a, "user"))
+			}, pick("password"))},
+		{Name: "set_protected_paths", Title: "Password-protect paths", area: "sites", write: true, Annotations: write(false, true),
+			Description: "Replace a website's protected paths. Each is {\"path\": \"/admin/\", \"realm\": \"Staff only\", \"users\": [\"ada\"] (empty: every user), \"allow_ips\": [\"203.0.113.0/24\"]}. \"/\" protects the whole website. Read get_site_protection first and keep the paths you aren't changing. Add users first.",
+			InputSchema: obj(map[string]any{"domain": argDomain,
+				"paths": map[string]any{"type": "array", "description": "Every protected path of the website", "items": map[string]any{"type": "object",
+					"properties": map[string]any{"path": map[string]any{"type": "string"}, "realm": map[string]any{"type": "string"},
+						"users": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}, "allow_ips": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}}}}},
+				"domain", "paths"),
+			handler: func(ctx context.Context, a map[string]any) (any, error) {
+				var out any
+				return out, s.Agent.Do(ctx, "PUT", "/v1/sites/"+esc(argStr(a, "domain"))+"/protection/paths", a["paths"], &out)
+			}},
+		{Name: "delete_protection_user", Title: "Remove a sign-in user", area: "sites", write: true, Annotations: write(true, true),
+			Description: "Remove a website sign-in user. Refused if they are the only user allowed on a path (that path would open to everyone).",
+			InputSchema: obj(map[string]any{"domain": argDomain, "user": str("User name")}, "domain", "user"),
+			handler: s.call("DELETE", func(a map[string]any) string {
+				return "/v1/sites/" + esc(argStr(a, "domain")) + "/protection/users/" + esc(argStr(a, "user"))
+			}, nil)},
+
 		// ------------------------------------------------------------------ DNS
 		{Name: "list_dns_zones", Title: "DNS zones", area: "dns", Annotations: readOnly(),
 			Description: "DNS zones with where they're served (this server, Cloudflare, DigitalOcean), DNSSEC and domain expiry. One account's, or every zone (admin).",

@@ -2,7 +2,7 @@
 
 Everything the panel does goes through this API, so anything you can click you can also script. The `ike` CLI, the MCP server (`ike-mcp`), and the WHMCS and Blesta modules all use it.
 
-This page is generated from the code by `scripts/gen_api_doc.py`. A test fails when a route is missing, so the list stays complete: 364 routes.
+This page is generated from the code by `scripts/gen_api_doc.py`. A test fails when a route is missing, so the list stays complete: 368 routes.
 
 ## Where to send requests
 
@@ -181,6 +181,10 @@ Token area: `sites`.
 | `GET /sites/{domain}/logs/{kind}` | Access \| error \| php \| apache-access \| apache-error \| app |
 | `POST /sites/{domain}/permissions` | Reset ownership and modes |
 | `PUT /sites/{domain}/php` | Pool and php.ini settings |
+| `GET /sites/{domain}/protection` | Password-protected paths and their users (never passwords) |
+| `PUT /sites/{domain}/protection/paths` | Set the paths: body `[{"path","realm","users","allow_ips"}]` ("/" protects the whole website) |
+| `PUT /sites/{domain}/protection/users/{user}` | Add a user or change their password {"password"}; leave it empty to have one made up, returned once |
+| `DELETE /sites/{domain}/protection/users/{user}` | Delete the user |
 | `POST /sites/{domain}/push` | Push a staging copy's files to live → job |
 | `PUT /sites/{domain}/redirects` | Set the redirects: body `[{"kind","match","from","to","code","keep_query"}]` |
 | `POST /sites/{domain}/ssl` | Ssl: body `{"email","include_aliases"}` Let's Encrypt → job |

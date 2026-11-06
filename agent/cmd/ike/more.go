@@ -1049,3 +1049,80 @@ func metricsCmd(c *client) error {
 	})
 	return nil
 }
+
+// protectCmd manages a website's password protection.
+//
+//	ike protect DOMAIN                                   paths and users
+//	ike protect DOMAIN user NAME [--password P]          add a user or change the password
+//	ike protect DOMAIN rm-user NAME
+//	ike protect DOMAIN path /admin/ [--realm R] [--user U ...] [--allow IP ...]
+//	ike protect DOMAIN unpath /admin/
+func protectCmd(c *client, pos []string, fs flagSet) error {
+	if len(pos) == 0 {
+		return errUsage
+	}
+	base := "/sites/" + esc(pos[0]) + "/protection"
+	type path struct {
+		ID       string   `json:"id,omitempty"`
+		Path     string   `json:"path"`
+		Realm    string   `json:"realm"`
+		Users    []string `json:"users,omitempty"`
+		AllowIPs []string `json:"allow_ips,omitempty"`
+	}
+	var cur struct {
+		Paths []path           `json:"paths"`
+		Users []map[string]any `json:"users"`
+	}
+	if err := c.do("GET", base, nil, &cur); err != nil {
+		return err
+	}
+	if len(pos) == 1 {
+		c.show(cur, func(w *tabwriter.Writer) {
+			fmt.Fprintln(w, "PATH\tSIGN-IN MESSAGE\tUSERS\tNO PASSWORD FROM")
+			for _, p := range cur.Paths {
+				u := strings.Join(p.Users, ",")
+				if u == "" {
+					u = "every user"
+				}
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", p.Path, p.Realm, u, strings.Join(p.AllowIPs, ","))
+			}
+			names := []string{}
+			for _, u := range cur.Users {
+				names = append(names, fmt.Sprint(u["name"]))
+			}
+			fmt.Fprintf(w, "\nUsers: %s\n", strings.Join(names, ", "))
+		})
+		return nil
+	}
+	if len(pos) != 3 {
+		return errUsage
+	}
+	switch pos[1] {
+	case "user":
+		var r map[string]any
+		if err := c.do("PUT", base+"/users/"+esc(pos[2]), map[string]string{"password": fs.get("password")}, &r); err != nil {
+			return err
+		}
+		if pw, ok := r["password"]; ok {
+			fmt.Printf("Password for %s: %v (shown once)\n", pos[2], pw)
+		}
+		return nil
+	case "rm-user":
+		return c.do("DELETE", base+"/users/"+esc(pos[2]), nil, nil)
+	case "path", "unpath":
+		var next []path
+		for _, p := range cur.Paths {
+			if p.Path != pos[2] {
+				next = append(next, p)
+			}
+		}
+		if pos[1] == "path" {
+			next = append(next, path{Path: pos[2], Realm: fs.get("realm"), Users: fs.vals["user"], AllowIPs: fs.vals["allow"]})
+		}
+		if next == nil {
+			next = []path{}
+		}
+		return c.do("PUT", base+"/paths", next, nil)
+	}
+	return errUsage
+}

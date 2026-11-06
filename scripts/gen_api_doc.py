@@ -152,6 +152,7 @@ MANUAL = {
  "DELETE /v1/kubernetes/{}/{}/{}": "Delete a Kubernetes object",
  "GET /v1/kubernetes/pods/{}/{}/logs": "A pod's logs",
  # dns
+ "PUT /v1/sites/{}/protection/users/{}": "Add a user or change their password {\"password\"}; leave it empty to have one made up, returned once",
  "PUT /v1/accounts/{}/dns/zones/{}/records/{}": "Replace one record {\"name\",\"type\",\"content\",\"ttl\",\"priority\",…}",
  "DELETE /v1/accounts/{}/dns/zones/{}/records/{}": "Delete one record",
  "POST /v1/accounts/{}/stacks/{}/{}": "up | down | restart | pull a Compose stack → job",
