@@ -198,7 +198,9 @@ func background(ctx context.Context, srv *panel.Server, st *store.Store, agent *
 	tick := time.NewTicker(time.Minute)
 	defer overdue.Stop()
 	defer tick.Stop()
-	var lastUptime, lastDaily time.Time
+	var lastUptime, lastDaily, lastBandwidth time.Time
+	// start from the newest event so a restart doesn't re-send old alerts
+	lastEventID := srv.LatestEventID(ctx)
 	lastEvent := time.Now()
 	told := map[string]bool{} // certificate problems and image updates already announced
 	for {
@@ -206,6 +208,7 @@ func background(ctx context.Context, srv *panel.Server, st *store.Store, agent *
 		case <-ctx.Done():
 			return
 		case now := <-overdue.C:
+			srv.RunSubscriptions(ctx, now)
 			srv.EnforceOverdue(ctx, now)
 		case now := <-tick.C:
 			var every int
@@ -214,6 +217,11 @@ func background(ctx context.Context, srv *panel.Server, st *store.Store, agent *
 				lastUptime = now
 				srv.Monitor.Check(ctx)
 			}
+			if now.Sub(lastBandwidth) >= 15*time.Minute {
+				lastBandwidth = now
+				srv.TrackBandwidth(ctx, now)
+			}
+			lastEventID = srv.ForwardEvents(ctx, lastEventID)
 			if now.Sub(lastDaily) >= 6*time.Hour {
 				lastDaily = now
 				dailyChecks(ctx, srv, agent, told)

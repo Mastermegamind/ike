@@ -1,0 +1,27 @@
+<?php
+$lang['Ike.name'] = 'Ike';
+$lang['Ike.description'] = 'Creates, suspends and removes hosting accounts on an Ike control panel.';
+$lang['Ike.module_row'] = 'Server';
+$lang['Ike.module_rows'] = 'Servers';
+$lang['Ike.module_group'] = 'Server group';
+$lang['Ike.add_module_row'] = 'Add server';
+$lang['Ike.manage.module_rows_title'] = 'Servers';
+$lang['Ike.manage.module_rows_heading.hostname'] = 'Panel address';
+$lang['Ike.manage.module_rows_heading.options'] = 'Options';
+$lang['Ike.manage.module_rows.edit'] = 'Edit';
+$lang['Ike.manage.module_rows.delete'] = 'Delete';
+$lang['Ike.manage.module_rows_no_results'] = 'No servers yet.';
+$lang['Ike.row_meta.hostname'] = 'Panel address (e.g. panel.example.com)';
+$lang['Ike.row_meta.port'] = 'Port (2087 admin token, 2086 reseller token)';
+$lang['Ike.row_meta.token'] = 'API token (Settings → API tokens in Ike)';
+$lang['Ike.package_fields.package'] = 'Ike package name';
+$lang['Ike.service_fields.domain'] = 'Domain';
+$lang['Ike.service_fields.account'] = 'Account name';
+$lang['Ike.tab_login'] = 'Control panel';
+$lang['Ike.tab_login.button'] = 'Log in to the control panel';
+$lang['Ike.!error.hostname.valid'] = 'Enter the panel address, like panel.example.com.';
+$lang['Ike.!error.port.valid'] = 'Port must be a number.';
+$lang['Ike.!error.token.valid'] = 'Enter an Ike API token (it starts with ike_).';
+$lang['Ike.!error.token.connect'] = 'Ike did not accept the token or could not be reached.';
+$lang['Ike.!error.package.empty'] = 'Enter the Ike package name.';
+$lang['Ike.!error.domain.format'] = 'Enter a valid domain.';

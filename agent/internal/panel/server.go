@@ -132,6 +132,34 @@ func (s *Server) Handler(l Listener) http.Handler {
 	mux.HandleFunc("DELETE /api/v1/clusters/{id}", s.authed(s.adminOnly(s.deleteCluster)))
 	mux.HandleFunc("GET /s/{token}", s.shareLink)
 	mux.HandleFunc("POST /s/{token}", s.shareLink)
+	mux.HandleFunc("GET /api/v1/tokens", s.authed(s.listTokens))
+	mux.HandleFunc("POST /api/v1/tokens", s.authed(s.createToken))
+	mux.HandleFunc("DELETE /api/v1/tokens/{id}", s.authed(s.deleteToken))
+	mux.HandleFunc("GET /api/v1/packages", s.authed(s.listPackages))
+	mux.HandleFunc("POST /api/v1/packages", s.authed(s.resellerOrAdmin(s.savePackage)))
+	mux.HandleFunc("PUT /api/v1/packages/{id}", s.authed(s.resellerOrAdmin(s.savePackage)))
+	mux.HandleFunc("DELETE /api/v1/packages/{id}", s.authed(s.resellerOrAdmin(s.deletePackage)))
+	mux.HandleFunc("PUT /api/v1/account-packages/{name}", s.authed(s.setAccountPackage))
+	mux.HandleFunc("GET /api/v1/account-packages", s.authed(s.listAccountPackages))
+	mux.HandleFunc("GET /api/v1/bandwidth", s.authed(s.bandwidth))
+	mux.HandleFunc("GET /api/v1/billing/subscriptions", s.authed(s.listSubscriptions))
+	mux.HandleFunc("POST /api/v1/billing/subscriptions", s.authed(s.createSubscription))
+	mux.HandleFunc("POST /api/v1/billing/subscriptions/{id}/cancel", s.authed(s.cancelSubscription))
+	mux.HandleFunc("GET /api/v1/branding", s.getBranding) // public: the sign-in page needs it
+	mux.HandleFunc("GET /api/v1/me/branding", s.authed(s.getMyBranding))
+	mux.HandleFunc("PUT /api/v1/me/branding", s.authed(s.putBranding))
+	mux.HandleFunc("GET /api/v1/notifications", s.authed(s.notifications))
+	mux.HandleFunc("POST /api/v1/notifications/read", s.authed(s.markNotificationsRead))
+	mux.HandleFunc("GET /sso/{token}", s.ssoLogin)
+	mux.HandleFunc("GET /api/v1/provision/packages", s.authed(s.provisionOnly(s.listPackages)))
+	mux.HandleFunc("GET /api/v1/provision/usage", s.authed(s.provisionOnly(s.provisionUsage)))
+	mux.HandleFunc("POST /api/v1/provision/accounts", s.authed(s.provisionOnly(s.provisionAccount)))
+	mux.HandleFunc("POST /api/v1/provision/accounts/{a}/suspend", s.authed(s.provisionOnly(s.provisionSuspend)))
+	mux.HandleFunc("POST /api/v1/provision/accounts/{a}/unsuspend", s.authed(s.provisionOnly(s.provisionUnsuspend)))
+	mux.HandleFunc("DELETE /api/v1/provision/accounts/{a}", s.authed(s.provisionOnly(s.provisionTerminate)))
+	mux.HandleFunc("PUT /api/v1/provision/accounts/{a}/package", s.authed(s.provisionOnly(s.provisionPackage)))
+	mux.HandleFunc("PUT /api/v1/provision/accounts/{a}/password", s.authed(s.provisionOnly(s.provisionPassword)))
+	mux.HandleFunc("POST /api/v1/provision/accounts/{a}/sso", s.authed(s.provisionOnly(s.provisionSSO)))
 	mux.HandleFunc("/api/v1/", s.authed(s.proxy))
 	mux.HandleFunc("/", s.static)
 
@@ -249,11 +277,24 @@ func (s *Server) sessionUser(r *http.Request) (string, string) {
 func (s *Server) authed(next func(w http.ResponseWriter, r *http.Request)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		user, _ := s.sessionUser(r)
+		viaToken := false
+		if user == "" {
+			// Scripts, the ike CLI and billing systems use API tokens. A
+			// browser never sends this header on its own, so no CSRF check.
+			var readOnly bool
+			if user, readOnly = s.bearerUser(r); user != "" {
+				viaToken = true
+				if readOnly && r.Method != http.MethodGet {
+					fail(w, 403, "This API token is read-only.")
+					return
+				}
+			}
+		}
 		if user == "" {
 			fail(w, 401, "Sign in to continue.")
 			return
 		}
-		if r.Method != http.MethodGet && r.Header.Get("X-Requested-With") != "ike" {
+		if !viaToken && r.Method != http.MethodGet && r.Header.Get("X-Requested-With") != "ike" {
 			fail(w, 403, "Missing X-Requested-With header.")
 			return
 		}
@@ -278,6 +319,16 @@ func (s *Server) adminOnly(next func(w http.ResponseWriter, r *http.Request)) fu
 	return func(w http.ResponseWriter, r *http.Request) {
 		if personFrom(r).Role != store.Admin {
 			fail(w, 403, "Only server admins can do that.")
+			return
+		}
+		next(w, r)
+	}
+}
+
+func (s *Server) resellerOrAdmin(next func(w http.ResponseWriter, r *http.Request)) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if personFrom(r).Role == store.User {
+			fail(w, 403, "Only resellers and server admins can do that.")
 			return
 		}
 		next(w, r)
@@ -598,6 +649,11 @@ func (s *Server) updatePerson(w http.ResponseWriter, r *http.Request) {
 		MaxAccounts *int        `json:"max_accounts"`
 		Disabled    *bool       `json:"disabled"`
 		Password    *string     `json:"password"`
+		// reseller totals
+		MaxSites       *int `json:"max_sites"`
+		MaxDomains     *int `json:"max_domains"`
+		MaxDiskMB      *int `json:"max_disk_mb"`
+		MaxBandwidthGB *int `json:"max_bandwidth_gb"`
 	}
 	if err := decode(r, &req); err != nil {
 		fail(w, 400, err.Error())
@@ -618,8 +674,25 @@ func (s *Server) updatePerson(w http.ResponseWriter, r *http.Request) {
 		if req.Role != nil && me.Role != store.Admin {
 			return fmt.Errorf("%w: only server admins can change roles", errForbidden)
 		}
-		if req.MaxAccounts != nil && me.Role != store.Admin {
+		if (req.MaxAccounts != nil || req.MaxSites != nil || req.MaxDomains != nil || req.MaxDiskMB != nil || req.MaxBandwidthGB != nil) && me.Role != store.Admin {
 			return fmt.Errorf("%w: only server admins can change reseller quotas", errForbidden)
+		}
+		for _, q := range []*int{req.MaxSites, req.MaxDomains, req.MaxDiskMB, req.MaxBandwidthGB} {
+			if q != nil && (*q < 0 || *q > 100000000) {
+				return errors.New("quotas must be 0 (unlimited) or a positive number")
+			}
+		}
+		if req.MaxSites != nil {
+			p.MaxSites = *req.MaxSites
+		}
+		if req.MaxDomains != nil {
+			p.MaxDomains = *req.MaxDomains
+		}
+		if req.MaxDiskMB != nil {
+			p.MaxDiskMB = *req.MaxDiskMB
+		}
+		if req.MaxBandwidthGB != nil {
+			p.MaxBandwidthGB = *req.MaxBandwidthGB
 		}
 		if req.Email != nil {
 			if err := store.ValidateEmail(*req.Email); err != nil {

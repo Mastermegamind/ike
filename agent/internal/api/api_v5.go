@@ -239,6 +239,7 @@ func (s *Server) v5Routes(h func(string, handler)) {
 	s.fileRoutes(h)
 	s.backupRoutes(h)
 	s.infraRoutes(h)
+	s.migrateRoutes(h)
 
 	// ---- DNS: admin ----
 	h("GET /v1/dns", func(w http.ResponseWriter, r *http.Request) (int, any, error) {

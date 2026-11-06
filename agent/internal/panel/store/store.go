@@ -33,36 +33,45 @@ var (
 
 // Person is someone who signs in to the panel.
 type Person struct {
-	Username      string    `json:"username"`
-	Email         string    `json:"email"`
-	Name          string    `json:"name,omitempty"`
-	Role          Role      `json:"role"`
-	PasswordHash  string    `json:"password_hash"`
-	TOTPSecret    string    `json:"totp_secret,omitempty"`
-	TOTPEnabled   bool      `json:"totp_enabled"`
-	TOTPLast      uint64    `json:"totp_last,omitempty"`
-	RecoveryCodes []string  `json:"recovery_codes,omitempty"` // hashed, one-time
-	Reseller      string    `json:"reseller,omitempty"`       // for users created by a reseller
-	Accounts      []string  `json:"accounts,omitempty"`       // hosting accounts a user may manage
-	MaxAccounts   int       `json:"max_accounts,omitempty"`   // reseller quota (0 = none allowed)
-	Disabled      bool      `json:"disabled"`
-	CreatedAt     time.Time `json:"created_at"`
-	LastLoginAt   time.Time `json:"last_login_at,omitempty"`
+	Username      string   `json:"username"`
+	Email         string   `json:"email"`
+	Name          string   `json:"name,omitempty"`
+	Role          Role     `json:"role"`
+	PasswordHash  string   `json:"password_hash"`
+	TOTPSecret    string   `json:"totp_secret,omitempty"`
+	TOTPEnabled   bool     `json:"totp_enabled"`
+	TOTPLast      uint64   `json:"totp_last,omitempty"`
+	RecoveryCodes []string `json:"recovery_codes,omitempty"` // hashed, one-time
+	Reseller      string   `json:"reseller,omitempty"`       // for users created by a reseller
+	Accounts      []string `json:"accounts,omitempty"`       // hosting accounts a user may manage
+	MaxAccounts   int      `json:"max_accounts,omitempty"`   // reseller quota (0 = none allowed)
+	// Reseller totals across all their accounts (0 = unlimited).
+	MaxSites       int       `json:"max_sites,omitempty"`
+	MaxDomains     int       `json:"max_domains,omitempty"` // extra domains and DNS zones
+	MaxDiskMB      int       `json:"max_disk_mb,omitempty"`
+	MaxBandwidthGB int       `json:"max_bandwidth_gb,omitempty"`
+	Disabled       bool      `json:"disabled"`
+	CreatedAt      time.Time `json:"created_at"`
+	LastLoginAt    time.Time `json:"last_login_at,omitempty"`
 }
 
 // Public is a Person without secrets, for API responses.
 type Public struct {
-	Username    string    `json:"username"`
-	Email       string    `json:"email"`
-	Name        string    `json:"name,omitempty"`
-	Role        Role      `json:"role"`
-	TOTPEnabled bool      `json:"totp_enabled"`
-	Reseller    string    `json:"reseller,omitempty"`
-	Accounts    []string  `json:"accounts"`
-	MaxAccounts int       `json:"max_accounts,omitempty"`
-	Disabled    bool      `json:"disabled"`
-	CreatedAt   time.Time `json:"created_at"`
-	LastLoginAt time.Time `json:"last_login_at,omitempty"`
+	Username       string    `json:"username"`
+	Email          string    `json:"email"`
+	Name           string    `json:"name,omitempty"`
+	Role           Role      `json:"role"`
+	TOTPEnabled    bool      `json:"totp_enabled"`
+	Reseller       string    `json:"reseller,omitempty"`
+	Accounts       []string  `json:"accounts"`
+	MaxAccounts    int       `json:"max_accounts,omitempty"`
+	Disabled       bool      `json:"disabled"`
+	CreatedAt      time.Time `json:"created_at"`
+	LastLoginAt    time.Time `json:"last_login_at,omitempty"`
+	MaxSites       int       `json:"max_sites,omitempty"`
+	MaxDomains     int       `json:"max_domains,omitempty"`
+	MaxDiskMB      int       `json:"max_disk_mb,omitempty"`
+	MaxBandwidthGB int       `json:"max_bandwidth_gb,omitempty"`
 }
 
 func (p *Person) Public() Public {
@@ -70,7 +79,8 @@ func (p *Person) Public() Public {
 	if acc == nil {
 		acc = []string{}
 	}
-	return Public{p.Username, p.Email, p.Name, p.Role, p.TOTPEnabled, p.Reseller, acc, p.MaxAccounts, p.Disabled, p.CreatedAt, p.LastLoginAt}
+	return Public{p.Username, p.Email, p.Name, p.Role, p.TOTPEnabled, p.Reseller, acc, p.MaxAccounts, p.Disabled, p.CreatedAt, p.LastLoginAt,
+		p.MaxSites, p.MaxDomains, p.MaxDiskMB, p.MaxBandwidthGB}
 }
 
 // Invoice is a bill for a hosting account. Amounts are in minor units (kobo, cents).
@@ -143,6 +153,17 @@ type data struct {
 	Servers     []*RemoteServer    `json:"servers"`
 	JoinTokens  []JoinToken        `json:"join_tokens"`
 	Clusters    []*DBCluster       `json:"clusters"`
+
+	APITokens      []*APIToken                   `json:"api_tokens"`
+	Packages       []*Package                    `json:"packages"`
+	AccountPackage map[string]string             `json:"account_package"` // account → package ID
+	Subscriptions  []*Subscription               `json:"subscriptions"`
+	Branding       map[string]*Branding          `json:"branding"`  // "" admin, or reseller username
+	Bandwidth      map[string]map[string]float64 `json:"bandwidth"` // "2026-10" → account → MB
+	BWDays         map[string]BWDay              `json:"bw_days"`
+	BWSuspended    map[string]string             `json:"bw_suspended"` // account → month it was suspended for bandwidth
+	NotifRead      map[string]int64              `json:"notif_read"`   // username → last read event ID
+	SSOTokens      []SSOToken                    `json:"sso_tokens"`
 }
 
 type Store struct {
@@ -151,11 +172,33 @@ type Store struct {
 	d    data
 }
 
+func (d *data) initMaps() {
+	if d.AccountPackage == nil {
+		d.AccountPackage = map[string]string{}
+	}
+	if d.Branding == nil {
+		d.Branding = map[string]*Branding{}
+	}
+	if d.Bandwidth == nil {
+		d.Bandwidth = map[string]map[string]float64{}
+	}
+	if d.BWDays == nil {
+		d.BWDays = map[string]BWDay{}
+	}
+	if d.BWSuspended == nil {
+		d.BWSuspended = map[string]string{}
+	}
+	if d.NotifRead == nil {
+		d.NotifRead = map[string]int64{}
+	}
+}
+
 func Open(path string) (*Store, error) {
 	s := &Store{path: path}
 	s.d = data{People: map[string]*Person{}, AccountOf: map[string]string{}, Invoices: []*Invoice{}, NextInvoice: 1,
 		Billing: BillingSettings{Currency: "NGN", GraceDays: 7, Providers: map[string]ProviderSettings{}}, JobOwner: map[string]string{}}
 	s.d.Alerts.UptimeIntervalMin = 5
+	s.d.initMaps()
 	b, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return s, nil
@@ -178,6 +221,7 @@ func Open(path string) (*Store, error) {
 	if s.d.Billing.Providers == nil {
 		s.d.Billing.Providers = map[string]ProviderSettings{}
 	}
+	s.d.initMaps()
 	return s, nil
 }
 

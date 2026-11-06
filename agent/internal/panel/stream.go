@@ -23,7 +23,7 @@ func isStream(method, apiPath string) bool {
 	case http.MethodGet:
 		return strings.HasSuffix(apiPath, "/download") || strings.HasSuffix(apiPath, "/export")
 	case http.MethodPut:
-		return strings.HasSuffix(apiPath, "/files/upload")
+		return strings.HasSuffix(apiPath, "/upload")
 	case http.MethodPost:
 		return strings.HasSuffix(apiPath, "/import")
 	}

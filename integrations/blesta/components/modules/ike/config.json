@@ -1,0 +1,9 @@
+{
+    "version": "1.0.0",
+    "name": "Ike.name",
+    "description": "Ike.description",
+    "authors": [{"name": "Megamind Technologies", "url": "https://ike.megamindtechnologies.com"}],
+    "service": {"name_key": "ike_domain"},
+    "module": {"row": "Ike.module_row", "rows": "Ike.module_rows", "group": "Ike.module_group", "row_key": "hostname"},
+    "email_tags": {"module": ["hostname"], "package": ["package"], "service": ["ike_account", "ike_domain", "ike_password"]}
+}

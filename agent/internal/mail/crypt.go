@@ -139,7 +139,7 @@ func HashPassword(pw string) string {
 
 // CheckPassword verifies a password against a stored {SHA512-CRYPT} hash.
 func CheckPassword(stored, pw string) bool {
-	h := strings.TrimPrefix(stored, "{SHA512-CRYPT}")
+	h := strings.TrimPrefix(strings.TrimPrefix(stored, "{SHA512-CRYPT}"), "{CRYPT}")
 	if !strings.HasPrefix(h, "$6$") {
 		return false
 	}

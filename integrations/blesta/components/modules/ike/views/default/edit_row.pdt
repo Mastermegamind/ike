@@ -1,0 +1,27 @@
+<?php
+$this->Widget->clear();
+$this->Widget->create($this->_('Ike.add_module_row', true));
+$this->Form->create();
+?>
+<div class="inner">
+    <div class="pad">
+        <ul>
+            <li>
+                <?php $this->Form->label($this->_('Ike.row_meta.hostname', true), 'hostname'); ?>
+                <?php $this->Form->fieldText('hostname', ($vars->hostname ?? null), ['id' => 'hostname']); ?>
+            </li>
+            <li>
+                <?php $this->Form->label($this->_('Ike.row_meta.port', true), 'port'); ?>
+                <?php $this->Form->fieldText('port', ($vars->port ?? '2087'), ['id' => 'port']); ?>
+            </li>
+            <li>
+                <?php $this->Form->label($this->_('Ike.row_meta.token', true), 'token'); ?>
+                <?php $this->Form->fieldPassword('token', ['id' => 'token', 'value' => ($vars->token ?? null)]); ?>
+            </li>
+        </ul>
+    </div>
+    <div class="button_row"><?php $this->Form->fieldSubmit('save', $this->_('Ike.add_module_row', true), ['class' => 'btn btn-primary pull-right']); ?></div>
+</div>
+<?php
+$this->Form->end();
+$this->Widget->end();

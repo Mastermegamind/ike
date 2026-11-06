@@ -479,6 +479,42 @@ func (m *Manager) CreateMailbox(ctx context.Context, account, domain string, req
 	return out, nil
 }
 
+var importedHashRe = regexp.MustCompile(`^\$(1|5|6)\$[./A-Za-z0-9$=]{8,200}$`)
+
+// CreateMailboxHashed adds a mailbox that keeps the password it had on
+// another server: a glibc crypt hash ($6$…, $5$… or $1$…) from a cPanel
+// shadow file. Dovecot checks it with its CRYPT scheme, so the owner signs
+// in with the old password.
+func (m *Manager) CreateMailboxHashed(ctx context.Context, account, domain, local, hash string, quotaMB int) error {
+	if err := m.need(); err != nil {
+		return err
+	}
+	local = strings.ToLower(strings.TrimSpace(local))
+	if err := validLocal(local); err != nil {
+		return err
+	}
+	if !importedHashRe.MatchString(hash) {
+		return fmt.Errorf("%s@%s: the password hash isn't a crypt hash Ike can use", local, domain)
+	}
+	if quotaMB < 0 || quotaMB > 1024*1024 {
+		quotaMB = 0
+	}
+	var dom string
+	_, err := m.change(ctx, account, domain, func(d *Domain) error {
+		dom = d.Domain
+		if d.hasMailbox(local) {
+			return fmt.Errorf("%s@%s %w", local, d.Domain, kit.ErrExists)
+		}
+		d.Mailboxes = append(d.Mailboxes, Mailbox{Local: local, PasswordHash: "{CRYPT}" + hash, QuotaMB: quotaMB,
+			Enabled: true, KeepCopy: true, CreatedAt: kit.Now()})
+		return nil
+	})
+	if err == nil {
+		m.env.Publish("mail.mailbox.created", local+"@"+dom, map[string]any{"account": account, "imported": true})
+	}
+	return err
+}
+
 // MailboxUpdate changes a mailbox. Empty password keeps the current one.
 type MailboxUpdate struct {
 	Name      string     `json:"name"`
