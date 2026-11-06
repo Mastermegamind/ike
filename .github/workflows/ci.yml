@@ -21,9 +21,13 @@ jobs:
       - name: Build static binaries
         run: |
           for arch in amd64 arm64; do
-            for bin in ike-agent ike-mcp ike-panel; do
+            for bin in ike-agent ike-mcp ike-panel ike; do
               CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -ldflags "-s -w" -o dist/$bin-linux-$arch ./cmd/$bin
             done
+          done
+          # The CLI and MCP server must also build for macOS and Windows
+          for os in darwin windows; do
+            for bin in ike ike-mcp; do GOOS=$os GOARCH=amd64 go build -o /dev/null ./cmd/$bin; done
           done
       - uses: actions/upload-artifact@v4
         with:
