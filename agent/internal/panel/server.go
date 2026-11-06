@@ -320,6 +320,10 @@ func (s *Server) authed(next func(w http.ResponseWriter, r *http.Request)) http.
 			fail(w, 401, "Sign in to continue.")
 			return
 		}
+		if err := developerAllows(&p, r.Method, r.URL.Path); err != nil {
+			fail(w, 403, err.Error())
+			return
+		}
 		p.Token = tok
 		ctx := context.WithValue(r.Context(), keyPerson, &p)
 		next(w, r.WithContext(ctx))
@@ -338,7 +342,7 @@ func (s *Server) adminOnly(next func(w http.ResponseWriter, r *http.Request)) fu
 
 func (s *Server) resellerOrAdmin(next func(w http.ResponseWriter, r *http.Request)) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if personFrom(r).Role == store.User {
+		if personFrom(r).Role.Customer() {
 			fail(w, 403, "Only resellers and server admins can do that.")
 			return
 		}
@@ -351,7 +355,8 @@ func roleAllowed(l Listener, role store.Role) bool {
 		return true
 	}
 	for _, r := range l.Roles {
-		if r == role {
+		// Developers sign in wherever account owners do.
+		if r == role || (role == store.Developer && r == store.User) {
 			return true
 		}
 	}
@@ -427,7 +432,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 }
 
 func roleNames(rs []store.Role) []string {
-	m := map[store.Role]string{store.Admin: "server admins", store.Reseller: "resellers", store.User: "account owners"}
+	m := map[store.Role]string{store.Admin: "server admins", store.Reseller: "resellers", store.User: "account owners and developers", store.Developer: "developers"}
 	var out []string
 	for _, r := range rs {
 		out = append(out, m[r])
@@ -594,7 +599,8 @@ func (s *Server) listPeople(w http.ResponseWriter, r *http.Request) {
 	var out []store.Public
 	s.Store.View(func(d *store.Data) {
 		for _, p := range d.PeopleList() {
-			if me.Role == store.Admin || (me.Role == store.Reseller && p.Reseller == me.Username) || p.Username == me.Username {
+			if me.Role == store.Admin || (me.Role == store.Reseller && p.Reseller == me.Username) || p.Username == me.Username ||
+				(p.Role == store.Developer && p.InvitedBy == me.Username) {
 				out = append(out, p)
 			}
 		}
@@ -606,13 +612,38 @@ func (s *Server) listPeople(w http.ResponseWriter, r *http.Request) {
 }
 
 type personRequest struct {
-	Username    string     `json:"username"`
-	Email       string     `json:"email"`
-	Name        string     `json:"name"`
-	Role        store.Role `json:"role"`
-	Password    string     `json:"password"`
-	Accounts    []string   `json:"accounts"`
-	MaxAccounts int        `json:"max_accounts"`
+	Username    string            `json:"username"`
+	Email       string            `json:"email"`
+	Name        string            `json:"name"`
+	Role        store.Role        `json:"role"`
+	Password    string            `json:"password"`
+	Accounts    []string          `json:"accounts"`
+	MaxAccounts int               `json:"max_accounts"`
+	Areas       map[string]string `json:"areas"` // developers
+}
+
+// canManage says whether me may change or remove p: admins anyone,
+// resellers their own people, account owners the developers they invited.
+func canManage(me *store.Person, p *store.Person) bool {
+	return me.Role == store.Admin || (me.Role == store.Reseller && p.Reseller == me.Username) ||
+		(me.Role == store.User && p.Role == store.Developer && p.InvitedBy == me.Username)
+}
+
+// ownsAccounts checks that me may give these accounts to someone.
+func ownsAccounts(me *store.Person, d *store.Data, accounts []string) error {
+	for _, a := range accounts {
+		ok := me.Role == store.Admin
+		switch me.Role {
+		case store.Reseller:
+			ok = d.AccountOf[a] == me.Username
+		case store.User:
+			ok = indexOf(me.Accounts, a) >= 0
+		}
+		if !ok {
+			return fmt.Errorf("%w: account %s isn't one of yours", errForbidden, a)
+		}
+	}
+	return nil
 }
 
 func (s *Server) createPerson(w http.ResponseWriter, r *http.Request) {
@@ -622,13 +653,19 @@ func (s *Server) createPerson(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, err.Error())
 		return
 	}
-	if me.Role == store.User {
-		fail(w, 403, "Account owners can't add people.")
+	switch {
+	case me.Role == store.Developer:
+		fail(w, 403, "Developers can't add people.")
+		return
+	case me.Role == store.User && req.Role != store.Developer:
+		fail(w, 403, "Account owners can only invite developers.")
+		return
+	case me.Role == store.Reseller && req.Role != store.User && req.Role != store.Developer:
+		fail(w, 403, "Resellers can only add account owners and developers.")
 		return
 	}
-	if me.Role == store.Reseller && req.Role != store.User {
-		fail(w, 403, "Resellers can only add account owners.")
-		return
+	if req.Role != store.Developer {
+		req.Areas = nil
 	}
 	h, err := auth.HashPassword(req.Password)
 	if err != nil {
@@ -638,14 +675,15 @@ func (s *Server) createPerson(w http.ResponseWriter, r *http.Request) {
 	var pub store.Public
 	err = s.Store.Update(func(d *store.Data) error {
 		p := &store.Person{Username: req.Username, Email: req.Email, Name: req.Name, Role: req.Role, PasswordHash: h,
-			Accounts: req.Accounts, MaxAccounts: req.MaxAccounts}
-		if me.Role == store.Reseller {
+			Accounts: req.Accounts, MaxAccounts: req.MaxAccounts, Areas: req.Areas}
+		if err := ownsAccounts(me, d, req.Accounts); err != nil {
+			return err
+		}
+		switch me.Role {
+		case store.Reseller:
 			p.Reseller, p.MaxAccounts = me.Username, 0
-			for _, a := range req.Accounts {
-				if d.AccountOf[a] != me.Username {
-					return fmt.Errorf("%w: account %s isn't one of yours", errForbidden, a)
-				}
-			}
+		case store.User:
+			p.InvitedBy, p.MaxAccounts = me.Username, 0
 		}
 		if err := d.AddPerson(p); err != nil {
 			return err
@@ -663,13 +701,14 @@ func (s *Server) createPerson(w http.ResponseWriter, r *http.Request) {
 func (s *Server) updatePerson(w http.ResponseWriter, r *http.Request) {
 	me := personFrom(r)
 	var req struct {
-		Email       *string     `json:"email"`
-		Name        *string     `json:"name"`
-		Role        *store.Role `json:"role"`
-		Accounts    *[]string   `json:"accounts"`
-		MaxAccounts *int        `json:"max_accounts"`
-		Disabled    *bool       `json:"disabled"`
-		Password    *string     `json:"password"`
+		Email       *string            `json:"email"`
+		Name        *string            `json:"name"`
+		Role        *store.Role        `json:"role"`
+		Accounts    *[]string          `json:"accounts"`
+		MaxAccounts *int               `json:"max_accounts"`
+		Disabled    *bool              `json:"disabled"`
+		Password    *string            `json:"password"`
+		Areas       *map[string]string `json:"areas"` // developers
 		// reseller totals
 		MaxSites       *int `json:"max_sites"`
 		MaxDomains     *int `json:"max_domains"`
@@ -688,9 +727,17 @@ func (s *Server) updatePerson(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		allowed := me.Role == store.Admin || (me.Role == store.Reseller && p.Reseller == me.Username)
-		if !allowed {
+		if !canManage(me, p) {
 			return errForbidden
+		}
+		if req.Areas != nil {
+			if p.Role != store.Developer {
+				return errors.New("only developers have areas")
+			}
+			if err := store.CheckDeveloperAreas(*req.Areas); err != nil {
+				return err
+			}
+			p.Areas = *req.Areas
 		}
 		if req.Role != nil && me.Role != store.Admin {
 			return fmt.Errorf("%w: only server admins can change roles", errForbidden)
@@ -731,12 +778,11 @@ func (s *Server) updatePerson(w http.ResponseWriter, r *http.Request) {
 			p.Role = *req.Role
 		}
 		if req.Accounts != nil {
-			if me.Role == store.Reseller {
-				for _, a := range *req.Accounts {
-					if d.AccountOf[a] != me.Username {
-						return fmt.Errorf("%w: account %s isn't one of yours", errForbidden, a)
-					}
-				}
+			if err := ownsAccounts(me, d, *req.Accounts); err != nil {
+				return err
+			}
+			if p.Role == store.Developer && len(*req.Accounts) == 0 {
+				return errors.New("a developer needs at least one account; remove them instead")
 			}
 			p.Accounts = *req.Accounts
 		}
@@ -783,7 +829,7 @@ func (s *Server) deletePerson(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		if !(me.Role == store.Admin || (me.Role == store.Reseller && p.Reseller == me.Username)) {
+		if !canManage(me, p) {
 			return errForbidden
 		}
 		if p.Role == store.Admin && d.AdminCount() <= 1 {

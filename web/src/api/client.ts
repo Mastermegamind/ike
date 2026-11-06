@@ -4,8 +4,7 @@ import type {
   HealthCheck, IkeRelease, ImportPlan, Invoice, Job, Limits, LogKind, MailDomain, Mailbox, NewDatabase, PaymentProvider,
   Person, Role, Runtimes, SSHKey, SSHMode, SecurityReport, ServiceStatus, Site, SiteStatus, SmtpSettings, SystemInfo,
   UpdateStatus, WebServer, WordPressResult, Redirect, PHPSettings, SSLSettings, CertInfo, PHPExtension, DeployInfo, DeploySetup,
-  Deployment, QueueStatus, Container, ContainerSpec, StackInfo, DockerOverview, ImageUpdate, KubeStatus, KubeWorkloads,
-} from "./types";
+  Deployment, QueueStatus, Container, ContainerSpec, StackInfo, DockerOverview, ImageUpdate, KubeStatus, KubeWorkloads, PersonCreate } from "./types";
 
 import { DemoApi } from "./demo";
 import { TwoFactorRequired } from "./errors";
@@ -142,8 +141,8 @@ class HttpApi implements Api {
   inspectImport(f: string) { return this.get<ImportPlan>(`/imports/cpanel/${e(f)}`); }
 
   people() { return this.get<Person[]>("/people"); }
-  createPerson(p: { username: string; email: string; name?: string; role: Role; password: string; accounts?: string[]; max_accounts?: number }) { return this.req<Person>("POST", "/people", p); }
-  updatePerson(u: string, patch: Partial<{ disabled: boolean; accounts: string[]; max_accounts: number; role: Role }>) { return this.req<Person>("PATCH", `/people/${e(u)}`, patch); }
+  createPerson(p: PersonCreate) { return this.req<Person>("POST", "/people", p); }
+  updatePerson(u: string, patch: Partial<{ disabled: boolean; accounts: string[]; max_accounts: number; role: Role; areas: Record<string, string> }>) { return this.req<Person>("PATCH", `/people/${e(u)}`, patch); }
   billingSettings() { return this.get<{ settings: BillingSettings; webhook_urls: Record<PaymentProvider, string> }>("/billing/settings"); }
   saveBillingSettings(s: BillingSettings) { return this.req<{ settings: BillingSettings; webhook_urls: Record<PaymentProvider, string> }>("PUT", "/billing/settings", s); }
   invoices() { return this.get<Invoice[]>("/billing/invoices"); }

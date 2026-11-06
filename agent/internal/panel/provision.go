@@ -60,7 +60,7 @@ func FormatMoney(minor int64, cur string) string { return formatMoney(minor, cur
 
 func (s *Server) provisionOnly(next func(w http.ResponseWriter, r *http.Request)) func(w http.ResponseWriter, r *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if me := personFrom(r); me.Role == store.User {
+		if me := personFrom(r); me.Role.Customer() {
 			fail(w, 403, "Use an API token that belongs to a server admin or a reseller.")
 			return
 		}

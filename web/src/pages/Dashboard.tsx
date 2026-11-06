@@ -1,3 +1,4 @@
+import { isDeveloper } from "../layouts/nav";
 import { useEffect, useState } from "react";
 import { Bot, Clock, Cpu, HardDrive, MemoryStick, Plus, UserRound } from "lucide-react";
 import { useAppearance } from "../theme/appearance";
@@ -69,7 +70,7 @@ export function Dashboard({ user }: { user: string }) {
       <PageHead
         title={`${greeting}, ${user}`}
         text={down.length ? `${down.length} service${down.length > 1 ? "s need" : " needs"} attention.` : "Everything on vps-lagos-1 is running."}
-        actions={<a className="btn primary" href={href("/sites?new=1")}><Plus size={17} />Create website</a>}
+        actions={isDeveloper() ? undefined : <a className="btn primary" href={href("/sites?new=1")}><Plus size={17} />Create website</a>}
       />
 
       <section className="vitals" aria-label="Server health">

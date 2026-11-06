@@ -130,7 +130,7 @@ func (s *Server) listInvoices(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) createInvoice(w http.ResponseWriter, r *http.Request) {
 	p := personFrom(r)
-	if p.Role == store.User {
+	if p.Role.Customer() {
 		fail(w, 403, "Invoices are created by your hosting provider.")
 		return
 	}
@@ -237,7 +237,7 @@ func (s *Server) checkout(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) voidInvoice(w http.ResponseWriter, r *http.Request) {
 	p := personFrom(r)
-	if p.Role == store.User {
+	if p.Role.Customer() {
 		fail(w, 403, "Only your hosting provider can cancel an invoice.")
 		return
 	}

@@ -5,8 +5,7 @@ import type {
   HealthCheck, IkeRelease, ImportPlan, Invoice, Job, Limits, LogKind, MailDomain, Mailbox, NewDatabase, PaymentProvider,
   Person, Role, Runtimes, SSHKey, SSHMode, SecurityReport, ServiceStatus, Site, SiteStatus, SmtpSettings, SystemInfo,
   UpdateStatus, WebServer, WordPressResult, Redirect, PHPSettings, SSLSettings, CertInfo, PHPExtension, DeployInfo, DeploySetup,
-  Deployment, QueueStatus, Container, ContainerSpec, StackInfo, DockerOverview, ImageUpdate, KubeStatus, KubeWorkloads,
-} from "./types";
+  Deployment, QueueStatus, Container, ContainerSpec, StackInfo, DockerOverview, ImageUpdate, KubeStatus, KubeWorkloads, PersonCreate } from "./types";
 import { isApp as isAppRt, isProxied } from "./runtime";
 import { Demo5 } from "./demo5";
 
@@ -699,19 +698,26 @@ export class DemoApi implements Api {
     { username: "webafrica", email: "ops@webafrica.ng", name: "WebAfrica Hosting", role: "reseller", totp_enabled: true, accounts: [], max_accounts: 25, disabled: false, created_at: ago(60 * day), last_login_at: ago(300) },
     { username: "ada", email: "ada@shop.adaeze.com", name: "Adaeze Okafor", role: "user", totp_enabled: false, reseller: "webafrica", accounts: ["adaeze"], disabled: false, created_at: ago(12 * day), last_login_at: ago(1500) },
     { username: "kelechi", email: "kelechi@kelechi.dev", role: "user", totp_enabled: true, accounts: ["kelechi"], disabled: false, created_at: ago(5 * day) },
+    { username: "emeka.dev", email: "emeka@pixelforge.ng", name: "Emeka (Pixelforge)", role: "developer", totp_enabled: true, accounts: ["naijabites"], disabled: false, created_at: ago(8 * day),
+      last_login_at: ago(90), areas: { sites: "write", files: "write", databases: "read" }, invited_by: "chidi" },
   ];
   async people() { await wait(200); return [...this.people_]; }
-  async createPerson(p: { username: string; email: string; name?: string; role: Role; password: string; accounts?: string[]; max_accounts?: number }) {
+  async createPerson(p: PersonCreate) {
     await wait(500);
     if (!/^[a-z][a-z0-9._-]{2,31}$/.test(p.username)) throw new Error("Username must be 3–32 lowercase letters, numbers, dots, dashes or underscores.");
     if (!/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(p.email)) throw new Error("Enter a valid email address.");
     if (p.password.length < 10) throw new Error("Use a password of at least 10 characters.");
     if (this.people_.some((x) => x.username === p.username)) throw new Error(`${p.username} already exists.`);
-    const n: Person = { username: p.username, email: p.email, name: p.name, role: p.role, totp_enabled: false, accounts: p.accounts || [], max_accounts: p.max_accounts, disabled: false, created_at: now() };
+    if (p.role === "developer") {
+      if (!p.accounts?.length) throw new Error("choose the accounts the developer works on");
+      if (!p.areas || !Object.keys(p.areas).length) throw new Error("give the developer at least one area, such as sites");
+    }
+    const n: Person = { username: p.username, email: p.email, name: p.name, role: p.role, totp_enabled: false, accounts: p.accounts || [], max_accounts: p.max_accounts, disabled: false, created_at: now(),
+      areas: p.areas as Person["areas"], invited_by: p.role === "developer" ? "andre" : undefined };
     this.people_.push(n);
     return n;
   }
-  async updatePerson(username: string, patch: Partial<{ disabled: boolean; accounts: string[]; max_accounts: number; role: Role }>) {
+  async updatePerson(username: string, patch: Partial<{ disabled: boolean; accounts: string[]; max_accounts: number; role: Role; areas: Record<string, string> }>) {
     await wait(300);
     const p = this.people_.find((x) => x.username === username);
     if (!p) throw new Error("Person not found.");

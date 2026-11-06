@@ -8,6 +8,7 @@ import type { AlertSettings, BillingSettings, Invoice, PaymentProvider, Person, 
 import { Badge, Button, CopyField, Empty, Field, Modal, Segmented, Skeleton, Tabs, timeAgo, useAsync, useToast } from "../components/ui";
 import { PageHead, Toggle } from "../components/common";
 import { roleLabel } from "../layouts/nav";
+import { DeveloperFields, areaBadges } from "./Developers";
 
 export function money(minor: number, currency: string) {
   try {
@@ -372,7 +373,8 @@ export function People({ role }: { role: Role }) {
               <tr key={p.username} style={p.disabled ? { opacity: 0.6 } : undefined}>
                 <td className="lead"><div className="primary-cell">{p.name || p.username}</div><div className="small muted">{p.username} · {p.email}</div></td>
                 <td>{roleLabel[p.role]}{p.reseller ? <div className="small muted">via {p.reseller}</div> : null}</td>
-                <td className="small" data-hide-sm>{p.role === "admin" ? "All" : p.role === "reseller" ? `Up to ${p.max_accounts ?? "∞"}` : p.accounts.join(", ") || "None"}</td>
+                <td className="small" data-hide-sm>{p.role === "admin" ? "All" : p.role === "reseller" ? `Up to ${p.max_accounts ?? "∞"}` : p.accounts.join(", ") || "None"}
+                  {p.role === "developer" ? <div className="row" style={{ flexWrap: "wrap", gap: 4, marginTop: 4 }}>{areaBadges(p)}</div> : null}</td>
                 <td>{p.totp_enabled ? <Badge tone="ok"><ShieldCheck size={13} />On</Badge> : <Badge tone="warn">Off</Badge>}</td>
                 <td className="small muted" data-hide-sm>{p.disabled ? "Disabled" : p.last_login_at ? timeAgo(p.last_login_at) : "Never"}</td>
                 <td style={{ textAlign: "right" }}><Button size="sm" variant="ghost" onClick={() => toggle(p)}>{p.disabled ? "Enable" : "Disable"}</Button></td>
@@ -389,20 +391,22 @@ export function People({ role }: { role: Role }) {
 
 function AddPerson(props: { open: boolean; onClose: () => void; canAddAdmins: boolean; accounts: string[]; onAdded: (p: Person) => void }) {
   const [f, setF] = useState({ username: "", email: "", name: "", role: "user" as Role, password: "", accounts: [] as string[], max: "10" });
+  const [areas, setAreas] = useState<Record<string, string>>({ sites: "write", files: "write" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const gen = () => {
     const chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     setF({ ...f, password: Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => chars[b % chars.length]).join("") });
   };
-  const roles: Role[] = props.canAddAdmins ? ["user", "reseller", "admin"] : ["user"];
+  const roles: Role[] = props.canAddAdmins ? ["user", "developer", "reseller", "admin"] : ["user", "developer"];
   return (
     <Modal open={props.open} onClose={props.onClose} title="Add person" description="They'll be asked to turn on two-factor sign-in the first time."
       footer={<><Button onClick={props.onClose}>Cancel</Button><Button variant="primary" loading={busy} onClick={async () => {
         setBusy(true); setError(null);
         try {
           const p = await api.createPerson({ username: f.username, email: f.email, name: f.name || undefined, role: f.role, password: f.password,
-            accounts: f.role === "user" ? f.accounts : undefined, max_accounts: f.role === "reseller" ? Number(f.max) : undefined });
+            accounts: f.role === "user" || f.role === "developer" ? f.accounts : undefined, max_accounts: f.role === "reseller" ? Number(f.max) : undefined,
+            areas: f.role === "developer" ? areas : undefined });
           setF({ ...f, username: "", email: "", name: "", password: "", accounts: [] });
           props.onAdded(p);
         } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
@@ -426,6 +430,8 @@ function AddPerson(props: { open: boolean; onClose: () => void; canAddAdmins: bo
                 onChange={(e) => setF({ ...f, accounts: e.target.checked ? [...f.accounts, a] : f.accounts.filter((x) => x !== a) })} />{a}</label>
             ))}</div>
           </fieldset>
+        ) : f.role === "developer" ? (
+          <DeveloperFields accounts={props.accounts} value={{ accounts: f.accounts, areas }} onChange={(v) => { setF({ ...f, accounts: v.accounts }); setAreas(v.areas); }} />
         ) : f.role === "reseller" ? (
           <Field label="Accounts they can create">{(id) => <input id={id} className="input mono" inputMode="numeric" style={{ maxWidth: 120 }} value={f.max} onChange={(e) => setF({ ...f, max: e.target.value.replace(/\D/g, "") })} />}</Field>
         ) : <p className="small muted">Server admins can change everything on this server, including other admins.</p>}

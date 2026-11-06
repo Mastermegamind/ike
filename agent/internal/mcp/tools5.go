@@ -2,9 +2,23 @@ package mcp
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"net/url"
 )
+
+// kitPassword makes up a 16-character password.
+func kitPassword() string {
+	const chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
+	for i := range b {
+		b[i] = chars[int(b[i])%len(chars)]
+	}
+	return string(b)
+}
 
 // rawText is a tool result that is shown as text, not JSON (zone files).
 type rawText string
@@ -663,6 +677,49 @@ func (s *Server) tools5() []tool {
 				}
 				var out any
 				return out, s.Agent.Do(ctx, "POST", "/v1/clusters/"+esc(argStr(a, "cluster"))+"/promote", pick("server")(a), &out)
+			}},
+
+		// ---------------------------------------------------- panel: developers
+		{Name: "list_developers", Title: "Developers", area: "accounts", panel: true, Annotations: readOnly(), InputSchema: none,
+			Description: "People invited to work inside some hosting accounts, with the areas they may look at or change.",
+			handler: func(ctx context.Context, a map[string]any) (any, error) {
+				var ps []map[string]any
+				if err := s.Agent.Get(ctx, "/v1/people", &ps); err != nil {
+					return nil, err
+				}
+				out := []map[string]any{}
+				for _, p := range ps {
+					if p["role"] == "developer" {
+						out = append(out, p)
+					}
+				}
+				return out, nil
+			}},
+		{Name: "invite_developer", Title: "Invite a developer", area: "accounts", panel: true, write: true, Annotations: write(false, false),
+			Description: "Give a developer their own sign-in to some of your accounts. areas maps each area (sites, files, databases, containers, dns, mail, backups, security) to read or write. Developers never reach billing, accounts, people or the server, and can't add or delete websites. The password is shown once: give it to the human to send privately.",
+			InputSchema: obj(map[string]any{"username": str("Their sign-in name, lowercase"), "email": str("Their email"), "name": str("Display name (optional)"),
+				"accounts": strList("Hosting accounts they work on"), "areas": object("Area → read or write, e.g. {\"sites\": \"write\", \"files\": \"write\"}")},
+				"username", "email", "accounts", "areas"),
+			handler: func(ctx context.Context, a map[string]any) (any, error) {
+				pw := kitPassword()
+				body := pick("username", "email", "name", "accounts", "areas")(a).(map[string]any)
+				body["role"], body["password"] = "developer", pw
+				var out map[string]any
+				if err := s.Agent.Do(ctx, "POST", "/v1/people", body, &out); err != nil {
+					return nil, err
+				}
+				out["password"] = pw
+				return out, nil
+			}},
+		{Name: "remove_developer", Title: "Remove a developer", area: "accounts", panel: true, write: true, Annotations: write(true, true),
+			Description: "Remove a developer: they're signed out at once and their API tokens stop working. Only when the human asked.",
+			InputSchema: obj(map[string]any{"username": str("Developer's sign-in name"), "confirm_username": str("Type it again to confirm")}, "username", "confirm_username"),
+			handler: func(ctx context.Context, a map[string]any) (any, error) {
+				if err := confirmed(a, "confirm_username", argStr(a, "username")); err != nil {
+					return nil, err
+				}
+				var out any
+				return out, s.Agent.Do(ctx, "DELETE", "/v1/people/"+esc(argStr(a, "username")), nil, &out)
 			}},
 
 		// ---------------------------------------------------- panel: business

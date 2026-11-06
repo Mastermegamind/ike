@@ -13,6 +13,8 @@ export interface NavItem {
   icon: LucideIcon;
   roles: Role[];
   soon?: boolean;
+  /** For developers: the area a page belongs to; hidden without it. */
+  area?: string;
 }
 
 export interface NavGroup {
@@ -20,7 +22,7 @@ export interface NavGroup {
   items: NavItem[];
 }
 
-const all: Role[] = ["admin", "reseller", "user"];
+const all: Role[] = ["admin", "reseller", "user", "developer"];
 
 export const navGroups: NavGroup[] = [
   { items: [{ to: "/", label: "Dashboard", icon: Gauge, roles: all }] },
@@ -28,17 +30,17 @@ export const navGroups: NavGroup[] = [
     title: "Hosting",
     items: [
       { to: "/accounts", label: "Accounts", icon: Users, roles: ["admin", "reseller"] },
-      { to: "/sites", label: "Websites", icon: Globe, roles: all },
-      { to: "/email", label: "Email", icon: Mail, roles: all },
-      { to: "/dns", label: "DNS zones", icon: Network, roles: all },
-      { to: "/databases", label: "Databases", icon: Database, roles: all },
-      { to: "/files", label: "Files", icon: FolderOpen, roles: all },
-      { to: "/backups", label: "Backups", icon: HardDriveDownload, roles: all },
-      { to: "/cron", label: "Cron jobs", icon: CalendarClock, roles: all },
-      { to: "/apps", label: "App installer", icon: AppWindow, roles: all },
-      { to: "/containers", label: "Containers", icon: Box, roles: all },
-      { to: "/ssl", label: "SSL certificates", icon: LockKeyhole, roles: all },
-      { to: "/terminal", label: "Terminal", icon: SquareTerminal, roles: all },
+      { to: "/sites", label: "Websites", icon: Globe, roles: all, area: "sites" },
+      { to: "/email", label: "Email", icon: Mail, roles: all, area: "mail" },
+      { to: "/dns", label: "DNS zones", icon: Network, roles: all, area: "dns" },
+      { to: "/databases", label: "Databases", icon: Database, roles: all, area: "databases" },
+      { to: "/files", label: "Files", icon: FolderOpen, roles: all, area: "files" },
+      { to: "/backups", label: "Backups", icon: HardDriveDownload, roles: all, area: "backups" },
+      { to: "/cron", label: "Cron jobs", icon: CalendarClock, roles: all, area: "sites" },
+      { to: "/apps", label: "App installer", icon: AppWindow, roles: ["admin", "reseller", "user"] },
+      { to: "/containers", label: "Containers", icon: Box, roles: all, area: "containers" },
+      { to: "/ssl", label: "SSL certificates", icon: LockKeyhole, roles: all, area: "sites" },
+      { to: "/terminal", label: "Terminal", icon: SquareTerminal, roles: all, area: "files" },
     ],
   },
   {
@@ -46,7 +48,7 @@ export const navGroups: NavGroup[] = [
     items: [
       { to: "/servers", label: "Infrastructure", icon: ServerCog, roles: ["admin"] },
       { to: "/firewall", label: "Firewall", icon: ShieldCheck, roles: ["admin"] },
-      { to: "/malware", label: "Malware scanner", icon: Bug, roles: all },
+      { to: "/malware", label: "Malware scanner", icon: Bug, roles: all, area: "security" },
       { to: "/security", label: "Security scan", icon: ShieldHalf, roles: ["admin"] },
       { to: "/software", label: "Server software", icon: Server, roles: ["admin"] },
       { to: "/mail-settings", label: "Mail settings", icon: Inbox, roles: ["admin"] },
@@ -65,13 +67,14 @@ export const navGroups: NavGroup[] = [
     title: "Business",
     items: [
       { to: "/packages", label: "Hosting packages", icon: Boxes, roles: ["admin", "reseller"] },
-      { to: "/billing", label: "Billing", icon: CreditCard, roles: all },
+      { to: "/billing", label: "Billing", icon: CreditCard, roles: ["admin", "reseller", "user"] },
       { to: "/people", label: "People", icon: UserCog, roles: ["admin", "reseller"] },
       { to: "/branding", label: "Branding", icon: Brush, roles: ["admin", "reseller"] },
       { to: "/alerts", label: "Alerts", icon: BellRing, roles: ["admin"] },
     ],
   },
   { title: "Settings", items: [
+    { to: "/team", label: "Developers", icon: UserCog, roles: ["user"] },
     { to: "/notifications", label: "Notifications", icon: Bell, roles: all },
     { to: "/appearance", label: "Appearance", icon: Palette, roles: all },
     { to: "/profile", label: "Sign-in security", icon: KeyRound, roles: all },
@@ -79,9 +82,18 @@ export const navGroups: NavGroup[] = [
   ] },
 ];
 
+let devAreas: Record<string, string> = {};
+let signedInAs: Role = "user";
+/** setSignedInRole records the real role (pages see developers as account owners). */
+export function setSignedInRole(r: Role) { signedInAs = r; }
+/** isDeveloper is true when a developer is signed in. */
+export function isDeveloper() { return signedInAs === "developer"; }
+/** setDeveloperAreas records what a signed-in developer may reach (from GET /session). */
+export function setDeveloperAreas(a: Record<string, string> | undefined) { devAreas = a ?? {}; }
+
 export function visibleGroups(role: Role): NavGroup[] {
   return navGroups
-    .map((g) => ({ ...g, items: g.items.filter((i) => i.roles.includes(role)) }))
+    .map((g) => ({ ...g, items: g.items.filter((i) => i.roles.includes(role) && (role !== "developer" || !i.area || !!devAreas[i.area])) }))
     .filter((g) => g.items.length > 0);
 }
 
@@ -90,4 +102,4 @@ export function isActive(route: string, to: string) {
   return route === to || route.startsWith(to + "/");
 }
 
-export const roleLabel: Record<Role, string> = { admin: "Server admin", reseller: "Reseller", user: "Account owner" };
+export const roleLabel: Record<Role, string> = { admin: "Server admin", reseller: "Reseller", user: "Account owner", developer: "Developer" };

@@ -29,6 +29,8 @@ import { Certificates, Containers, DockerHost, Kubernetes, PHPExtensions } from 
 import { Empty } from "./components/ui";
 import { PageHead } from "./components/common";
 import type { Role } from "./api/types";
+import { DevelopersPage } from "./pages/Developers";
+import { setDeveloperAreas, setSignedInRole } from "./layouts/nav";
 
 const soonText: Record<string, [string, string]> = {
   phpmyadmin: ["phpMyAdmin", "phpMyAdmin opens here with single sign-on once the control-plane API ships. Until then, reach it through an SSH tunnel on port 8090."],
@@ -79,7 +81,14 @@ export function App() {
   const route = useRoute();
   const [session, setSession] = useState(loadSession);
   const [serverKey, setServerKey] = useState(0);
+  const [, setAreasTick] = useState(0);
   useEffect(() => { loadBranding(); }, [session?.user]);
+  // Developers only see the parts of the panel they were given.
+  useEffect(() => {
+    if (session?.role !== "developer") { setDeveloperAreas(undefined); return; }
+    api.call<{ areas?: Record<string, string> }>("GET", "/session")
+      .then((me) => { setDeveloperAreas(me.areas); setAreasTick((n) => n + 1); }).catch(() => {});
+  }, [session?.user, session?.role]);
   // The panel answers 401 when a session expires; go back to sign-in.
   useEffect(() => {
     const out = () => { saveSession(null); setSession(null); };
@@ -90,7 +99,10 @@ export function App() {
     return <Login onLogin={(user, role) => { const s = { user, role }; saveSession(s); setSession(s); }} />;
   }
   const path = route.split("?")[0];
-  const { role } = session;
+  // Pages treat developers like account owners; the panel refuses what's
+  // outside their areas, and the menu hides it.
+  const role: Role = session.role === "developer" ? "user" : session.role;
+  setSignedInRole(session.role);
   let page: JSX.Element;
   if (path === "/") page = <Dashboard user={session.user} />;
   else if (path === "/accounts") page = <Accounts role={role} />;
@@ -123,6 +135,7 @@ export function App() {
   else if (path === "/migrate") page = <Migration />;
   else if (path === "/billing") page = <Billing role={role} />;
   else if (path === "/people") page = <People role={role} />;
+  else if (path === "/team") page = <DevelopersPage />;
   else if (path === "/alerts") page = <Alerts />;
   else if (path === "/profile") page = <Profile user={session.user} />;
   else if (path === "/containers") page = <Containers route={route} role={role} />;
@@ -130,12 +143,12 @@ export function App() {
   else if (path === "/docker") page = <DockerHost />;
   else if (path === "/kubernetes") page = <Kubernetes />;
   else if (path === "/php-extensions") page = <PHPExtensions />;
-  else if (path === "/more") page = <More role={role} route={route} />;
+  else if (path === "/more") page = <More role={session.role} route={route} />;
   else if (path.startsWith("/soon/")) page = <Soon id={path.slice(6)} />;
   else page = <Soon id="" />;
 
   return (
-    <Shell route={path} user={session.user} role={role}
+    <Shell route={path} user={session.user} role={session.role}
       onRole={(r) => { const s = { ...session, role: r }; saveSession(s); setSession(s); }}
       onLogout={() => { api.logout().catch(() => {}); saveSession(null); setSession(null); }}
       onServerChange={() => setServerKey((k) => k + 1)}>

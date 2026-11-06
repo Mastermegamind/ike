@@ -171,8 +171,10 @@ func areaFor(name string) string {
 	switch name {
 	case "get_job", "list_runtimes", "list_apps":
 		return ""
-	case "set_limits", "add_cron_job", "list_cron_jobs", "delete_cron_job":
+	case "set_limits":
 		return "accounts"
+	case "add_cron_job", "list_cron_jobs", "delete_cron_job":
+		return "sites"
 	case "install_php_extension", "list_php_extensions":
 		return "server"
 	}

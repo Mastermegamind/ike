@@ -22,7 +22,17 @@ const (
 	Admin    Role = "admin"
 	Reseller Role = "reseller"
 	User     Role = "user"
+	// Developer works inside some hosting accounts, in chosen areas only
+	// (Areas), and never on billing, the accounts themselves or the server.
+	Developer Role = "developer"
 )
+
+// DeveloperAreas are the areas a developer can be given.
+var DeveloperAreas = []string{"sites", "dns", "mail", "databases", "files", "backups", "containers", "security"}
+
+// Customer is true for account owners and developers: people who work
+// inside hosting accounts rather than running the server or reselling.
+func (r Role) Customer() bool { return r == User || r == Developer }
 
 var (
 	ErrNotFound = errors.New("not found")
@@ -53,6 +63,10 @@ type Person struct {
 	Disabled       bool      `json:"disabled"`
 	CreatedAt      time.Time `json:"created_at"`
 	LastLoginAt    time.Time `json:"last_login_at,omitempty"`
+	// Developers: what they may do in their accounts (area → read | write),
+	// and who invited them (an account owner; resellers use Reseller).
+	Areas     map[string]string `json:"areas,omitempty"`
+	InvitedBy string            `json:"invited_by,omitempty"`
 
 	// Set for the length of one request made with a limited API token.
 	Token *APIToken `json:"-"`
@@ -60,21 +74,23 @@ type Person struct {
 
 // Public is a Person without secrets, for API responses.
 type Public struct {
-	Username       string    `json:"username"`
-	Email          string    `json:"email"`
-	Name           string    `json:"name,omitempty"`
-	Role           Role      `json:"role"`
-	TOTPEnabled    bool      `json:"totp_enabled"`
-	Reseller       string    `json:"reseller,omitempty"`
-	Accounts       []string  `json:"accounts"`
-	MaxAccounts    int       `json:"max_accounts,omitempty"`
-	Disabled       bool      `json:"disabled"`
-	CreatedAt      time.Time `json:"created_at"`
-	LastLoginAt    time.Time `json:"last_login_at,omitempty"`
-	MaxSites       int       `json:"max_sites,omitempty"`
-	MaxDomains     int       `json:"max_domains,omitempty"`
-	MaxDiskMB      int       `json:"max_disk_mb,omitempty"`
-	MaxBandwidthGB int       `json:"max_bandwidth_gb,omitempty"`
+	Username       string            `json:"username"`
+	Email          string            `json:"email"`
+	Name           string            `json:"name,omitempty"`
+	Role           Role              `json:"role"`
+	TOTPEnabled    bool              `json:"totp_enabled"`
+	Reseller       string            `json:"reseller,omitempty"`
+	Accounts       []string          `json:"accounts"`
+	MaxAccounts    int               `json:"max_accounts,omitempty"`
+	Disabled       bool              `json:"disabled"`
+	CreatedAt      time.Time         `json:"created_at"`
+	LastLoginAt    time.Time         `json:"last_login_at,omitempty"`
+	MaxSites       int               `json:"max_sites,omitempty"`
+	MaxDomains     int               `json:"max_domains,omitempty"`
+	MaxDiskMB      int               `json:"max_disk_mb,omitempty"`
+	MaxBandwidthGB int               `json:"max_bandwidth_gb,omitempty"`
+	Areas          map[string]string `json:"areas,omitempty"`
+	InvitedBy      string            `json:"invited_by,omitempty"`
 }
 
 func (p *Person) Public() Public {
@@ -83,7 +99,27 @@ func (p *Person) Public() Public {
 		acc = []string{}
 	}
 	return Public{p.Username, p.Email, p.Name, p.Role, p.TOTPEnabled, p.Reseller, acc, p.MaxAccounts, p.Disabled, p.CreatedAt, p.LastLoginAt,
-		p.MaxSites, p.MaxDomains, p.MaxDiskMB, p.MaxBandwidthGB}
+		p.MaxSites, p.MaxDomains, p.MaxDiskMB, p.MaxBandwidthGB, p.Areas, p.InvitedBy}
+}
+
+// CheckDeveloperAreas validates a developer's areas.
+func CheckDeveloperAreas(areas map[string]string) error {
+	if len(areas) == 0 {
+		return errors.New("give the developer at least one area, such as sites")
+	}
+	ok := map[string]bool{}
+	for _, a := range DeveloperAreas {
+		ok[a] = true
+	}
+	for a, l := range areas {
+		if !ok[a] {
+			return fmt.Errorf("developers can't be given %q; choose from %s", a, strings.Join(DeveloperAreas, ", "))
+		}
+		if l != "read" && l != "write" {
+			return fmt.Errorf("%s access is read or write", a)
+		}
+	}
+	return nil
 }
 
 // Invoice is a bill for a hosting account. Amounts are in minor units (kobo, cents).
@@ -298,8 +334,15 @@ func (d *Data) AddPerson(p *Person) error {
 	}
 	switch p.Role {
 	case Admin, Reseller, User:
+	case Developer:
+		if err := CheckDeveloperAreas(p.Areas); err != nil {
+			return err
+		}
+		if len(p.Accounts) == 0 {
+			return errors.New("choose the accounts the developer works on")
+		}
 	default:
-		return fmt.Errorf("role must be admin, reseller or user")
+		return fmt.Errorf("role must be admin, reseller, user or developer")
 	}
 	p.CreatedAt = time.Now().UTC()
 	d.People[p.Username] = p

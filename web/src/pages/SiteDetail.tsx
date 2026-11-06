@@ -6,6 +6,7 @@ import type { LogKind, Runtimes, Site, SiteStatus, WebServer, WordPressResult } 
 import { Badge, Button, CopyField, Field, Modal, Segmented, Skeleton, Tabs, timeAgo, useAsync, useToast } from "../components/ui";
 import { ConfirmDelete, PageHead, RuntimeBadge, StatusBadge, webServerLabel } from "../components/common";
 import { navigate } from "../router";
+import { isDeveloper } from "../layouts/nav";
 import { EnvTab, HealthCheckPanel, HealthTab, StagingPanel } from "./SiteExtras";
 import { DomainsTab, PHPTab, RedirectsTab } from "./SiteWeb";
 import { DeployTab } from "./Deploy";
@@ -90,10 +91,10 @@ export function SiteDetail({ domain }: { domain: string }) {
         <div className="stack">
           <ToolsTab site={site} />
           <StagingPanel site={site} />
-          <section className="panel">
+          {isDeveloper() ? null : <section className="panel">
             <div className="panel-head"><div><h2>Delete website</h2><p className="small muted">The account and its other websites stay.</p></div>
               <Button variant="ghost" style={{ color: "var(--bad)" }} onClick={() => setDeleting(true)}><Trash2 size={16} />Delete</Button></div>
-          </section>
+          </section>}
         </div>
       )}
 

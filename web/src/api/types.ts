@@ -4,7 +4,7 @@ export type SSHMode = "none" | "sftp" | "shell";
 export type Runtime = "php" | "node" | "python" | "java" | "go" | "dart" | "static" | "proxy" | "docker";
 export type WebServer = "nginx" | "apache" | "nginx+apache";
 export type SiteStatus = "active" | "maintenance" | "suspended";
-export type Role = "admin" | "reseller" | "user";
+export type Role = "admin" | "reseller" | "user" | "developer";
 
 export interface Account {
   limits?: Limits;
@@ -159,7 +159,10 @@ export interface ImportPlan {
 export interface Person {
   username: string; email: string; name?: string; role: Role; totp_enabled: boolean; reseller?: string;
   accounts: string[]; max_accounts?: number; disabled: boolean; created_at: string; last_login_at?: string;
+  /** Developers: area → read | write, and the account owner who invited them. */
+  areas?: Record<string, "read" | "write">; invited_by?: string;
 }
+export interface PersonCreate { username: string; email: string; name?: string; role: Role; password: string; accounts?: string[]; max_accounts?: number; areas?: Record<string, string> }
 export type PaymentProvider = "bachs" | "paystack" | "flutterwave";
 export interface Invoice {
   id: string; account: string; description: string; currency: string; amount: number; status: "unpaid" | "paid" | "void";
@@ -322,8 +325,8 @@ export interface Api {
   inspectImport(file: string): Promise<ImportPlan>;
 
   people(): Promise<Person[]>;
-  createPerson(p: { username: string; email: string; name?: string; role: Role; password: string; accounts?: string[]; max_accounts?: number }): Promise<Person>;
-  updatePerson(username: string, patch: Partial<{ disabled: boolean; accounts: string[]; max_accounts: number; role: Role }>): Promise<Person>;
+  createPerson(p: PersonCreate): Promise<Person>;
+  updatePerson(username: string, patch: Partial<{ disabled: boolean; accounts: string[]; max_accounts: number; role: Role; areas: Record<string, string> }>): Promise<Person>;
   billingSettings(): Promise<{ settings: BillingSettings; webhook_urls: Record<PaymentProvider, string> }>;
   saveBillingSettings(s: BillingSettings): Promise<{ settings: BillingSettings; webhook_urls: Record<PaymentProvider, string> }>;
   invoices(): Promise<Invoice[]>;

@@ -362,6 +362,12 @@ Access
   ike sftp add NAME --account A --domain D [--folder public_html] [--read-only] [--key-file F] [--expires DATE]
   ike sftp passwd USER --account A             ike sftp rm USER --account A
 
+Developers (people who work in some of your accounts, in chosen areas)
+  ike developers                               ike developers pause|resume|rm USERNAME
+  ike developers invite USERNAME --email E --account A --area sites=write [--area files=write ...]
+  ike developers set USERNAME [--account A ...] [--area AREA=read|write ...]
+      areas: sites files databases containers dns mail backups security
+
 Reseller and billing
   ike packages                                 ike packages assign ACCOUNT PACKAGE_ID
   ike packages bandwidth
@@ -683,6 +689,8 @@ func run(args []string) error {
 		return protectCmd(c, pos, fs)
 	case "sftp":
 		return sftpCmd(c, pos, fs)
+	case "developers", "team":
+		return teamCmd(c, pos, fs)
 	case "tokens":
 		return tokensCmd(c, pos, fs)
 	case "keys":

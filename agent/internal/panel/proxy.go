@@ -52,7 +52,7 @@ func (s *Server) roleAccess(p *store.Person) access {
 					acc.accounts[a] = true
 				}
 			}
-		case store.User:
+		case store.User, store.Developer:
 			for _, a := range p.Accounts {
 				acc.accounts[a] = true
 			}

@@ -224,6 +224,9 @@ export class Demo5 {
     };
     let p: Record<string, string> | null;
 
+    // ---- the preview's "developer" view
+    if (is("GET", "/session")) return { username: "emeka.dev", role: "developer", areas: { sites: "write", files: "write", databases: "read" } };
+
     // ---- website SFTP users
     if ((p = is("GET", "/accounts/:a/sftp-users"))) return this.sftp.filter((u) => u.name.startsWith(p!.a + "_"));
     if ((p = is("POST", "/accounts/:a/sftp-users"))) {

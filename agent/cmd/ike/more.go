@@ -6,6 +6,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"crypto/rand"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
@@ -1210,4 +1211,109 @@ func sftpCmd(c *client, pos []string, fs flagSet) error {
 		return c.do("DELETE", base+"/"+esc(pos[1]), nil, nil)
 	}
 	return errUsage
+}
+
+// teamCmd manages developers.
+//
+//	ike developers
+//	ike developers invite USERNAME --email E --account A [--account B] --area sites=write [--area files=write ...]
+//	ike developers set USERNAME [--account A ...] [--area AREA=read|write ...]
+//	ike developers pause|resume|rm USERNAME
+func teamCmd(c *client, pos []string, fs flagSet) error {
+	areas := func() (map[string]string, error) {
+		out := map[string]string{}
+		for _, a := range fs.vals["area"] {
+			k, v, ok := strings.Cut(a, "=")
+			if !ok {
+				return nil, fmt.Errorf("--area %q: use AREA=read or AREA=write, e.g. --area sites=write", a)
+			}
+			out[k] = v
+		}
+		return out, nil
+	}
+	if len(pos) == 0 {
+		var ps []map[string]any
+		if err := c.do("GET", "/people", nil, &ps); err != nil {
+			return err
+		}
+		var devs []map[string]any
+		for _, p := range ps {
+			if p["role"] == "developer" {
+				devs = append(devs, p)
+			}
+		}
+		c.show(devs, func(w *tabwriter.Writer) {
+			fmt.Fprintln(w, "DEVELOPER\tACCOUNTS\tCAN DO\tPAUSED")
+			for _, p := range devs {
+				ar, _ := p["areas"].(map[string]any)
+				keys := make([]string, 0, len(ar))
+				for k := range ar {
+					keys = append(keys, k)
+				}
+				sort.Strings(keys)
+				var parts []string
+				for _, k := range keys {
+					parts = append(parts, k+"="+fmt.Sprint(ar[k]))
+				}
+				accts, _ := p["accounts"].([]any)
+				fmt.Fprintf(w, "%v\t%s\t%s\t%v\n", p["username"], joinAny(accts), strings.Join(parts, ","), p["disabled"])
+			}
+		})
+		return nil
+	}
+	if len(pos) != 2 {
+		return errUsage
+	}
+	user := esc(pos[1])
+	switch pos[0] {
+	case "invite":
+		email, err := fs.need("email")
+		if err != nil {
+			return err
+		}
+		ar, err := areas()
+		if err != nil {
+			return err
+		}
+		pw := generatePassword()
+		if err := c.do("POST", "/people", map[string]any{"username": pos[1], "email": email, "role": "developer", "password": pw,
+			"accounts": fs.vals["account"], "areas": ar, "name": fs.get("name")}, nil); err != nil {
+			return err
+		}
+		fmt.Printf("Invited %s. Password: %s (shown once; send it privately). They'll set up two-factor sign-in.\n", pos[1], pw)
+		return nil
+	case "set":
+		body := map[string]any{}
+		if a := fs.vals["account"]; len(a) > 0 {
+			body["accounts"] = a
+		}
+		if len(fs.vals["area"]) > 0 {
+			ar, err := areas()
+			if err != nil {
+				return err
+			}
+			body["areas"] = ar
+		}
+		return c.do("PATCH", "/people/"+user, body, nil)
+	case "pause", "resume":
+		return c.do("PATCH", "/people/"+user, map[string]bool{"disabled": pos[0] == "pause"}, nil)
+	case "rm":
+		if err := confirm(fs, "Remove developer "+pos[1]+"? They're signed out and their tokens stop working."); err != nil {
+			return err
+		}
+		return c.do("DELETE", "/people/"+user, nil, nil)
+	}
+	return errUsage
+}
+
+func generatePassword() string {
+	const chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		panic(err)
+	}
+	for i := range b {
+		b[i] = chars[int(b[i])%len(chars)]
+	}
+	return string(b)
 }

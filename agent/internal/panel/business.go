@@ -332,7 +332,7 @@ func (s *Server) setAccountPackage(w http.ResponseWriter, r *http.Request) {
 	if !decodeBody(w, r, &req) {
 		return
 	}
-	if !s.accessFor(me).has(acct) || me.Role == store.User {
+	if !s.accessFor(me).has(acct) || me.Role.Customer() {
 		failErr(w, errForbidden)
 		return
 	}
@@ -792,7 +792,7 @@ func (s *Server) createSubscription(w http.ResponseWriter, r *http.Request) {
 	if !decodeBody(w, r, &req) {
 		return
 	}
-	if me.Role == store.User || !s.accessFor(me).has(req.Account) {
+	if me.Role.Customer() || !s.accessFor(me).has(req.Account) {
 		failErr(w, errForbidden)
 		return
 	}
@@ -977,7 +977,7 @@ func (s *Server) getMyBranding(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) putBranding(w http.ResponseWriter, r *http.Request) {
 	me := personFrom(r)
-	if me.Role == store.User {
+	if me.Role.Customer() {
 		failErr(w, errForbidden)
 		return
 	}

@@ -1,3 +1,4 @@
+import { isDeveloper } from "../layouts/nav";
 import { useEffect, useMemo, useState } from "react";
 import { Globe, Plus, Search } from "lucide-react";
 import { api } from "../api/client";
@@ -30,7 +31,7 @@ export function Sites({ route, role }: { route: string; role: Role }) {
         title={account ? `Websites in ${account}` : "Websites"}
         text={account ? undefined : "Every website runs as its account's user, with its own PHP pool or app process."}
         back={account ? { to: "/sites", label: "All websites" } : undefined}
-        actions={<Button variant="primary" onClick={() => setCreating(true)}><Plus size={17} />Create website</Button>}
+        actions={isDeveloper() ? undefined : <Button variant="primary" onClick={() => setCreating(true)}><Plus size={17} />Create website</Button>}
       />
       <section className="panel">
         <div className="panel-head">
@@ -45,7 +46,7 @@ export function Sites({ route, role }: { route: string; role: Role }) {
         ) : rows.length === 0 ? (
           <Empty icon={<Globe size={22} />} title={filter ? "No websites match" : "No websites yet"}
             text={filter ? "Try another domain or clear the filter." : "Create a website for a domain you own. Point its DNS A record to this server."}
-            action={filter ? <Button onClick={() => setFilter("")}>Clear filter</Button> : <Button variant="primary" onClick={() => setCreating(true)}><Plus size={17} />Create website</Button>} />
+            action={filter ? <Button onClick={() => setFilter("")}>Clear filter</Button> : isDeveloper() ? undefined : <Button variant="primary" onClick={() => setCreating(true)}><Plus size={17} />Create website</Button>} />
         ) : (
           <div className="table-wrap">
             <table className="responsive">
