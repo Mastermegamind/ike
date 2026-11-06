@@ -26,7 +26,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/http/cookiejar"
 	"net/url"
 	"os"
 	"os/exec"
@@ -109,11 +108,13 @@ func (c *fileConfig) save() error {
 // ---------------------------------------------------------------- client
 
 type client struct {
-	base   string // https://panel:2087/api/v1  or  http://agent/v1
-	token  string
-	http   *http.Client
-	local  bool
-	asJSON bool
+	base     string // https://panel:2087/api/v1  or  http://agent/v1
+	token    string
+	http     *http.Client
+	local    bool
+	asJSON   bool
+	insecure bool
+	server   string // panel's id of another managed server (--server)
 }
 
 var errUsage = errors.New("usage")
@@ -150,7 +151,7 @@ func newClient(profileName string, asJSON bool) (*client, error) {
 	if insecure {
 		tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // the admin chose this for a self-signed panel
 	}
-	return &client{base: strings.TrimRight(url, "/") + "/api/v1", token: token, http: &http.Client{Transport: tr, Timeout: 10 * time.Minute}, asJSON: asJSON}, nil
+	return &client{base: strings.TrimRight(url, "/") + "/api/v1", token: token, http: &http.Client{Transport: tr, Timeout: 10 * time.Minute}, asJSON: asJSON, insecure: insecure}, nil
 }
 
 type apiError struct {
@@ -181,6 +182,9 @@ func (c *client) do(method, path string, body any, out any) error {
 	}
 	if c.token != "" {
 		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+	if c.server != "" {
+		req.Header.Set("X-Ike-Server", c.server)
 	}
 	req.Header.Set("X-Ike-Actor", "cli")
 	req.Header.Set("X-Ike-Trigger", "api")
@@ -307,13 +311,65 @@ DNS
 Databases
   ike db list --account A       ike db create NAME --account A       ike db delete NAME --account A
 
+Email
+  ike mail domains [--account A]               ike mail enable DOMAIN --account A
+  ike mail mailboxes DOMAIN --account A
+  ike mail add USER@DOMAIN --account A [--name N] [--quota MB] [--send-only]
+  ike mail passwd USER@DOMAIN --account A      ike mail rm USER@DOMAIN --account A [--delete-mail]
+  ike mail forward USER@DOMAIN [TO ...] --account A   (no TO removes the forwarder)
+  ike mail check DOMAIN --account A            deliverability: MX, SPF, DKIM, DMARC, PTR
+  ike mail queue [flush|retry|delete [--id ID]] [--account A]
+  ike mail log [--search TEXT] [--account A]
+
+Files (paths are inside the account's home folder)
+  ike files ls [PATH] --account A              ike files cat PATH --account A
+  ike files get PATH [LOCAL] --account A       ike files put LOCAL PATH --account A [--overwrite]
+  ike files mkdir|rm|mv|cp|chmod|extract ... --account A
+  ike files find [PATH] --name N | --content TEXT --account A
+  ike files du [PATH] --account A              ike files share PATH --account A [--hours H] [--password P]
+  ike files snapshot --account A [--wait]      ike files snapshots --account A
+
+Backups (leave out --account for the server's plans)
+  ike backups [--account A]                    ike backups run|check PLAN [--wait]
+  ike backups snapshots PLAN                   ike backups browse PLAN SNAPSHOT [PATH]
+  ike backups restore PLAN SNAPSHOT [--path P ...] [--database D ...] [--overwrite] [--wait]
+
+Security
+  ike malware [scans] --account A              ike malware scan --account A [--path P] [--wait]
+  ike malware quarantine SCAN_ID --account A [--finding ID ...]
+  ike waf DOMAIN off|detect|block [--profile wordpress] [--disable-rule 942100 ...]
+  ike waf DOMAIN events
+
+Access
+  ike tokens                                   ike tokens revoke ID
+  ike tokens create NAME --username YOU [--scope AREA=read|write ...] [--account A ...]
+                    [--ip ADDRESS/RANGE ...] [--days N] [--read-only]
+      areas: sites dns mail databases files backups containers security billing accounts server
+  ike keys --account A
+  ike keys add --account A --key-file ~/.ssh/id_ed25519.pub [--access shell|sftp|sftp-readonly]
+               [--from ADDRESS ...] [--expires YYYY-MM-DD]
+  ike keys set FINGERPRINT --account A --access ... [--from ...] [--expires ...]
+  ike keys rm FINGERPRINT --account A
+
+Reseller and billing
+  ike packages                                 ike packages assign ACCOUNT PACKAGE_ID
+  ike packages bandwidth
+
+Migration
+  ike cpanel [list]                            ike cpanel upload backup-cpuser.tar.gz
+  ike cpanel show FILE                         ike cpanel restore FILE [--as ACCOUNT] [--skip mail,dns] [--point-dns] [--wait]
+
 Server
+  ike servers                                  every server this panel manages
   ike status                    ike services          ike service NAME start|stop|restart
   ike jobs JOB_ID [--wait]      ike events
   ike apply FILE.json [--plan] [--var key=value ...] [--wait]
   ike api METHOD PATH [JSON]    raw API call; PATH like /sites or /accounts/shop
 
-Every command takes --json for machine-readable output and --profile NAME.
+Every command takes --json for machine-readable output, --profile NAME, and
+--server NAME to act on another server the panel manages. Destructive commands
+ask first; --yes skips the question. A token only does what it was given:
+limited tokens are refused outside their areas, accounts and addresses.
 In CI, set IKE_URL and IKE_TOKEN instead of signing in. As root on the server,
 ike uses the agent's socket directly when you're not signed in.
 `)
@@ -376,7 +432,8 @@ func run(args []string) error {
 		return errUsage
 	}
 	cmd, rest := args[0], args[1:]
-	pos, fs := parseFlags(rest, "wait", "plan", "remove-files", "insecure", "wildcard", "with-sites")
+	pos, fs := parseFlags(rest, "wait", "plan", "remove-files", "insecure", "wildcard", "with-sites",
+		"yes", "overwrite", "delete-mail", "send-only", "rename", "recursive", "read-only", "point-dns")
 	if cmd == "version" || cmd == "--version" {
 		fmt.Println("ike", version)
 		return nil
@@ -425,6 +482,14 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
+	if srv := fs.get("server"); srv != "" && cmd != "servers" {
+		if c.local {
+			return errors.New("--server works through the panel; sign in with: ike login https://your-panel:2087")
+		}
+		if err := c.resolveServer(srv); err != nil {
+			return err
+		}
+	}
 	switch cmd {
 	case "whoami":
 		if c.local {
@@ -435,7 +500,15 @@ func run(args []string) error {
 		if err := c.do("GET", "/session", nil, &me); err != nil {
 			return err
 		}
-		c.show(me, func(w *tabwriter.Writer) { fmt.Fprintf(w, "%v\t%v\n", me["username"], me["role"]) })
+		c.show(me, func(w *tabwriter.Writer) {
+			fmt.Fprintf(w, "Signed in as\t%v (%v)\n", me["username"], me["role"])
+			if t, ok := me["token"].(map[string]any); ok {
+				fmt.Fprintf(w, "API token\t%v\nAccess\t%s\n", t["name"], tokenAccess(t))
+				if e := nv(t["expires"]); e != "" {
+					fmt.Fprintf(w, "Expires\t%s\n", e)
+				}
+			}
+		})
 		return nil
 	case "status":
 		var sys map[string]any
@@ -578,6 +651,26 @@ func run(args []string) error {
 		return apply(c, pos, fs)
 	case "api":
 		return rawAPI(c, pos)
+	case "mail":
+		return mailCmd(c, pos, fs)
+	case "files":
+		return filesCmd(c, pos, fs)
+	case "backups":
+		return backupsCmd(c, pos, fs)
+	case "malware":
+		return malwareCmd(c, pos, fs)
+	case "waf":
+		return wafCmd(c, pos, fs)
+	case "packages":
+		return packagesCmd(c, pos, fs)
+	case "servers":
+		return serversCmd(c)
+	case "tokens":
+		return tokensCmd(c, pos, fs)
+	case "keys":
+		return keysCmd(c, pos, fs)
+	case "cpanel":
+		return cpanelCmd(c, pos, fs)
 	}
 	return errUsage
 }
@@ -601,45 +694,9 @@ func login(pos []string, fs flagSet) error {
 	}
 	token := fs.get("token")
 	if user := fs.get("username"); user != "" && token == "" {
-		pw := os.Getenv("IKE_PASSWORD")
-		if pw == "" {
-			fmt.Fprint(os.Stderr, "Password: ")
-			var err error
-			if pw, err = readSecret(); err != nil {
-				return err
-			}
-		}
-		jar, _ := cookiejar.New(nil)
-		hc := &http.Client{Transport: tr, Jar: jar, Timeout: time.Minute}
-		post := func(path string, body any, out any) (int, error) {
-			b, _ := json.Marshal(body)
-			req, _ := http.NewRequest("POST", u+"/api/v1"+path, bytes.NewReader(b))
-			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set("X-Requested-With", "ike")
-			resp, err := hc.Do(req)
-			if err != nil {
-				return 0, err
-			}
-			defer resp.Body.Close()
-			data, _ := io.ReadAll(resp.Body)
-			_ = json.Unmarshal(data, out)
-			return resp.StatusCode, nil
-		}
-		var res map[string]any
-		code, err := post("/session", map[string]string{"username": user, "password": pw, "code": fs.get("code")}, &res)
+		post, err := passwordSession(u, p.Insecure, user, fs.get("code"))
 		if err != nil {
 			return err
-		}
-		if code == 401 && res["two_factor_required"] == true {
-			fmt.Fprint(os.Stderr, "Authentication code: ")
-			line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
-			code, err = post("/session", map[string]string{"username": user, "password": pw, "code": strings.TrimSpace(line)}, &res)
-			if err != nil {
-				return err
-			}
-		}
-		if code != 200 {
-			return fmt.Errorf("sign-in failed: %v", res["error"])
 		}
 		host, _ := os.Hostname()
 		var tok map[string]any

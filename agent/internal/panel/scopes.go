@@ -22,6 +22,8 @@ func areaOf(apiPath string) string {
 		return ""
 	case "me", "tokens":
 		return "tokens"
+	case "ssl":
+		return "sites"
 	case "sites":
 		if len(seg) >= 3 && seg[2] == "waf" {
 			return "security"

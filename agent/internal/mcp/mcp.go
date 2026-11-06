@@ -5,6 +5,9 @@
 // Safety model:
 //   - Read-only tools are always available.
 //   - Write tools appear only when started with --allow-write.
+//   - Connected to a panel with an API token, the panel enforces the token's
+//     areas, accounts and addresses; tools the token can't use are hidden.
+//   - --tools limits the tools to some areas (dns, mail, ...).
 //   - Destructive tools require the caller to repeat the domain in "confirm_domain".
 //   - Every tool call is written to the audit log.
 package mcp
@@ -33,6 +36,17 @@ type Server struct {
 	AllowWrite bool
 	Version    string
 	Audit      io.Writer // JSON lines; may be nil
+
+	// Panel is true when Agent goes through a panel with an API token, which
+	// also enables the panel's own tools (packages, billing, servers).
+	Panel bool
+	// Groups, when set, limits the tools to these areas.
+	Groups map[string]bool
+	// Scopes is a limited token's access per area (read or write); nil
+	// means the token (or local socket) is not limited by area.
+	Scopes map[string]string
+	// ReadOnlyToken hides write tools: the panel would refuse them anyway.
+	ReadOnlyToken bool
 
 	auditMu sync.Mutex
 }
@@ -99,8 +113,11 @@ func (s *Server) Handle(ctx context.Context, msg []byte) *rpcResponse {
 			}
 		}
 		mode := "read-only"
-		if s.AllowWrite {
+		if s.AllowWrite && !s.ReadOnlyToken {
 			mode = "read-write"
+		}
+		if s.Scopes != nil {
+			mode += ", limited to the areas its API token allows"
 		}
 		resp.Result = map[string]any{
 			"protocolVersion": version,
@@ -139,7 +156,79 @@ type tool struct {
 	Annotations map[string]any `json:"annotations,omitempty"`
 
 	write   bool
+	area    string // token area: sites, dns, mail, databases, files, backups, containers, security, billing, accounts, server
+	panel   bool   // needs a panel connection (--panel)
 	handler func(ctx context.Context, args map[string]any) (any, error)
+}
+
+// Areas are the groups --tools accepts; the same names as API token areas.
+var Areas = []string{"sites", "dns", "mail", "databases", "files", "backups", "containers", "security", "billing", "accounts", "server"}
+
+// areaFor files the original tools by name.
+func areaFor(name string) string {
+	// Match the panel's token areas (panel/scopes.go areaOf) where the
+	// name alone would mislead.
+	switch name {
+	case "get_job", "list_runtimes", "list_apps":
+		return ""
+	case "set_limits", "add_cron_job", "list_cron_jobs", "delete_cron_job":
+		return "accounts"
+	case "install_php_extension", "list_php_extensions":
+		return "server"
+	}
+	has := func(words ...string) bool {
+		for _, w := range words {
+			if strings.Contains(name, w) {
+				return true
+			}
+		}
+		return false
+	}
+	switch {
+	case has("dns"):
+		return "dns"
+	case has("mail"):
+		return "mail"
+	case has("database", "redis"):
+		return "databases"
+	case has("backup", "snapshot"):
+		return "backups"
+	case has("container", "stack", "kubernetes"):
+		return "containers"
+	case has("firewall", "port", "ban", "address", "malware", "security", "waf", "quarantine"):
+		return "security"
+	case has("account", "ssh"):
+		return "accounts"
+	case has("site", "deploy", "certificate", "redirect", "domains", "wordpress", "composer", "php", "staging", "app", "permissions", "cron"):
+		return "sites"
+	}
+	return "server"
+}
+
+// hidden says why a tool isn't offered, or "" when it is.
+func (s *Server) hidden(t tool) string {
+	switch {
+	case t.write && !s.AllowWrite:
+		return "this MCP server is read-only; restart ike-mcp with --allow-write to enable changes"
+	case t.write && s.ReadOnlyToken:
+		return "this API token is read-only"
+	case t.panel && !s.Panel:
+		return "this tool needs a panel connection: start ike-mcp with --panel https://your-panel:2087 and an API token"
+	case s.Groups != nil && !s.Groups[t.area]:
+		return "the " + t.area + " tools are turned off (--tools)"
+	}
+	if s.Scopes != nil && t.area != "" {
+		switch s.Scopes[t.area] {
+		case "write":
+		case "read":
+			if t.write {
+				return "this API token can only read " + t.area
+			}
+		default:
+			return "this API token has no access to " + t.area
+		}
+	}
+	return ""
 }
 
 func obj(props map[string]any, required ...string) map[string]any {
@@ -557,13 +646,22 @@ func (s *Server) tools() []tool {
 	}
 }
 
-func (s *Server) toolList() []tool {
-	var out []tool
-	for _, t := range s.tools() {
-		if t.write && !s.AllowWrite {
-			continue
+func (s *Server) allTools() []tool {
+	all := append(s.tools(), s.tools5()...)
+	for i := range all {
+		if all[i].area == "" {
+			all[i].area = areaFor(all[i].Name)
 		}
-		out = append(out, t)
+	}
+	return all
+}
+
+func (s *Server) toolList() []tool {
+	out := []tool{}
+	for _, t := range s.allTools() {
+		if s.hidden(t) == "" {
+			out = append(out, t)
+		}
 	}
 	return out
 }
@@ -576,7 +674,7 @@ func (s *Server) callTool(ctx context.Context, name string, raw json.RawMessage)
 		}
 	}
 	var t *tool
-	for _, c := range s.tools() {
+	for _, c := range s.allTools() {
 		if c.Name == name {
 			c := c
 			t = &c
@@ -586,9 +684,10 @@ func (s *Server) callTool(ctx context.Context, name string, raw json.RawMessage)
 	switch {
 	case t == nil:
 		return toolError("unknown tool: " + name)
-	case t.write && !s.AllowWrite:
-		s.audit(name, args, "denied: read-only mode")
-		return toolError("this MCP server is read-only; restart ike-mcp with --allow-write to enable changes")
+	case s.hidden(*t) != "":
+		why := s.hidden(*t)
+		s.audit(name, args, "denied: "+why)
+		return toolError(why)
 	}
 	if err := checkArgs(t.InputSchema, args); err != nil {
 		return toolError(err.Error())
@@ -597,6 +696,10 @@ func (s *Server) callTool(ctx context.Context, name string, raw json.RawMessage)
 	ctx, cancel := context.WithTimeout(ctx, 6*time.Minute)
 	defer cancel()
 	out, err := t.handler(ctx, args)
+	if text, ok := out.(rawText); ok && err == nil {
+		s.audit(name, args, "ok")
+		return map[string]any{"content": []map[string]any{{"type": "text", "text": string(text)}}, "isError": false}
+	}
 	if err != nil {
 		s.audit(name, args, "error: "+err.Error())
 		return toolError(err.Error())
@@ -643,6 +746,14 @@ func checkArgs(schema map[string]any, args map[string]any) error {
 			if _, ok := v.([]any); !ok {
 				return fmt.Errorf("argument %q must be a list", k)
 			}
+		case "object":
+			if _, ok := v.(map[string]any); !ok {
+				return fmt.Errorf("argument %q must be an object", k)
+			}
+		case "number":
+			if _, ok := v.(float64); !ok {
+				return fmt.Errorf("argument %q must be a number", k)
+			}
 		case "integer":
 			if f, ok := v.(float64); !ok || f != float64(int(f)) {
 				return fmt.Errorf("argument %q must be a whole number", k)
@@ -677,7 +788,8 @@ func (s *Server) audit(toolName string, args map[string]any, result string) {
 	}
 	safe := map[string]any{}
 	for k, v := range args {
-		if k == "public_key" {
+		switch k {
+		case "public_key", "password", "content", "zone_file", "recovery_password":
 			v = "(redacted)"
 		}
 		safe[k] = v

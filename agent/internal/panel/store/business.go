@@ -10,8 +10,8 @@ type APIToken struct {
 	Username string    `json:"username"`
 	ReadOnly bool      `json:"read_only"`
 	Created  time.Time `json:"created"`
-	LastUsed time.Time `json:"last_used,omitempty"`
-	Expires  time.Time `json:"expires,omitempty"` // zero = never
+	LastUsed time.Time `json:"last_used,omitzero"`
+	Expires  time.Time `json:"expires,omitzero"` // zero = never
 	// Limited tokens may only use the areas in Scopes (area → "read" |
 	// "write"). Other tokens have the person's full access.
 	Limited bool              `json:"limited,omitempty"`

@@ -439,7 +439,17 @@ func indexOf(list []string, v string) int {
 }
 
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, personFrom(r).Public())
+	p := personFrom(r)
+	if p.Token == nil {
+		writeJSON(w, 200, p.Public())
+		return
+	}
+	// Signed in with an API token: say what the token may do, so the CLI
+	// and MCP server can show (and hide) what's out of reach.
+	writeJSON(w, 200, struct {
+		store.Public
+		Token tokenView `json:"token"`
+	}{p.Public(), viewOf(p.Token)})
 }
 
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {

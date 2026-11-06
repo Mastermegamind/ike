@@ -55,8 +55,8 @@ type tokenView struct {
 	Name     string            `json:"name"`
 	ReadOnly bool              `json:"read_only"`
 	Created  time.Time         `json:"created"`
-	LastUsed time.Time         `json:"last_used,omitempty"`
-	Expires  time.Time         `json:"expires,omitempty"`
+	LastUsed time.Time         `json:"last_used,omitzero"`
+	Expires  time.Time         `json:"expires,omitzero"`
 	Limited  bool              `json:"limited"`
 	Scopes   map[string]string `json:"scopes,omitempty"`
 	Accounts []string          `json:"accounts,omitempty"`
