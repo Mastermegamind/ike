@@ -1,6 +1,9 @@
 package mcp
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 func TestToolFiltering(t *testing.T) {
 	count := func(s *Server) (areas map[string]int, writes int) {
@@ -62,5 +65,15 @@ func TestToolFiltering(t *testing.T) {
 		if !known[tl.area] {
 			t.Fatalf("%s has unknown area %q", tl.Name, tl.area)
 		}
+	}
+}
+
+// IKE_PRINT_TOOLS=1 prints every tool as "area|name|write|panel" (for docs/MCP.md).
+func TestPrintTools(t *testing.T) {
+	if os.Getenv("IKE_PRINT_TOOLS") == "" {
+		t.Skip()
+	}
+	for _, tl := range (&Server{}).allTools() {
+		t.Logf("TOOL|%s|%s|%v|%v", tl.area, tl.Name, tl.write, tl.panel)
 	}
 }

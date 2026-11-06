@@ -30,6 +30,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -41,7 +42,10 @@ import (
 func readSecret() (string, error) {
 	fi, _ := os.Stdin.Stat()
 	tty := fi != nil && fi.Mode()&os.ModeCharDevice != 0
-	if tty {
+	if tty && runtime.GOOS == "windows" {
+		// No stty: say so, rather than echo a secret by surprise.
+		fmt.Fprint(os.Stderr, "(it will show as you type; or set IKE_PASSWORD / use --token) ")
+	} else if tty {
 		off := exec.Command("stty", "-echo")
 		off.Stdin = os.Stdin
 		_ = off.Run()

@@ -53,6 +53,7 @@ INSTALL_SCANNER=0           # ClamAV for malware scans of websites (always on wi
 FORCE=0
 AGENT_BINARY=""
 MCP_BINARY=""
+CLI_BINARY=""
 PANEL_BINARY=""
 ADMIN_USER="admin"
 ADMIN_EMAIL=""
@@ -159,6 +160,7 @@ Other
   --force                     Install even if the server is not fresh
   --agent-binary PATH         Use a locally built ${AGENT_NAME}
   --mcp-binary PATH           Use a locally built ${MCP_NAME}
+  --cli-binary PATH           Use a locally built ike command-line tool
   --panel-binary PATH         Use a locally built ike-panel
   --admin-user NAME           First panel admin (default: admin)
   --admin-email EMAIL         First panel admin's email
@@ -205,6 +207,7 @@ while [ $# -gt 0 ]; do
 		--force) FORCE=1; shift ;;
 		--agent-binary) AGENT_BINARY="${2:?}"; shift 2 ;;
 		--mcp-binary) MCP_BINARY="${2:?}"; shift 2 ;;
+		--cli-binary) CLI_BINARY="${2:?}"; shift 2 ;;
 		--panel-binary) PANEL_BINARY="${2:?}"; shift 2 ;;
 		--admin-user) ADMIN_USER="${2:?}"; shift 2 ;;
 		--admin-email) ADMIN_EMAIL="${2:?}"; shift 2 ;;
@@ -839,7 +842,7 @@ install_postgres() {
 		apt-get update -q >>"$LOG_FILE" 2>&1
 		apt_install "postgresql-${POSTGRES_VERSION}" "postgresql-contrib-${POSTGRES_VERSION}" 2>/dev/null || apt_install "postgresql-${POSTGRES_VERSION}"
 	fi
-	POSTGRES_INSTALLED=$(ls /usr/lib/postgresql | sort -V | tail -1)
+	POSTGRES_INSTALLED=$(find /usr/lib/postgresql -mindepth 1 -maxdepth 1 -printf "%f\n" | sort -V | tail -1)
 	local hba="/etc/postgresql/${POSTGRES_INSTALLED}/main/pg_hba.conf"
 	# Apps sign in with passwords over 127.0.0.1; the postgres superuser only through its own Linux user.
 	grep -q "^host\s\+all\s\+all\s\+127.0.0.1/32\s\+scram-sha-256" "$hba" \
@@ -1728,7 +1731,7 @@ fetch_binary() { # name dest local_path
 }
 
 install_agent() {
-	info "Installing ${AGENT_NAME} and ${MCP_NAME}"
+	info "Installing ${AGENT_NAME}, ${MCP_NAME} and the ike command"
 	getent group "$PANEL_NAME" >/dev/null || groupadd --system "$PANEL_NAME"
 	install -d -m 0755 -o root -g root "$CONF_DIR" "${CONF_DIR}/pages" "${OPT_DIR}" "$RUNTIMES_DIR" \
 		"${RUNTIMES_DIR}/node" "${RUNTIMES_DIR}/python"
@@ -1745,6 +1748,8 @@ install_agent() {
 
 	fetch_binary "$AGENT_NAME" "/usr/local/bin/${AGENT_NAME}" "$AGENT_BINARY"
 	fetch_binary "$MCP_NAME" "/usr/local/bin/${MCP_NAME}" "$MCP_BINARY"
+	# The ike CLI: as root on the server it talks to the agent socket directly.
+	fetch_binary "ike" "/usr/local/bin/ike" "$CLI_BINARY"
 
 	local protected="" p
 	for p in $SSH_PORTS 80 443 $PANEL_PORTS; do protected="${protected}\"${p}/tcp\", "; done

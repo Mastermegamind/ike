@@ -23,9 +23,9 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/YOUR-ORG/ike/agent/internal/api"
 	"github.com/YOUR-ORG/ike/agent/internal/client"
 	"github.com/YOUR-ORG/ike/agent/internal/mcp"
+	"github.com/YOUR-ORG/ike/agent/internal/version"
 )
 
 func main() {
@@ -45,7 +45,7 @@ func main() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
 
 	if *showVer {
-		fmt.Println("ike-mcp", api.Version)
+		fmt.Println("ike-mcp", version.Version)
 		return
 	}
 
@@ -77,7 +77,7 @@ func main() {
 		agent = client.Unix(*socket)
 		agent.Actor = "ai:mcp"
 	}
-	srv := &mcp.Server{Agent: agent, AllowWrite: *allowWrite, Version: api.Version, Audit: audit}
+	srv := &mcp.Server{Agent: agent, AllowWrite: *allowWrite, Version: version.Version, Audit: audit}
 	if *toolsFlag != "" {
 		srv.Groups = map[string]bool{"": true}
 		known := map[string]bool{}

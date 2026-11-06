@@ -81,6 +81,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/YOUR-ORG/ike/agent/internal/version"
 	"log/slog"
 	"net/http"
 	"os"
@@ -100,9 +101,11 @@ import (
 	"github.com/YOUR-ORG/ike/agent/internal/updates"
 )
 
-const Version = "0.5.0"
+const Version = version.Version
 
 type Server struct {
+	routes []string // every pattern, for the API reference (Routes)
+
 	Sites     *sites.Manager
 	Updates   *updates.Manager
 	Jobs      *jobs.Manager
@@ -124,9 +127,13 @@ func long(r *http.Request) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.WithoutCancel(r.Context()), 5*time.Minute)
 }
 
+// Routes lists every route pattern ("GET /v1/sites/{domain}"), after Handler.
+func (s *Server) Routes() []string { return s.routes }
+
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	h := func(pattern string, fn func(w http.ResponseWriter, r *http.Request) (int, any, error)) {
+		s.routes = append(s.routes, pattern)
 		mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
 			code, v, err := fn(w, r)
 			if err != nil {
