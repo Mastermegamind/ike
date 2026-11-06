@@ -215,6 +215,25 @@ export class Demo5 {
     };
     let p: Record<string, string> | null;
 
+    // ---- server metrics
+    if (is("GET", "/server/metrics")) {
+      const N = 288;
+      const history = Array.from({ length: N }, (_, i) => {
+        const hr = ((Date.now() - (N - i) * 300_000) / 3.6e6 + 1) % 24; // Lagos local hour
+        const busy = Math.max(0, Math.sin(((hr - 7) / 24) * Math.PI * 2)) ; // daytime traffic
+        const wob = Math.sin(i * 1.7) * 0.5 + Math.sin(i * 0.37) * 0.5;
+        return { t: new Date(Date.now() - (N - i) * 300_000).toISOString(), cpu: Math.round((12 + busy * 38 + wob * 6) * 10) / 10,
+          mem: Math.round(4200 + busy * 1600 + wob * 120), swap: Math.round(180 + (i > 200 ? (i - 200) * 2.2 : 0)),
+          net_in: Math.round(180_000 + busy * 1_400_000 + wob * 90_000), net_out: Math.round(420_000 + busy * 3_900_000 + wob * 200_000),
+          disk_rd: Math.round(90_000 + busy * 600_000 + (hr > 2 && hr < 3 ? 9_000_000 : 0)), disk_wr: Math.round(140_000 + busy * 400_000 + (hr > 2 && hr < 3 ? 6_000_000 : 0)),
+          load1: Math.round((0.4 + busy * 1.9) * 100) / 100 };
+      });
+      const now = history[N - 1];
+      return { now, mem_total_mb: 8192, swap_total_mb: 2048, history, interfaces: [
+        { name: "eth0", in_bps: now.net_in, out_bps: now.net_out, rx_bytes: 912_400_000_000, tx_bytes: 2_814_900_000_000, rx_errors: 0, tx_errors: 0 },
+        { name: "eth1", in_bps: 42_000, out_bps: 38_000, rx_bytes: 18_200_000_000, tx_bytes: 16_900_000_000, rx_errors: 3, tx_errors: 0 }] };
+    }
+
     // ---- shell and business
     if (is("GET", "/branding") || is("GET", "/me/branding")) return { ...this.brand };
     if (is("PUT", "/me/branding")) { this.brand = { ...b } as Branding; return this.brand; }

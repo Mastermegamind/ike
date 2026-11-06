@@ -25,6 +25,7 @@ import (
 	"github.com/YOUR-ORG/ike/agent/internal/jobs"
 	"github.com/YOUR-ORG/ike/agent/internal/runner"
 	"github.com/YOUR-ORG/ike/agent/internal/sites"
+	"github.com/YOUR-ORG/ike/agent/internal/sysinfo"
 	"github.com/YOUR-ORG/ike/agent/internal/updates"
 )
 
@@ -87,7 +88,8 @@ func run(socket, cfgPath, root, group string, dryRun bool) error {
 	up := &updates.Manager{Run: r, Jobs: jm, Root: root, DryRun: dryRun, Version: api.Version, Repo: cfg.Repo,
 		APIBase: "https://api.github.com", DownloadBase: "https://github.com", BinDir: "/usr/local/bin"}
 	srv := &api.Server{Sites: mgr, Updates: up, Jobs: jm, Firewall: fw, Runner: r, Config: cfg,
-		AuditPath: filepath.Join(root, "var/log/ike/agent-audit.log")}
+		AuditPath: filepath.Join(root, "var/log/ike/agent-audit.log"),
+		Metrics:   sysinfo.NewSampler("/proc", filepath.Join(root, "var/lib/ike/metrics.json"))}
 	_ = os.MkdirAll(filepath.Dir(srv.AuditPath), 0o750)
 	if err := srv.Setup(); err != nil {
 		return err
@@ -126,6 +128,7 @@ func run(socket, cfgPath, root, group string, dryRun bool) error {
 
 	go mgr.RunHealthMonitor(ctx)
 	go mgr.RunUsageSampler(ctx)
+	go srv.Metrics.Run(ctx)
 	if !cfg.DryRun {
 		f := mgr.DetectWebFeatures(ctx)
 		slog.Info("web server features", "nginx", f.NginxVersion, "http2_directive", f.H2Directive, "http3", f.HTTP3)

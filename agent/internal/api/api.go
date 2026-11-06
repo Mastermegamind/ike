@@ -61,6 +61,7 @@
 //	GET    /v1/sites/{domain}/env              .env variables
 //	PUT    /v1/sites/{domain}/env              [{"key","value"}]
 //	PUT    /v1/accounts/{name}/limits          {"cpu_percent","memory_mb","max_processes","disk_mb","php_workers"}
+//	GET    /v1/server/metrics                  server CPU, memory, swap, network per interface, disk I/O (+24 h history)
 //	GET    /v1/usage                           per-account CPU, memory, disk, bandwidth (+24 h history)
 //	GET    /v1/security                        security baseline scan
 //	GET    /v1/drift                           managed config files changed by hand
@@ -108,6 +109,7 @@ type Server struct {
 	routes []string // every pattern, for the API reference (Routes)
 
 	Sites     *sites.Manager
+	Metrics   *sysinfo.Sampler // server CPU, memory, swap, network and disk history
 	Updates   *updates.Manager
 	Jobs      *jobs.Manager
 	Firewall  *firewall.Manager
@@ -501,6 +503,12 @@ func (s *Server) Handler() http.Handler {
 			return 0, nil, nil
 		}
 		return ok(s.Sites.SetLimits(r.Context(), r.PathValue("name"), l))
+	})
+	h("GET /v1/server/metrics", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		if s.Metrics == nil {
+			return ok(sysinfo.Metrics{History: []sysinfo.Point{}, Interfaces: []sysinfo.Interface{}}, nil)
+		}
+		return ok(s.Metrics.Metrics(), nil)
 	})
 	h("GET /v1/usage", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
 		return ok(s.Sites.Usage(), nil)

@@ -494,3 +494,10 @@ table.files tr[aria-selected="true"] td { background: var(--accent-soft); }
 .bp-bar.short { width: 60%; }
 .bp-btn { justify-self: start; border: 0; border-radius: var(--r-sm); padding: 8px 14px; background: var(--p); color: #fff; font: inherit; font-weight: 600; }
 .row-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 4px; }
+.chart-legend { display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--ink-2); }
+.chart-legend i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+.chart-legend i.dashed { background: repeating-linear-gradient(90deg, var(--ink-2) 0 5px, transparent 5px 9px); }
+.chart-legend b { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+.metric-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 140px), 1fr)); gap: 12px; }
+.metric-stat { display: grid; gap: 2px; padding: 10px 12px; border-radius: var(--r-sm); background: var(--surface-2); min-width: 0; }
+.metric-stat strong { font-size: 18px; font-variant-numeric: tabular-nums; }

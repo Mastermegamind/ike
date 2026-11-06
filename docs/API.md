@@ -2,7 +2,7 @@
 
 Everything the panel does goes through this API, so anything you can click you can also script. The `ike` CLI, the MCP server (`ike-mcp`), and the WHMCS and Blesta modules all use it.
 
-This page is generated from the code by `scripts/gen_api_doc.py`. A test fails when a route is missing, so the list stays complete: 363 routes.
+This page is generated from the code by `scripts/gen_api_doc.py`. A test fails when a route is missing, so the list stays complete: 364 routes.
 
 ## Where to send requests
 
@@ -501,6 +501,7 @@ Services, updates, usage, inventory, maintenance, webhooks, specs, migration and
 | `POST /php/{version}/extensions/{name}` | Install → job |
 | `DELETE /php/{version}/extensions/{name}` | Remove → job |
 | `GET /quotas` | Disk quota status and per-account use |
+| `GET /server/metrics` | Server CPU, memory, swap, network per interface, disk I/O (+24 h history) |
 | `POST /server/reboot` | Reboot: body `{"in_minutes":` 5} |
 | `DELETE /server/reboot` | Cancel a scheduled reboot |
 | `GET /servers` *(panel)* | Servers this panel manages (send X-Ike-Server: ID to act on one) |

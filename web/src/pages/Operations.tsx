@@ -11,6 +11,7 @@ import { Badge, Button, Empty, Field, Meter, Modal, Segmented, Skeleton, formatM
 import { PageHead, Toggle } from "../components/common";
 import { JobModal, useJob } from "../components/job";
 import { UsageChart } from "../components/chart";
+import type { MetricPoint, ServerMetrics } from "../api/types5";
 
 /* =============================================================== Updates */
 
@@ -239,8 +240,9 @@ export function Usage() {
 
   return (
     <div className="stack">
-      <PageHead title="Resource usage" text="CPU, memory, disk and bandwidth per account, sampled every 15 minutes. Limits are enforced by the kernel, so one busy account can't slow the rest."
+      <PageHead title="Resource usage" text="The whole server, then each account: sampled every minute and kept for 24 hours. Account limits are enforced by the kernel, so one busy account can't slow the rest."
         actions={<Button loading={usage.loading} onClick={usage.reload}><RefreshCw size={16} />Refresh</Button>} />
+      <ServerMetricsPanel />
 
       {cur ? (
         <section className="panel">
@@ -287,6 +289,82 @@ export function Usage() {
       </section>
       <LimitsModal usage={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); usage.reload(); }} />
     </div>
+  );
+}
+
+type ServerMetric = "cpu" | "mem" | "swap" | "net" | "disk";
+
+/** rate prints bytes per second the way people read network speeds. */
+export function rate(bps: number) {
+  const bits = bps * 8;
+  if (bits >= 1e9) return `${(bits / 1e9).toFixed(1)} Gbit/s`;
+  if (bits >= 1e6) return `${(bits / 1e6).toFixed(1)} Mbit/s`;
+  if (bits >= 1e3) return `${Math.round(bits / 1e3)} kbit/s`;
+  return `${Math.round(bits)} bit/s`;
+}
+
+function bytesPerSec(bps: number) {
+  if (bps >= 1 << 30) return `${(bps / (1 << 30)).toFixed(1)} GB/s`;
+  if (bps >= 1 << 20) return `${(bps / (1 << 20)).toFixed(1)} MB/s`;
+  if (bps >= 1 << 10) return `${Math.round(bps / (1 << 10))} KB/s`;
+  return `${Math.round(bps)} B/s`;
+}
+
+function totalBytes(b: number) {
+  if (b >= 1e12) return `${(b / 1e12).toFixed(2)} TB`;
+  if (b >= 1e9) return `${(b / 1e9).toFixed(1)} GB`;
+  return `${Math.round(b / 1e6)} MB`;
+}
+
+function ServerMetricsPanel() {
+  const m = useAsync(() => api.call<ServerMetrics>("GET", "/server/metrics"));
+  const [metric, setMetric] = useState<ServerMetric>("cpu");
+  const d = m.data;
+  if (!d) return <section className="panel"><div className="panel-body"><Skeleton h={220} /></div></section>;
+  const h = d.history ?? [];
+  const pts = (f: (p: MetricPoint) => number) => h.map((p) => ({ t: p.t, v: f(p) }));
+  const now = d.now;
+  const stat = (label: string, value: string, sub?: string) => (
+    <div className="metric-stat"><span className="small muted">{label}</span><strong>{value}</strong>{sub ? <span className="small muted">{sub}</span> : null}</div>
+  );
+  const swapNote = d.swap_total_mb === 0 ? "This server has no swap. With little memory, adding a swap file keeps it from killing processes when memory runs out."
+    : now.swap > d.swap_total_mb * 0.5 ? "More than half the swap is in use: the server is short of memory, which makes websites slow. Add memory or lower account limits."
+    : "Swap is disk used as overflow memory. A little use is normal; steady growth means the server needs more memory.";
+  return (
+    <section className="panel">
+      <div className="panel-head">
+        <div><h2>This server</h2><p className="small muted">Load {now.load1.toFixed(2)}</p></div>
+        <Segmented label="Graph" value={metric} onChange={setMetric} options={[
+          { value: "cpu", label: "CPU" }, { value: "mem", label: "Memory" }, { value: "swap", label: "Swap" }, { value: "net", label: "Network" }, { value: "disk", label: "Disk" }]} />
+      </div>
+      <div className="panel-body stack">
+        <div className="metric-stats">
+          {stat("CPU", `${Math.round(now.cpu)}%`, "all cores")}
+          {stat("Memory", formatMB(Math.round(now.mem)), `of ${formatMB(Math.round(d.mem_total_mb))}`)}
+          {stat("Swap", d.swap_total_mb ? formatMB(Math.round(now.swap)) : "None", d.swap_total_mb ? `of ${formatMB(Math.round(d.swap_total_mb))}` : undefined)}
+          {stat("Network in", rate(now.net_in))}
+          {stat("Network out", rate(now.net_out))}
+          {stat("Disk", bytesPerSec(now.disk_rd + now.disk_wr), `${bytesPerSec(now.disk_rd)} read · ${bytesPerSec(now.disk_wr)} written`)}
+        </div>
+        {h.length < 2 ? <p className="muted">Graphs fill in over the next few minutes.</p>
+          : metric === "cpu" ? <UsageChart label="Server CPU over 24 hours" points={pts((p) => p.cpu)} unit="%" max={100} />
+          : metric === "mem" ? <UsageChart label="Server memory over 24 hours" points={pts((p) => p.mem)} unit="" max={d.mem_total_mb} format={(v) => formatMB(Math.round(v))} />
+          : metric === "swap" ? <UsageChart label="Swap in use over 24 hours" points={pts((p) => p.swap)} unit="" max={d.swap_total_mb || undefined} format={(v) => formatMB(Math.round(v))} />
+          : metric === "net" ? <UsageChart label="Network over 24 hours" name="Received" points={pts((p) => p.net_in)} second={{ label: "Sent", points: pts((p) => p.net_out) }} unit="" format={rate} />
+          : <UsageChart label="Disk over 24 hours" name="Read" points={pts((p) => p.disk_rd)} second={{ label: "Written", points: pts((p) => p.disk_wr) }} unit="" format={bytesPerSec} />}
+        {metric === "swap" ? <p className="small muted">{swapNote}</p> : null}
+        {metric === "net" ? (
+          <div className="table-wrap"><table>
+            <thead><tr><th>Interface</th><th className="num">Receiving</th><th className="num">Sending</th><th className="num" data-hide-sm>Received since boot</th><th className="num" data-hide-sm>Sent since boot</th><th className="num">Errors</th></tr></thead>
+            <tbody>{(d.interfaces ?? []).map((i) => (
+              <tr key={i.name}><td className="mono">{i.name}</td><td className="num">{rate(i.in_bps)}</td><td className="num">{rate(i.out_bps)}</td>
+                <td className="num" data-hide-sm>{totalBytes(i.rx_bytes)}</td><td className="num" data-hide-sm>{totalBytes(i.tx_bytes)}</td>
+                <td className="num">{i.rx_errors + i.tx_errors ? <Badge tone="warn">{i.rx_errors + i.tx_errors}</Badge> : "0"}</td></tr>
+            ))}</tbody>
+          </table></div>
+        ) : null}
+      </div>
+    </section>
   );
 }
 

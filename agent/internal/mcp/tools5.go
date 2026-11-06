@@ -545,6 +545,9 @@ func (s *Server) tools5() []tool {
 			}},
 
 		// ------------------------------------------------------- infrastructure
+		{Name: "get_server_metrics", Title: "Server CPU, memory, swap, network and disk", area: "server", Annotations: readOnly(), InputSchema: none,
+			Description: "The whole server right now and over 24 hours (5-minute points): CPU %, memory and swap in use, network bytes/second in and out per interface (with error counts), disk read/write bytes/second, load. Use it to explain slowness: high swap means too little memory, network near the port speed means traffic is the limit.",
+			handler:     s.get(fixed("/v1/server/metrics"))},
 		{Name: "get_inventory", Title: "Hardware inventory", area: "server", Annotations: readOnly(), InputSchema: none,
 			Description: "CPU, memory, disks, network interfaces, virtualization and asset details (owner, location, renewal date, cost).",
 			handler:     s.get(fixed("/v1/inventory"))},

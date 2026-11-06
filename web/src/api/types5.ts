@@ -117,3 +117,8 @@ export interface Branding { product_name: string; logo?: string; primary_color: 
 export interface APIToken { id: string; name: string; read_only: boolean; created: string; last_used?: string; expires?: string; limited?: boolean; scopes?: Record<string, string>; accounts?: string[]; allow_ips?: string[] }
 export interface QuotaUsage { account: string; used_mb: number; soft_mb: number; hard_mb: number; over: boolean }
 export interface ImportFile { file: string; size_mb: number; uploaded: string }
+
+// ---- server metrics
+export interface MetricPoint { t: string; cpu: number; mem: number; swap: number; net_in: number; net_out: number; disk_rd: number; disk_wr: number; load1: number }
+export interface NetInterface { name: string; in_bps: number; out_bps: number; rx_bytes: number; tx_bytes: number; rx_errors: number; tx_errors: number }
+export interface ServerMetrics { now: MetricPoint; mem_total_mb: number; swap_total_mb: number; interfaces: NetInterface[]; history: MetricPoint[] }

@@ -365,6 +365,7 @@ Migration
 
 Server
   ike servers                                  every server this panel manages
+  ike metrics                                  CPU, memory, swap, network and disk right now
   ike status                    ike services          ike service NAME start|stop|restart
   ike jobs JOB_ID [--wait]      ike events
   ike apply FILE.json [--plan] [--var key=value ...] [--wait]
@@ -669,6 +670,8 @@ func run(args []string) error {
 		return packagesCmd(c, pos, fs)
 	case "servers":
 		return serversCmd(c)
+	case "metrics":
+		return metricsCmd(c)
 	case "tokens":
 		return tokensCmd(c, pos, fs)
 	case "keys":

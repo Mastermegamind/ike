@@ -1010,3 +1010,42 @@ func cpanelCmd(c *client, pos []string, fs flagSet) error {
 	}
 	return errUsage
 }
+
+// metricsCmd prints the server's current CPU, memory, swap, network and disk.
+func metricsCmd(c *client) error {
+	var m struct {
+		RawNow      map[string]float64 `json:"now"`
+		MemTotalMB  float64            `json:"mem_total_mb"`
+		SwapTotalMB float64            `json:"swap_total_mb"`
+		Interfaces  []map[string]any   `json:"interfaces"`
+	}
+	if err := c.do("GET", "/server/metrics", nil, &m); err != nil {
+		return err
+	}
+	n := m.RawNow
+	bits := func(bps float64) string {
+		b := bps * 8
+		switch {
+		case b >= 1e9:
+			return fmt.Sprintf("%.1f Gbit/s", b/1e9)
+		case b >= 1e6:
+			return fmt.Sprintf("%.1f Mbit/s", b/1e6)
+		}
+		return fmt.Sprintf("%.0f kbit/s", b/1e3)
+	}
+	c.show(m, func(w *tabwriter.Writer) {
+		fmt.Fprintf(w, "CPU\t%.0f%%\tload %.2f\n", n["cpu"], n["load1"])
+		fmt.Fprintf(w, "Memory\t%.0f MB\tof %.0f MB\n", n["mem"], m.MemTotalMB)
+		if m.SwapTotalMB > 0 {
+			fmt.Fprintf(w, "Swap\t%.0f MB\tof %.0f MB\n", n["swap"], m.SwapTotalMB)
+		} else {
+			fmt.Fprintf(w, "Swap\tnone\t\n")
+		}
+		fmt.Fprintf(w, "Network\t%s in\t%s out\n", bits(n["net_in"]), bits(n["net_out"]))
+		fmt.Fprintf(w, "Disk\t%s read\t%s written\n", human(n["disk_rd"])+"/s", human(n["disk_wr"])+"/s")
+		for _, i := range m.Interfaces {
+			fmt.Fprintf(w, "  %v\t%s in\t%s out\n", i["name"], bits(toF(i["in_bps"])), bits(toF(i["out_bps"])))
+		}
+	})
+	return nil
+}
