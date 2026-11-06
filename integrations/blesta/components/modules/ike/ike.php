@@ -298,10 +298,11 @@ class Ike extends Module
         curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_TIMEOUT, 300);
-        // The panel ships with a self-signed certificate; set IKE_VERIFY_TLS=1
-        // once it has a real one.
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, (bool) getenv('IKE_VERIFY_TLS'));
-        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, getenv('IKE_VERIFY_TLS') ? 2 : 0);
+        // Certificates are checked. Only while the panel still has its self-signed
+        // certificate, set IKE_ALLOW_SELF_SIGNED=1 in the web server's environment;
+        // better, give the panel a real certificate (docs/INTEGRATIONS.md).
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, getenv('IKE_ALLOW_SELF_SIGNED') !== '1');
+        curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, getenv('IKE_ALLOW_SELF_SIGNED') === '1' ? 0 : 2);
         if ($body !== null) {
             $headers[] = 'Content-Type: application/json';
             curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($body));

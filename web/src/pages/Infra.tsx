@@ -214,7 +214,7 @@ function Webhooks() {
       <section className="panel">
         <div className="panel-head"><div><h2>Event webhooks</h2><p className="small muted">Ike POSTs a JSON event to your URL when something happens: a backup fails, a website is created, malware is found. Each request is signed with HMAC-SHA256 in the X-Ike-Signature header.</p></div>
           <Button variant="primary" onClick={() => setEdit({ id: "", url: "https://", events: ["*"], enabled: true, created_at: "" })}><Plus size={16} />Add webhook</Button></div>
-        {!list.data ? <div className="panel-body"><Skeleton /></div> : list.data.length === 0 ? <Empty icon={<WebhookIcon size={22} />} title="No webhooks" text="Connect Slack, Discord, n8n, Zapier or your own service." /> : (
+        {!list.data ? <div className="panel-body"><Skeleton /></div> : list.data.length === 0 ? <Empty icon={<WebhookIcon size={22} />} title="No webhooks" text="Send signed events to n8n, Zapier, Make or your own service." /> : (
           <div className="table-wrap"><table className="responsive">
             <thead><tr><th>URL</th><th>Events</th><th /></tr></thead>
             <tbody>{list.data.map((w) => (

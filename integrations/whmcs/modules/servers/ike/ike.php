@@ -67,10 +67,11 @@ function ike_api(array $params, $method, $path, $body = null)
     curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_TIMEOUT, 300);
-    // The panel ships with a self-signed certificate. Put a real certificate
-    // on the panel (Settings → Panel address) and set this to true.
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, (bool) getenv('IKE_VERIFY_TLS'));
-    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, getenv('IKE_VERIFY_TLS') ? 2 : 0);
+    // Certificates are checked. Only while the panel still has its self-signed
+    // certificate, set IKE_ALLOW_SELF_SIGNED=1 in the web server's environment;
+    // better, give the panel a real certificate (docs/INTEGRATIONS.md).
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, getenv('IKE_ALLOW_SELF_SIGNED') !== '1');
+    curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, getenv('IKE_ALLOW_SELF_SIGNED') === '1' ? 0 : 2);
     if ($body !== null) {
         $json = json_encode($body);
         $headers[] = 'Content-Type: application/json';

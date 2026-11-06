@@ -35,6 +35,81 @@ The whole script sits inside a function that runs on its last line, so a downloa
 curl -fsSL https://ike.megamindtechnologies.com/installer.sh | sudo IKE_VERSION=v0.3.0 bash
 ```
 
+## Options
+
+Run with no options in a terminal and a wizard asks for each choice. To skip it, pass options after `bash -s --`:
+
+```bash
+curl -fsSL https://ike.megamindtechnologies.com/installer.sh | sudo bash -s -- --web hybrid --php all --mail --dns --postgres --redis --disk-quotas
+```
+
+This is `install.sh --help`:
+
+```text
+Usage: install.sh [options]
+
+Web server
+  --web nginx|apache|hybrid   nginx: Nginx only (default)
+                              apache: Apache only
+                              hybrid: Nginx in front; each website picks Nginx or Nginx+Apache (.htaccess)
+  --default-web-server X      hybrid only: "nginx" or "nginx+apache" for new websites
+
+Languages
+  --php "7.4 8.3"             PHP versions, or "all" for 5.6 7.0 7.1 7.2 7.3 7.4 8.0 8.1 8.2 8.3 8.4 8.5
+                              (default: "8.2 8.3 8.4 8.5")
+  --default-php 8.3           PHP version for new websites (default: newest installed)
+  --node "20 22 24"           Node.js major versions, or "none" (default: "22")
+  --python "3.12 3.13"        Python versions, or "none" (default: "3.12")
+  --java "17 21"              OpenJDK versions (default: none)
+  --maven                     Also install Maven for Java builds
+  --go "1.24 1.25"            Go versions (default: none)
+  --dart "latest"             Dart SDK: latest or an exact version like 3.9.4 (default: none)
+
+Containers
+  --docker                    Install Docker Engine with Compose and Buildx
+  --docker-for-accounts       Let account owners run containers and Compose stacks (not just admins)
+  --buildpacks                Install the Cloud Native Buildpacks tool (pack) for Git deploys without a Dockerfile
+  --k3s                       Install Kubernetes (k3s, single node) for server admins
+
+DNS and email
+  --dns                       Run a DNS server (PowerDNS) for your domains' zones
+  --mail                      Email hosting: Postfix, Dovecot, Rspamd (spam, DKIM), ClamAV and Roundcube webmail
+  --no-antivirus              With --mail: skip ClamAV (saves about 1 GB of memory)
+  --no-webmail                With --mail: skip Roundcube
+  --hostname mail.example.com This server's name (mail greeting, reverse DNS); default: hostname -f
+
+Security
+  --disk-quotas               Enforce per-account disk limits with Linux user quotas (ext4; XFS after a reboot).
+  --modsecurity               Web application firewall (ModSecurity + OWASP Core Rule Set), switched on per website.
+                              With Nginx this uses Ubuntu's Nginx package, which the ModSecurity module is built for.
+  --clamav                    ClamAV for malware scans of websites (included with --mail)
+
+Databases
+  --no-mariadb                Do not install MariaDB
+  --postgres [VERSION]        PostgreSQL: Ubuntu's version, or 14-18 from the PostgreSQL project's repository
+  --redis | --valkey          Redis or Valkey: a private instance per account, on a unix socket
+  --mongodb [VERSION]         MongoDB Community from mongodb.org (default 8.0)
+  --phpmyadmin stable|6|none  phpMyAdmin channel (default: stable; "6" = 6.0 development snapshot)
+
+Multiple servers
+  --join URL                  Join this server to a panel on another server (https://panel.example.com:2087)
+  --join-token TOKEN          The one-time token from "Servers → Add server" in that panel
+  --join-fingerprint FP       That panel's certificate fingerprint (shown with the token)
+
+Other
+  --force                     Install even if the server is not fresh
+  --agent-binary PATH         Use a locally built ike-agent
+  --mcp-binary PATH           Use a locally built ike-mcp
+  --cli-binary PATH           Use a locally built ike command-line tool
+  --panel-binary PATH         Use a locally built ike-panel
+  --admin-user NAME           First panel admin (default: admin)
+  --admin-email EMAIL         First panel admin's email
+  --wizard                    Ask for every choice step by step (default when run with no options in a terminal)
+  -h, --help                  Show this help
+```
+
+Running the installer again on a server that already has Ike upgrades it in place; pass the same options as the first time.
+
 ## Publishing it on ike.megamindtechnologies.com
 
 Each tagged release (`git tag v0.3.0 && git push --tags`) attaches `installer.sh`, `install.sh` and their `.sha256` files to the GitHub release. The domain then only has to point at them.

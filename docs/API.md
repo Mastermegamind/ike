@@ -450,7 +450,7 @@ Most of these are panel routes, not on the agent socket.
 | `GET /bandwidth` *(panel)* | Traffic this month per account against its cap |
 | `GET /billing/invoices` *(panel)* | Invoices with amount, status (open, paid, void) and due date |
 | `POST /billing/invoices` *(panel)* | New invoice {"account","items","due"} |
-| `POST /billing/invoices/{id}/checkout` *(panel)* | Payment link (Paystack, Flutterwave, Stripe) |
+| `POST /billing/invoices/{id}/checkout` *(panel)* | Payment link (Bachs, Paystack or Flutterwave) |
 | `POST /billing/invoices/{id}/mark-paid` *(panel)* | Record a payment made another way |
 | `POST /billing/invoices/{id}/void` *(panel)* | Cancel an invoice |
 | `GET /billing/settings` *(panel)* | Currency, tax, payment providers (keys hidden) |
@@ -471,7 +471,7 @@ Services, updates, usage, inventory, maintenance, webhooks, specs, migration and
 | Route | Description |
 |---|---|
 | `GET /alerts/events` *(panel)* | Alerts sent recently |
-| `GET /alerts/settings` *(panel)* | Where serious events are sent (email, Slack, Telegram, webhook) |
+| `GET /alerts/settings` *(panel)* | Where serious events are sent (Telegram, WhatsApp, email) |
 | `PUT /alerts/settings` *(panel)* | Change alert channels |
 | `POST /alerts/test` *(panel)* | Send a test alert |
 | `GET /audit` | Every change made through the agent |
@@ -541,5 +541,5 @@ Served by the panel without signing in. Each checks its own token or signature.
 | `POST /s/{token}` | Download a password-protected share |
 | `GET /sso/{token}` | One-time sign-in link from a billing system |
 | `POST /webhooks/git/{domain}` | Git push webhook (GitHub, GitLab, Gitea, Bitbucket; signed with the site's secret) |
-| `POST /webhooks/{provider}` | Payment provider webhook (Paystack, Flutterwave, Stripe; signature checked) |
+| `POST /webhooks/{provider}` | Payment provider webhook: bachs, paystack or flutterwave (signature checked) |
 | `POST /cluster/join` | A new server joining with its one-time token (mutual TLS afterwards) |

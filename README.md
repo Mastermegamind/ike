@@ -35,10 +35,19 @@ An open-source, all-in-one hosting control panel for Linux VPS servers. It combi
 - **Domains and redirects:** aliases, subdomains, *.wildcards, www handling, and redirect/rewrite rules
 - **More languages:** Java, Go and Dart apps next to PHP, Node.js and Python; Composer and 40 PHP extensions per version; per-website PHP-FPM settings
 - **Containers:** Docker containers and Compose stacks per account (policy-checked: no privileged or host-network containers), volumes, networks, private registries, image update alerts, Dockerfile/buildpack/image deployments, and optional Kubernetes (k3s) for admins
-- **cPanel migration:** reads a cPanel full backup and shows what will come across (restore is next)
+- **DNS:** zone editor for every record type, templates (website, email, Google Workspace, Microsoft 365, Zoho), PowerDNS with secondaries and DNSSEC, Cloudflare and DigitalOcean, domain registration, propagation and reverse DNS checks, expiry reminders, and wildcard certificates
+- **Email:** Postfix, Dovecot, Rspamd and ClamAV; mailboxes, forwarders, auto-replies, catch-all, quotas, Roundcube webmail, DKIM/SPF/DMARC, SMTP relays for providers that block port 25, a mail queue and delivery log, and a deliverability checker that says what to fix
+- **Databases:** MariaDB, PostgreSQL, MongoDB and a private Redis (Valkey) per account, with connection diagnostics, slow queries, imports and exports, and replication
+- **Files:** a file manager with editor, archives, search, folder sizes, snapshots and expiring share links; a browser terminal; S3, Backblaze B2 and SFTP storage
+- **Backups:** encrypted, incremental restic backups of the server, accounts, databases or mail, on a schedule with retention, integrity checks, one-click restores and full disaster recovery onto a new server
+- **Security:** malware scanning with quarantine, a ModSecurity web firewall per site, and encrypted secrets with key rotation
+- **Reseller hosting:** packages with enforced limits, reseller quotas, monthly bandwidth caps, recurring subscriptions, white-label branding, and WHMCS and Blesta modules with single sign-on
+- **Many servers:** join servers over mutual TLS, switch between them in the panel, database clusters with failover, load balancing, and server specs you can plan and apply
+- **cPanel migration:** restores a cPanel full backup: websites, files, databases (WordPress rewired), mailboxes with their passwords, forwarders, cron jobs and DNS
+- **Panel:** Ctrl K command palette, keyboard shortcuts, notifications, help on every screen, in English, French, Nigerian Pidgin, Yoruba, Igbo and Hausa
 
-- **SSH per account**: none, SFTP-only (chrooted to the account's home) or full shell, with keys managed by the panel
-- **AI-ready**: built-in [MCP server](docs/MCP.md) so AI agents (Claude, Cursor, VS Code…) can manage the server safely, read-only by default, with an audit log
+- **SSH per account**: none, SFTP-only (chrooted to the account's home) or full shell, and each key can be narrowed to SFTP or read-only SFTP, some addresses and an expiry date
+- **API, CLI and AI agents**: every screen is in the [API](docs/API.md), the [`ike` command](docs/CLI.md) and a 164-tool [MCP server](docs/MCP.md). Each gives full or limited access: API tokens can be limited to some areas (read or write), accounts and addresses, and can expire ([who can do what](docs/ACCESS.md))
 - **Safe by design**: the root agent only accepts a fixed set of validated actions, never shell commands; failed changes roll back automatically
 
 ## Supported systems
@@ -96,25 +105,31 @@ What it sets up, per your choices: Nginx and/or Apache, PHP-FPM, Node.js, Python
 
 ## SSH and SFTP
 
-Each account's Linux user has one of three modes, set through the agent API or MCP:
+Each account's Linux user has one of three modes:
 
 | Mode | Access |
 |---|---|
 | `none` (default) | No login |
 | `sftp` | File transfer only, locked to the account's home folder |
-| `shell` | Full shell, **not** jailed — only for users you trust |
+| `shell` | Full shell, **not** jailed; only for users you trust |
 
-Keys live in root-owned files under `/etc/ssh/ike/keys/`, so a hosting user can't add keys behind the panel's back. Password logins are disabled for these users.
+Each key can then be narrowed: SFTP only or read-only SFTP even on a shell account, only from some addresses, and until a date. Keys live in root-owned files under `/etc/ssh/ike/keys/`, so a hosting user can't add keys behind the panel's back. Password logins are disabled for these users.
 
-## AI agents (MCP)
+## API, CLI and AI agents (MCP)
 
-`ike-mcp` lets AI clients manage the server over SSH, with no extra ports:
+```sh
+ike login https://server.example.com:2087 --username andre
+ike sites
+ike deploy shop.ng --wait
+```
+
+`ike-mcp` lets AI clients manage the server, over SSH or through the panel with an API token:
 
 ```json
 { "mcpServers": { "my-vps": { "command": "ssh", "args": ["root@SERVER-IP", "ike-mcp"] } } }
 ```
 
-It is read-only unless you add `--allow-write`. See [docs/MCP.md](docs/MCP.md).
+It is read-only unless you add `--allow-write`. With a limited API token (`ike-mcp --panel https://server:2087`) the AI only sees the tools that token allows. See [ACCESS.md](docs/ACCESS.md), [API.md](docs/API.md), [CLI.md](docs/CLI.md) and [MCP.md](docs/MCP.md).
 
 ## Architecture
 
@@ -123,7 +138,7 @@ It is read-only unless you add `--allow-write`. See [docs/MCP.md](docs/MCP.md).
 │  ike-panel: web UI, sign-in + 2FA, roles,  │   runs as the unprivileged user "ike"
 │  billing, alerts  (ports 2083/2086/2087)   │
 └───────────────────┬────────────────────────┘
-                    │  unix socket today, gRPC + mTLS for remote nodes later
+                    │  unix socket here; mutual TLS to other servers
               ┌─────▼──────┐
               │  ike-agent  │   small Go daemon, the only root component
               └────────────┘
@@ -135,24 +150,19 @@ The panel checks who you are and what your role allows, then forwards the reques
 ## Repository layout
 
 ```
-agent/        Go source: ike-agent (root daemon), ike-mcp (MCP server), ike-panel (web panel server)
+agent/        Go source: ike-agent (root daemon), ike-panel (web panel server), ike (CLI), ike-mcp (MCP server)
 web/          React web panel (embedded into ike-panel; runs on demo data in the preview)
 installer/    installer.sh (one-liner bootstrap) and install.sh for Ubuntu 22.04 / 24.04 / 26.04
 deploy/       nginx config for serving the one-line installer
-docs/         Design notes and roadmap
+integrations/ WHMCS and Blesta provisioning modules
+scripts/      Generators for docs/API.md and the feature tracker
+docs/         Guides, API reference, feature tracker and roadmap
 .github/      CI (Go tests, ShellCheck)
 ```
 
 ## Roadmap
 
-1. **Foundation** — installer, agent, web panel, sites, SSH/SFTP, MCP, databases, billing, alerts, HTTPS — *done*
-2. Hosting essentials — **DNS (PowerDNS) and wildcard certificates next**, backups (restic), file manager, plans
-3. Email — Postfix, Dovecot, Rspamd, DKIM, SMTP relay option (many VPS providers block port 25)
-4. Reseller layer — reseller accounts, branding, billing hooks (WHMCS, Paystack, Flutterwave, Stripe)
-5. App platform — Git deploys, Docker, Compose and k3s — *done*; one-click app catalog next
-6. Scale — multi-server, server-to-server migration, cPanel backup importer
-
-See [docs/ROADMAP.md](docs/ROADMAP.md), the full [feature tracker](docs/FEATURES.md) and the [ports plan](docs/PORTS.md) (panel, reseller, admin, webmail, and SSL/TLS + STARTTLS mail ports).
+v0.5.0 covers 170 of the 177 features in the [tracker](docs/FEATURES.md), with 7 more partly done. Next: a one-click app catalog, a certificate for the panel's own address from the settings, MCP over HTTP from the panel, password-protected folders, passkeys, and creating servers through cloud provider APIs. See [docs/ROADMAP.md](docs/ROADMAP.md) and the [ports plan](docs/PORTS.md).
 
 ## Development
 

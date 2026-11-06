@@ -278,7 +278,7 @@ MANUAL = {
  "PUT /v1/billing/settings": "Change billing settings",
  "GET /v1/billing/invoices": "Invoices with amount, status (open, paid, void) and due date",
  "POST /v1/billing/invoices": "New invoice {\"account\",\"items\",\"due\"}",
- "POST /v1/billing/invoices/{}/checkout": "Payment link (Paystack, Flutterwave, Stripe)",
+ "POST /v1/billing/invoices/{}/checkout": "Payment link (Bachs, Paystack or Flutterwave)",
  "POST /v1/billing/invoices/{}/mark-paid": "Record a payment made another way",
  "POST /v1/billing/invoices/{}/void": "Cancel an invoice",
  "GET /v1/billing/subscriptions": "Recurring billing",
@@ -289,7 +289,7 @@ MANUAL = {
  "PUT /v1/me/branding": "Set product name, logo (PNG/JPEG data URL), colour, support links, host names",
  "GET /v1/notifications": "Your notifications, newest first",
  "POST /v1/notifications/read": "Mark read {\"up_to\": event id}",
- "GET /v1/alerts/settings": "Where serious events are sent (email, Slack, Telegram, webhook)",
+ "GET /v1/alerts/settings": "Where serious events are sent (Telegram, WhatsApp, email)",
  "PUT /v1/alerts/settings": "Change alert channels",
  "POST /v1/alerts/test": "Send a test alert",
  "GET /v1/alerts/events": "Alerts sent recently",
@@ -308,7 +308,7 @@ PUBLIC = {
  "POST /s/{token}": "Download a password-protected share",
  "GET /sso/{token}": "One-time sign-in link from a billing system",
  "POST /webhooks/git/{domain}": "Git push webhook (GitHub, GitLab, Gitea, Bitbucket; signed with the site's secret)",
- "POST /webhooks/{provider}": "Payment provider webhook (Paystack, Flutterwave, Stripe; signature checked)",
+ "POST /webhooks/{provider}": "Payment provider webhook: bachs, paystack or flutterwave (signature checked)",
  "POST /cluster/join": "A new server joining with its one-time token (mutual TLS afterwards)",
 }
 

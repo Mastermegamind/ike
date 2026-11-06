@@ -314,7 +314,7 @@ function DeployForm({ site, current, hasToken, onCancel, onSaved }: { site: Site
             ) : null}
             {app || container ? <Field label="Health check path" hint="Must answer without a server error before traffic moves.">{(id) => <input id={id} className="input mono" style={{ maxWidth: 240 }} value={f.health_path || "/"} onChange={(e) => setF({ ...f, health_path: e.target.value })} />}</Field> : null}
             <Field label="Releases to keep" hint="For rollbacks. Older ones are deleted.">{(id) => <input id={id} className="input mono" style={{ maxWidth: 100 }} inputMode="numeric" value={f.keep_releases || 5} onChange={(e) => setF({ ...f, keep_releases: Number(e.target.value.replace(/\D/g, "")) || 5 })} />}</Field>
-            <Field label="Notify a URL after each deployment (optional)" hint="Ike POSTs JSON signed with the webhook secret (X-Ike-Signature). Slack, Discord or your own endpoint.">
+            <Field label="Notify a URL after each deployment (optional)" hint="Ike POSTs JSON signed with the webhook secret (X-Ike-Signature). n8n, Zapier or your own endpoint.">
               {(id) => <input id={id} className="input mono" value={f.notify_url || ""} onChange={(e) => setF({ ...f, notify_url: e.target.value.trim() || undefined })} placeholder="https://hooks.example.com/ike" spellCheck={false} />}</Field>
             {!fromImage ? (
               <>

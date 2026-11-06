@@ -1,49 +1,28 @@
 # Roadmap
 
-## Phase 1 — Foundation (done)
-- [x] Installer for Ubuntu 22.04 / 24.04 / 26.04 with OS, KVM, RAM and fresh-server checks
-- [x] nginx.org and ondrej/php repos with fallback to Ubuntu packages; Ubuntu's MariaDB
-- [x] ike-agent daemon on a root-only unix socket
-- [x] Site creation: Linux user, home layout, PHP-FPM pool per site, Nginx vhost, config test + reload
-- [x] Site deletion, system info, service status
-- [x] SSH per site: none / SFTP-only (chroot) / shell, panel-managed keys
-- [x] MCP server (stdio, works over SSH): read-only default, `--allow-write`, delete confirmation, audit log
-- [x] Database + DB user creation (MariaDB), phpMyAdmin
-- [x] Control-plane API (ike-panel): sign-in, TOTP 2FA, roles on separate ports, audit log
-- [x] Web UI: every screen, embedded in ike-panel, data saver mode
-- [x] Updates (OS + Ike self-update), health assistant, security scan, drift detection
-- [x] Staging sites, env vars, app health checks, resource limits + usage graphs
-- [x] Billing (Bachs, Paystack, Flutterwave), uptime alerts (WhatsApp, Telegram, email)
-- [x] One-line installer (`installer.sh`) with checksum verification
-- [x] Let's Encrypt and custom certificates, force HTTPS, HSTS, HTTP/2, HTTP/3
-- [x] Domains, aliases, wildcards, redirects; PHP-FPM settings, PHP extensions, Composer
-- [x] Java, Go and Dart runtimes; proxy runtime
-- [x] Git deployments (Phase 5 brought forward), Docker, Compose, optional k3s
+## Done in v0.5.0
 
-## Phase 2 — Hosting essentials
-- DNS with PowerDNS, cron jobs, log viewer, bandwidth/disk stats
-- Plans and quotas (disk, sites, DBs), cgroups v2 CPU/RAM/IO limits per user
-- Backups with restic to S3 / Backblaze B2 / Cloudflare R2 / local
-- File manager, browser-based SSH terminal, extra SFTP accounts per site
-- Jailed SSH shells (namespaces) so `shell` mode can be offered to untrusted users
-- WordPress installer and toolkit
+- **Foundation:** installer for Ubuntu 22.04, 24.04 and 26.04; root agent on a socket; web panel with roles on separate ports, two-factor sign-in, audit log; websites, PHP 5.6–8.5, Node.js, Python, Java, Go, Dart; HTTPS; billing; alerts
+- **Hosting essentials:** DNS (PowerDNS, Cloudflare, DigitalOcean, DNSSEC, registrar, templates), wildcard certificates, cron, logs, disk quotas, file manager, browser terminal, backups with restic
+- **Email:** Postfix, Dovecot, Rspamd, ClamAV, DKIM, SPF and DMARC, Roundcube, SMTP relays, deliverability checks
+- **Databases:** MariaDB, PostgreSQL, MongoDB, a private Redis (Valkey) per account, diagnostics, slow queries, replication
+- **Security:** malware scanning and quarantine, ModSecurity web firewall per site, encrypted secrets with rotation
+- **Reseller and billing:** packages with enforced limits, reseller quotas, monthly bandwidth caps, recurring subscriptions, WHMCS and Blesta modules, white-label branding
+- **App platform:** Git deploys, previews, rollback, blue-green, Docker, Compose, buildpacks, k3s
+- **Scale:** many servers joined over mutual TLS, database clusters with failover, load balancing, server specs (infrastructure as code), webhooks, maintenance windows, inventory
+- **Automation:** the `ike` CLI, a 164-tool MCP server, the full API, scoped API tokens and per-key SSH access ([ACCESS.md](ACCESS.md))
+- **Migration:** cPanel full backups, including mail, cron and DNS
+- **Panel:** command palette, keyboard shortcuts, notification centre, help on every screen, and six languages
 
-## Phase 3 — Email
-- Postfix, Dovecot, Rspamd, DKIM/SPF/DMARC, Roundcube
-- SMTP relay option (Brevo, Mailgun, Amazon SES) for providers that block port 25
+## Next
 
-## Phase 4 — Reseller & billing
-- Reseller accounts, white-label branding
-- WHMCS module, Paystack, Flutterwave and Stripe billing
+- One-click app catalog: Laravel, Joomla, Drupal, Nextcloud, Ghost, n8n, Plausible, Metabase
+- A Let's Encrypt certificate for the panel's own address from the settings screen
+- MCP over Streamable HTTP served by the panel
+- Password-protected folders and websites
+- Passkeys; a developer role
+- OpenLiteSpeed and Caddy; nftables and firewalld
+- Create servers through Hetzner, DigitalOcean, Vultr and Linode
+- Server-to-server migration (for example 22.04 to 24.04 before end of support)
 
-## Phase 5 — App platform (Coolify-style)
-- [x] Git push deploys, previews, rollback, blue-green, build queue
-- [x] Docker, Compose, buildpacks, registries, k3s
-- One-click app catalog on containers (n8n, Ghost, Plausible, Metabase …)
-
-## Phase 6 — Scale
-- Multi-server via agent join tokens (gRPC + mTLS)
-- MCP over Streamable HTTP with per-user API tokens and scopes
-- Create VPSes through Hetzner / DigitalOcean / Vultr / Linode APIs
-- Server-to-server migration (e.g. 22.04 → 24.04 before end of support)
-- cPanel backup importer: reading backups done; restoring next
+The full status of every feature is in [FEATURES.md](FEATURES.md).
