@@ -113,8 +113,8 @@ function Clusters() {
         <SelectField label="Engine" value={f.engine} onChange={(v) => setF({ ...f, engine: v })} options={[{ value: "mariadb", label: "MariaDB" }, { value: "redis", label: "Redis / Valkey" }]} />
         <SelectField label="Primary" value={f.primary} onChange={(v) => setF({ ...f, primary: v })} options={opts} />
         <Field label="Copies on">{() => <div className="stack" style={{ gap: 6 }}>{opts.filter((o) => o.value !== f.primary).map((o) => (
-          <Toggle key={o.value} checked={f.replicas.includes(o.value)} label={o.label}
-            onChange={(v) => setF({ ...f, replicas: v ? [...f.replicas, o.value] : f.replicas.filter((x) => x !== o.value) })} />))}</div>}</Field>
+          <Toggle key={o.value} checked={(f.replicas ?? []).includes(o.value)} label={o.label}
+            onChange={(v) => setF({ ...f, replicas: v ? [...f.replicas, o.value] : (f.replicas ?? []).filter((x) => x !== o.value) })} />))}</div>}</Field>
       </FormModal>
       <FormModal open={!!promote} onClose={() => setPromote(null)} title={`Make ${promote ? nameOf(promote.server) : ""} the primary?`} submit="Promote" danger
         onSubmit={async () => { await api.call("POST", `/clusters/${enc(promote!.c.id)}/promote`, { server: promote!.server }); list.reload(); }}>
@@ -141,9 +141,9 @@ function InventoryPanel() {
             <dt>Up since</dt><dd>{dateTime(i.booted_at)} ({Math.round(i.uptime_hours / 24)} days)</dd>
           </dl>
           <h3 style={{ fontSize: "0.95rem", margin: "16px 0 8px" }}>Disks</h3>
-          <ul className="small" style={{ margin: 0, paddingLeft: 18 }}>{i.disks.map((d) => <li key={d.name}><span className="mono">{d.name}</span> {d.size_gb} GB {d.type}{d.mount ? ` on ${d.mount} (${d.filesystem})` : ""}{d.model ? ` · ${d.model}` : ""}{d.rotational ? " · HDD" : ""}</li>)}</ul>
+          <ul className="small" style={{ margin: 0, paddingLeft: 18 }}>{(i.disks ?? []).map((d) => <li key={d.name}><span className="mono">{d.name}</span> {d.size_gb} GB {d.type}{d.mount ? ` on ${d.mount} (${d.filesystem})` : ""}{d.model ? ` · ${d.model}` : ""}{d.rotational ? " · HDD" : ""}</li>)}</ul>
           <h3 style={{ fontSize: "0.95rem", margin: "16px 0 8px" }}>Network</h3>
-          <ul className="small" style={{ margin: 0, paddingLeft: 18 }}>{i.interfaces.map((n) => <li key={n.name}><span className="mono">{n.name}</span> {n.state} · {n.addresses.join(", ")}</li>)}</ul>
+          <ul className="small" style={{ margin: 0, paddingLeft: 18 }}>{(i.interfaces ?? []).map((n) => <li key={n.name}><span className="mono">{n.name}</span> {n.state} · {(n.addresses ?? []).join(", ")}</li>)}</ul>
         </div>
       </section>
       {a ? <section className="panel">
@@ -180,7 +180,7 @@ function Maintenance() {
           <thead><tr><th>Window</th><th>When</th><th>Does</th><th>State</th><th /></tr></thead>
           <tbody>{list.data.map((w) => (
             <tr key={w.id}><td className="lead">{w.title}</td><td className="small">{dateTime(w.start)} → {dateTime(w.end)}</td>
-              <td className="small">{[w.sites[0] === "-" ? "" : w.sites.length ? `${w.sites.length} sites offline` : "All sites offline", w.updates ? "updates" : "", w.reboot ? "reboot" : ""].filter(Boolean).join(", ")}</td>
+              <td className="small">{[w.sites[0] === "-" ? "" : (w.sites ?? []).length ? `${(w.sites ?? []).length} sites offline` : "All sites offline", w.updates ? "updates" : "", w.reboot ? "reboot" : ""].filter(Boolean).join(", ")}</td>
               <td><Badge tone={w.state === "active" ? "warn" : w.state === "done" ? "ok" : undefined}>{w.state}</Badge></td>
               <td style={{ textAlign: "right" }}>{w.state === "scheduled" || w.state === "active" ? <Button size="sm" variant="ghost" onClick={() => run("x", () => api.call("DELETE", `/maintenance/${enc(w.id)}`), "Cancelled").then(() => list.reload())}>Cancel</Button> : null}</td></tr>
           ))}</tbody>
@@ -218,7 +218,7 @@ function Webhooks() {
           <div className="table-wrap"><table className="responsive">
             <thead><tr><th>URL</th><th>Events</th><th /></tr></thead>
             <tbody>{list.data.map((w) => (
-              <tr key={w.id}><td className="lead mono small" style={{ wordBreak: "break-all" }}>{w.url}{!w.enabled ? <> <Badge>Off</Badge></> : null}</td><td className="small mono">{w.events.join(", ")}</td>
+              <tr key={w.id}><td className="lead mono small" style={{ wordBreak: "break-all" }}>{w.url}{!w.enabled ? <> <Badge>Off</Badge></> : null}</td><td className="small mono">{(w.events ?? []).join(", ")}</td>
                 <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                   <Button size="sm" variant="ghost" onClick={() => run("t", () => api.call("POST", `/webhooks/${enc(w.id)}/test`), "Test event sent").then(() => deliveries.reload())}><Send size={14} />Test</Button>
                   <Button size="sm" variant="ghost" icon aria-label="Edit" onClick={() => setEdit(w)}><Pencil size={15} /></Button>
@@ -245,7 +245,7 @@ function Webhooks() {
         list.reload();
       }}>
         <TextField label="URL" value={edit.url} onChange={(v) => setEdit({ ...edit, url: v })} mono hint="HTTPS only, and not an address inside your network." />
-        <TextField label="Events" value={edit.events.join(", ")} onChange={(v) => setEdit({ ...edit, events: v.split(/[\s,]+/).filter(Boolean) })} mono
+        <TextField label="Events" value={(edit.events ?? []).join(", ")} onChange={(v) => setEdit({ ...edit, events: v.split(/[\s,]+/).filter(Boolean) })} mono
           hint="* for everything, or patterns like backup.*, site.created, malware.*, dns.domain.expiring" />
         <Toggle checked={edit.enabled} onChange={(v) => setEdit({ ...edit, enabled: v })} label="Send events" />
       </FormModal> : null}
@@ -307,7 +307,7 @@ function Specs() {
           <div className="panel-head"><h2>Templates</h2></div>
           <div className="panel-body">{!tmpls.data?.length ? <p className="muted small">Save a spec as a template to reuse it, for example "WordPress client" with a ${"{domain}"} variable.</p> : (
             <ul style={{ listStyle: "none", margin: 0, padding: 0 }} className="stack">{tmpls.data.map((t) => (
-              <li key={t.name} className="row" style={{ justifyContent: "space-between" }}><span><strong>{t.name}</strong> <span className="small muted">{t.description}</span>{t.variables?.length ? <div className="small mono muted">{t.variables.join(", ")}</div> : null}</span>
+              <li key={t.name} className="row" style={{ justifyContent: "space-between" }}><span><strong>{t.name}</strong> <span className="small muted">{t.description}</span>{t.variables?.length ? <div className="small mono muted">{(t.variables ?? []).join(", ")}</div> : null}</span>
                 <span className="row"><Button size="sm" onClick={() => setText(JSON.stringify(t.spec, null, 2))}>Open</Button>
                   <Button size="sm" variant="ghost" icon aria-label="Delete template" onClick={() => run("dt", () => api.call("DELETE", `/spec/templates/${enc(t.name)}`), "Template deleted").then(() => tmpls.reload())}><Trash2 size={14} /></Button></span></li>))}</ul>
           )}</div>

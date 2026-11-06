@@ -49,8 +49,8 @@ function MailHome({ route, role }: { route: string; role: Role }) {
               <tbody>{domains.data.map((d) => (
                 <tr key={d.domain} style={{ cursor: "pointer" }} onClick={() => navigate(`/email/${enc(d.domain)}?account=${enc(account)}`)}>
                   <td className="lead"><a className="primary-cell" href={href(`/email/${enc(d.domain)}?account=${enc(account)}`)}>{d.domain}</a>{!d.enabled ? <div className="small muted">Paused</div> : null}</td>
-                  <td className="num">{d.mailboxes.length}</td>
-                  <td className="num" data-hide-sm>{d.aliases.length}</td>
+                  <td className="num">{(d.mailboxes ?? []).length}</td>
+                  <td className="num" data-hide-sm>{(d.aliases ?? []).length}</td>
                   <td><div className="row" style={{ gap: 6 }}>{d.dkim ? <Badge tone="ok">DKIM</Badge> : <Badge tone="warn">No DKIM</Badge>}{d.tls ? <Badge tone="ok">TLS</Badge> : null}</div></td>
                   <td style={{ textAlign: "right" }}><a className="btn sm ghost" href={d.webmail_url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}><ExternalLink size={14} />Webmail</a></td>
                 </tr>
@@ -98,11 +98,11 @@ function MailDomainPage({ domain, route, role }: { domain: string; route: string
         <section className="panel">
           <div className="panel-head"><h2>Mailboxes</h2>
             <Button size="sm" loading={busy === "usage"} onClick={() => run("usage", () => api.call<MailDomainV5>("POST", `${base}/usage`)).then((x) => x && d.setData(x))}><RefreshCw size={15} />Refresh usage</Button></div>
-          {md.mailboxes.length === 0 ? <Empty icon={<Inbox size={22} />} title="No mailboxes yet" text={`Create addresses like info@${domain} or sales@${domain}.`}
+          {(md.mailboxes ?? []).length === 0 ? <Empty icon={<Inbox size={22} />} title="No mailboxes yet" text={`Create addresses like info@${domain} or sales@${domain}.`}
             action={<Button variant="primary" onClick={() => setAdd(true)}><Plus size={16} />Add mailbox</Button>} /> : (
             <div className="table-wrap"><table className="responsive">
               <thead><tr><th>Address</th><th>Storage</th><th data-hide-sm>Extras</th><th /></tr></thead>
-              <tbody>{md.mailboxes.map((m) => {
+              <tbody>{(md.mailboxes ?? []).map((m) => {
                 const used = m.usage?.used_mb ?? 0;
                 return (
                   <tr key={m.local}>
@@ -202,7 +202,7 @@ function MailboxEdit({ m, domain, base, onClose, onSaved }: { m: MailboxV5; doma
 
 function Forwarders({ md, base, onSaved }: { md: MailDomainV5; base: string; onSaved: (d: MailDomainV5) => void }) {
   const toast = useToast();
-  const [rows, setRows] = useState<{ from: string; to: string }[]>(md.aliases.map((a) => ({ from: a.from, to: a.to.join(", ") })));
+  const [rows, setRows] = useState<{ from: string; to: string }[]>((md.aliases ?? []).map((a) => ({ from: a.from, to: a.to.join(", ") })));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   return (
@@ -322,8 +322,8 @@ function QueuePanel({ base }: { base: string }) {
           <thead><tr><th>From → to</th><th>Why it's waiting</th><th data-hide-sm>Queued</th><th /></tr></thead>
           <tbody>{q.data.map((m) => (
             <tr key={m.id}>
-              <td className="lead"><div className="mono small">{m.sender || "(bounce)"}</div><div className="mono small muted">→ {m.recipients.map((r) => r.address).join(", ")}</div></td>
-              <td className="small">{m.recipients.find((r) => r.delay_reason)?.delay_reason ?? <Badge>{m.queue}</Badge>}</td>
+              <td className="lead"><div className="mono small">{m.sender || "(bounce)"}</div><div className="mono small muted">→ {(m.recipients ?? []).map((r) => r.address).join(", ")}</div></td>
+              <td className="small">{(m.recipients ?? []).find((r) => r.delay_reason)?.delay_reason ?? <Badge>{m.queue}</Badge>}</td>
               <td className="muted small" data-hide-sm>{timeAgo(m.arrival)}</td>
               <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                 <Button size="sm" variant="ghost" loading={busy === "retry" + m.id} onClick={() => act("retry", m.id)}>Retry</Button>

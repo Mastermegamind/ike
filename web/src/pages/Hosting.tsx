@@ -160,10 +160,10 @@ function Bandwidth() {
   return (
     <section className="panel">
       <div className="panel-head"><div><h2>Bandwidth this month</h2><p className="small muted">Accounts that use up their package's monthly bandwidth are suspended until the 1st, or until you give them a bigger package.</p></div></div>
-      {!bw.data ? <div className="panel-body"><Skeleton /></div> : bw.data.accounts.length === 0 ? <Empty icon={<Gauge size={22} />} title="No traffic counted yet" text="Usage is added up every 15 minutes." /> : (
+      {!bw.data ? <div className="panel-body"><Skeleton /></div> : (bw.data.accounts ?? []).length === 0 ? <Empty icon={<Gauge size={22} />} title="No traffic counted yet" text="Usage is added up every 15 minutes." /> : (
         <div className="table-wrap"><table className="responsive">
           <thead><tr><th>Account</th><th style={{ width: "40%" }}>Used</th><th>Status</th></tr></thead>
-          <tbody>{bw.data.accounts.map((r) => (
+          <tbody>{(bw.data.accounts ?? []).map((r) => (
             <tr key={r.account}><td className="lead">{r.account}</td>
               <td>{r.limit_gb ? <><Meter value={(r.used_mb / 1024 / r.limit_gb) * 100} label={`Bandwidth of ${r.account}`} /><div className="small muted">{(r.used_mb / 1024).toFixed(1)} of {r.limit_gb} GB</div></> : <span className="small">{(r.used_mb / 1024).toFixed(1)} GB, no limit</span>}</td>
               <td>{r.suspended_for_bandwidth ? <Badge tone="bad">Suspended</Badge> : <Badge tone="ok">OK</Badge>}</td></tr>
@@ -182,9 +182,9 @@ function Quotas() {
       {!q.data ? <div className="panel-body"><Skeleton /></div> : (
         <>
           {q.data.note ? <div className="panel-body"><div className={`callout ${q.data.enabled ? "warn" : ""}`}>{q.data.note}</div></div> : null}
-          {q.data.accounts.length ? <div className="table-wrap"><table className="responsive">
+          {(q.data.accounts ?? []).length ? <div className="table-wrap"><table className="responsive">
             <thead><tr><th>Account</th><th style={{ width: "45%" }}>Used</th></tr></thead>
-            <tbody>{q.data.accounts.map((a) => (
+            <tbody>{(q.data.accounts ?? []).map((a) => (
               <tr key={a.account}><td className="lead">{a.account}{a.over ? <> <Badge tone="bad">Full</Badge></> : null}</td>
                 <td>{a.hard_mb ? <><Meter value={(a.used_mb / a.hard_mb) * 100} label={`Disk of ${a.account}`} /><div className="small muted">{a.used_mb.toFixed(0)} of {a.hard_mb.toFixed(0)} MB</div></> : <span className="small">{a.used_mb.toFixed(0)} MB, no limit</span>}</td></tr>
             ))}</tbody>
@@ -275,7 +275,7 @@ export function TokensPage({ role }: { role: Role }) {
               <tr key={t.id}>
                 <td className="lead">{t.name}<div className="small muted">{t.expires && new Date(t.expires).getFullYear() > 2000 ? `Expires ${dateTime(t.expires)}` : "Never expires"}</div></td>
                 <td className="small">{t.read_only ? <Badge>Read only</Badge> : null} {t.limited ? Object.entries(t.scopes ?? {}).map(([a, l]) => <Badge key={a} tone={l === "write" ? "accent" : undefined}>{a}: {l}</Badge>) : <Badge tone="warn">Full access</Badge>}
-                  {t.accounts?.length ? <div className="muted">Accounts: {t.accounts.join(", ")}</div> : null}{t.allow_ips?.length ? <div className="muted mono">From {t.allow_ips.join(", ")}</div> : null}</td>
+                  {t.accounts?.length ? <div className="muted">Accounts: {(t.accounts ?? []).join(", ")}</div> : null}{t.allow_ips?.length ? <div className="muted mono">From {(t.allow_ips ?? []).join(", ")}</div> : null}</td>
                 <td className="small muted" data-hide-sm>{t.last_used && new Date(t.last_used).getFullYear() > 2000 ? timeAgo(t.last_used) : "Never"}</td>
                 <td style={{ textAlign: "right" }}><Button size="sm" variant="ghost" icon aria-label={`Delete ${t.name}`} onClick={() => setDel(t)}><Trash2 size={15} /></Button></td>
               </tr>
@@ -307,7 +307,7 @@ export function TokensPage({ role }: { role: Role }) {
                 options={[{ value: "none", label: "None" }, { value: "read", label: "Read" }, { value: "write", label: "Change" }]} /></div>))}</div>
         ) : <Toggle checked={f.read_only} onChange={(v) => setF({ ...f, read_only: v })} label="Read only (can look, can't change anything)" />}
         {role !== "user" ? <Field label="Only these accounts (optional)" hint="Leave all off for every account you manage.">{() => <div className="row">{(accounts.data ?? []).map((a) => (
-          <Toggle key={a.name} checked={f.accounts.includes(a.name)} label={a.name} onChange={(v) => setF({ ...f, accounts: v ? [...f.accounts, a.name] : f.accounts.filter((x) => x !== a.name) })} />))}</div>}</Field> : null}
+          <Toggle key={a.name} checked={(f.accounts ?? []).includes(a.name)} label={a.name} onChange={(v) => setF({ ...f, accounts: v ? [...f.accounts, a.name] : (f.accounts ?? []).filter((x) => x !== a.name) })} />))}</div>}</Field> : null}
         <TextField label="Only from these IP addresses (optional)" value={f.ips} onChange={(v) => setF({ ...f, ips: v })} mono placeholder="203.0.113.7, 198.51.100.0/24" />
         <SelectField label="Expires" value={String(f.days)} onChange={(v) => setF({ ...f, days: Number(v) })} options={[{ value: "0", label: "Never" }, { value: "7", label: "In 7 days" }, { value: "30", label: "In 30 days" }, { value: "90", label: "In 90 days" }, { value: "365", label: "In a year" }]} />
       </FormModal>

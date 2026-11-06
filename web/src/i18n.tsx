@@ -18,6 +18,8 @@ export const languages: { id: Lang; name: string; english: string }[] = [
 type Dict = Record<string, string>;
 
 const fr: Dict = {
+  "Ike means strength.": "Ike signifie la force.", "Open your authenticator app and enter the code for": "Ouvrez votre application d'authentification et saisissez le code de",
+  "Lost your phone? Enter one of your recovery codes instead.": "Téléphone perdu ? Saisissez plutôt un de vos codes de secours.",
   Dashboard: "Tableau de bord", Hosting: "Hébergement", Accounts: "Comptes", Websites: "Sites web", Email: "E-mail",
   "DNS zones": "Zones DNS", Databases: "Bases de données", Files: "Fichiers", Backups: "Sauvegardes", "Cron jobs": "Tâches cron",
   "App installer": "Installateur d'applications", Containers: "Conteneurs", "SSL certificates": "Certificats SSL", Terminal: "Terminal",
@@ -42,6 +44,8 @@ const fr: Dict = {
 };
 
 const pcm: Dict = {
+  "Ike means strength.": "Ike mean strength.", "Open your authenticator app and enter the code for": "Open your authenticator app, put the code for",
+  "Lost your phone? Enter one of your recovery codes instead.": "Your phone don lost? Put one of your recovery codes instead.",
   Dashboard: "Dashboard", Hosting: "Hosting", Accounts: "Akaunt dem", Websites: "Website dem", Email: "Email", "DNS zones": "DNS zone dem",
   Databases: "Database dem", Files: "File dem", Backups: "Backup dem", "Cron jobs": "Cron work dem", "App installer": "App installer",
   Containers: "Container dem", "SSL certificates": "SSL certificate dem", Terminal: "Terminal", Server: "Server", Servers: "Server dem",

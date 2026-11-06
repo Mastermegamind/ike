@@ -70,7 +70,7 @@ function DbList({ account }: { account: string }) {
                 <td><Badge>{engineName[d.engine]}</Badge></td>
                 <td className="small mono" data-hide-sm>{[d.owner, ...(d.roles ?? []).map((r) => `${r.name} (${r.access})`)].join(", ")}</td>
                 <td className="num muted" data-hide-sm>{d.size_mb ? `${d.size_mb.toFixed(1)} MB` : ""}</td>
-                <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                <td><div className="row-actions">
                   <DownloadLink small path={`${path}/export`} label="Export" />
                   <UploadButton method="POST" path={() => `${path}/import`} label="Import" accept=".sql,.gz,.archive" onDone={() => toast("ok", `Imported into ${d.name}`)} />
                   <Button size="sm" variant="ghost" icon aria-label="New password" loading={busy === "pw" + d.name}
@@ -78,7 +78,7 @@ function DbList({ account }: { account: string }) {
                   {d.engine !== "mariadb" ? <Button size="sm" variant="ghost" icon aria-label="Add a user" onClick={() => setRoleFor(d)}><Users size={15} /></Button> : null}
                   <Button size="sm" variant="ghost" icon aria-label="Diagnose connection" onClick={() => setDiag(d)}><Stethoscope size={15} /></Button>
                   <Button size="sm" variant="ghost" icon aria-label={`Delete ${d.name}`} onClick={() => setDel(d)}><Trash2 size={15} /></Button>
-                </td>
+                </div></td>
               </tr>
             );
           })}</tbody>

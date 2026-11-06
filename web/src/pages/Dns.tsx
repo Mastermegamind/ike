@@ -53,7 +53,7 @@ function ZoneList({ route, role }: { route: string; role: Role }) {
                   {z.kind === "secondary" ? <div className="small muted">Secondary of {z.primaries?.join(", ")}</div> : null}
                   {z.last_error ? <div className="small" style={{ color: "var(--bad)" }}>{z.last_error}</div> : null}</td>
                 <td>{backendLabel[z.backend]}</td>
-                <td className="num">{z.records.length}</td>
+                <td className="num">{(z.records ?? []).length}</td>
                 <td>{z.dnssec ? <Badge tone="ok">Signed</Badge> : <span className="muted">Off</span>}</td>
                 <td data-hide-sm className="muted">{z.registration?.expires ? new Date(z.registration.expires).toLocaleDateString() : ""}</td>
               </tr>
@@ -117,10 +117,10 @@ function ZoneDetail({ name, route, role }: { name: string; route: string; role: 
         <section className="panel">
           <div className="panel-body">
             <div className="small muted" style={{ marginBottom: 8 }}>Set these name servers at the registrar where you bought {name}:</div>
-            <div className="row" style={{ gap: 8 }}>{z.nameservers.map((n) => <CopyField key={n} value={n} label="Name server" />)}</div>
+            <div className="row" style={{ gap: 8 }}>{(z.nameservers ?? []).map((n) => <CopyField key={n} value={n} label="Name server" />)}</div>
             {z.dnssec && z.ds?.length ? <div style={{ marginTop: 14 }}>
               <div className="small muted" style={{ marginBottom: 6 }}>DNSSEC is on. Give your registrar this DS record:</div>
-              {z.ds.map((d) => <CopyField key={d} value={d} label="DS record" />)}</div> : null}
+              {(z.ds ?? []).map((d) => <CopyField key={d} value={d} label="DS record" />)}</div> : null}
           </div>
         </section>
       ) : null}
@@ -241,14 +241,14 @@ function Propagation({ base }: { base: string }) {
         <>
           <div className="panel-body">
             <div className={`callout ${p.data.delegation_ok ? "info" : "warn"}`}>{p.data.delegation_ok ? <CircleCheck size={18} /> : <Globe2 size={18} />}{p.data.explanation}</div>
-            {!p.data.delegation_ok && p.data.delegated?.length ? <p className="small muted" style={{ marginTop: 8 }}>The registrar lists: <span className="mono">{p.data.delegated.join(", ")}</span></p> : null}
+            {!p.data.delegation_ok && p.data.delegated?.length ? <p className="small muted" style={{ marginTop: 8 }}>The registrar lists: <span className="mono">{(p.data.delegated ?? []).join(", ")}</span></p> : null}
           </div>
           <div className="table-wrap"><table className="responsive">
             <thead><tr><th>Record</th><th>Expected</th><th>Resolvers</th></tr></thead>
-            <tbody>{p.data.records.map((r) => (
+            <tbody>{(p.data.records ?? []).map((r) => (
               <tr key={r.name + r.type}>
                 <td className="lead mono">{r.name} <Badge>{r.type}</Badge></td>
-                <td className="mono small" style={{ wordBreak: "break-all" }}>{r.expected.join(", ")}</td>
+                <td className="mono small" style={{ wordBreak: "break-all" }}>{(r.expected ?? []).join(", ")}</td>
                 <td>{r.note ? <span className="small muted">{r.note}</span> : <div className="row" style={{ gap: 6 }}>{(r.answers ?? []).map((a) => (
                   <span key={a.resolver} className="small" title={a.error || (a.values ?? []).join(", ")} style={{ display: "inline-flex", gap: 4, alignItems: "center", color: a.match ? "var(--ok)" : "var(--bad)" }}>
                     {a.match ? <CircleCheck size={14} /> : <CircleX size={14} />}{a.resolver}</span>))}</div>}</td>
@@ -263,7 +263,7 @@ function Propagation({ base }: { base: string }) {
 
 function ZoneSettings({ z, base, role, onSaved }: { z: DnsZone; base: string; role: Role; onSaved: (z: DnsZone) => void }) {
   const toast = useToast();
-  const [s, setS] = useState({ ttl: z.ttl, soa_email: z.soa_email, dnssec: z.dnssec, nameservers: z.nameservers.join("\n"),
+  const [s, setS] = useState({ ttl: z.ttl, soa_email: z.soa_email, dnssec: z.dnssec, nameservers: (z.nameservers ?? []).join("\n"),
     also_notify: (z.also_notify ?? []).join("\n"), allow_transfer: (z.allow_transfer ?? []).join("\n") });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -367,9 +367,9 @@ export function DnsSettingsPage() {
 
 function DnsServerSettings({ s, tab, onSaved }: { s: DnsSettings; tab: "servers" | "providers"; onSaved: (s: DnsSettings) => void }) {
   const toast = useToast();
-  const [ns, setNs] = useState<Nameserver[]>(s.nameservers.length ? s.nameservers : [{ host: "", ipv4: s.server_ipv4 }, { host: "", ipv4: "" }]);
-  const [f, setF] = useState({ soa_email: s.soa_email, default_ttl: s.default_ttl, secondaries: s.secondaries.join("\n"), default_backend: s.default_backend,
-    cloudflare_token: "", cloudflare_account: s.cloudflare_account ?? "", digitalocean_token: "", expiry_reminders: s.expiry_reminders.join(", ") });
+  const [ns, setNs] = useState<Nameserver[]>((s.nameservers ?? []).length ? s.nameservers : [{ host: "", ipv4: s.server_ipv4 }, { host: "", ipv4: "" }]);
+  const [f, setF] = useState({ soa_email: s.soa_email, default_ttl: s.default_ttl, secondaries: (s.secondaries ?? []).join("\n"), default_backend: s.default_backend,
+    cloudflare_token: "", cloudflare_account: s.cloudflare_account ?? "", digitalocean_token: "", expiry_reminders: (s.expiry_reminders ?? []).join(", ") });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const save = async () => {
@@ -491,7 +491,7 @@ function ReversePanel() {
       <div className="panel-head"><div><h2>Reverse DNS</h2><p className="small muted">Mail servers check that this server's address points back to its name. Reverse DNS is set at your VPS provider, not here.</p></div>
         <Button loading={r.loading} onClick={r.reload}><RefreshCw size={16} />Check again</Button></div>
       <div className="panel-body stack">
-        {!r.data ? <Skeleton /> : r.data.length === 0 ? <p className="muted">This server's public address isn't known.</p> : r.data.map((c) => (
+        {r.loading && !r.data ? <Skeleton /> : !r.data?.length ? <p className="muted">This server's public address isn't known yet. Set it under Name servers.</p> : (r.data ?? []).map((c) => (
           <div key={c.address} className={`callout ${c.ok ? "info" : "warn"}`}>
             {c.ok ? <ShieldCheck size={18} /> : <Globe2 size={18} />}
             <div><strong className="mono">{c.address}</strong> → <span className="mono">{(c.ptr ?? []).join(", ") || "no PTR record"}</span>

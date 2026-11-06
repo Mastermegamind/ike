@@ -86,6 +86,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -659,6 +660,11 @@ func decodeLimit(w http.ResponseWriter, r *http.Request, v any, limit int64) boo
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
+	// An empty list is [], not null, so clients can always iterate it.
+	if rv := reflect.ValueOf(v); rv.Kind() == reflect.Slice && rv.IsNil() {
+		_, _ = w.Write([]byte("[]\n"))
+		return
+	}
 	_ = json.NewEncoder(w).Encode(v)
 }
 

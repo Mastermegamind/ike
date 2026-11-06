@@ -15,6 +15,7 @@ import (
 	"net"
 	"net/http"
 	"path"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -190,6 +191,11 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(code)
+	// An empty list is [], not null, so clients can always iterate it.
+	if rv := reflect.ValueOf(v); rv.Kind() == reflect.Slice && rv.IsNil() {
+		_, _ = w.Write([]byte("[]\n"))
+		return
+	}
 	_ = json.NewEncoder(w).Encode(v)
 }
 
