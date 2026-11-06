@@ -13,7 +13,8 @@
 //	POST   /v1/accounts/{name}/unsuspend
 //	PUT    /v1/accounts/{name}/ssh             {"mode": "none"|"sftp"|"shell"}
 //	GET    /v1/accounts/{name}/ssh/keys
-//	POST   /v1/accounts/{name}/ssh/keys        {"public_key"}
+//	POST   /v1/accounts/{name}/ssh/keys        {"public_key","access","allow_from","expires"}
+//	PUT    /v1/accounts/{name}/ssh/keys?fingerprint=   {"access":"|sftp|sftp-readonly","allow_from":[],"expires":"YYYY-MM-DD"}
 //	DELETE /v1/accounts/{name}/ssh/keys?fingerprint=SHA256:...
 //	GET    /v1/accounts/{name}/cron
 //	POST   /v1/accounts/{name}/cron            {"schedule","command","comment","enabled"}
@@ -219,11 +220,19 @@ func (s *Server) Handler() http.Handler {
 	h("POST /v1/accounts/{name}/ssh/keys", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
 		var body struct {
 			PublicKey string `json:"public_key"`
+			sites.KeyAccess
 		}
 		if !decode(w, r, &body) {
 			return 0, nil, nil
 		}
-		return created(s.Sites.AddSSHKey(r.PathValue("name"), body.PublicKey))
+		return created(s.Sites.AddSSHKey(r.PathValue("name"), body.PublicKey, body.KeyAccess))
+	})
+	h("PUT /v1/accounts/{name}/ssh/keys", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		var body sites.KeyAccess
+		if !decode(w, r, &body) {
+			return 0, nil, nil
+		}
+		return ok(s.Sites.SetKeyAccess(r.PathValue("name"), r.URL.Query().Get("fingerprint"), body))
 	})
 	h("DELETE /v1/accounts/{name}/ssh/keys", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
 		fp := r.URL.Query().Get("fingerprint")

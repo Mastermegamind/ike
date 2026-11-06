@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -46,7 +47,68 @@ type SSHKey struct {
 	Type        string `json:"type"`
 	Fingerprint string `json:"fingerprint"`
 	Comment     string `json:"comment"`
-	line        string
+	KeyAccess
+	line string
+}
+
+// KeyAccess limits what one key can do, on top of the account's SSH mode.
+type KeyAccess struct {
+	// Access is "" (whatever the account allows), "sftp" (file transfer
+	// only) or "sftp-readonly" (download only).
+	Access string `json:"access,omitempty"`
+	// AllowFrom lists the IP addresses or CIDR ranges the key works from.
+	AllowFrom []string `json:"allow_from,omitempty"`
+	// Expires is the last day the key works (YYYY-MM-DD).
+	Expires string `json:"expires,omitempty"`
+}
+
+var expiresRe = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
+var cidrRe = regexp.MustCompile(`^[0-9a-fA-F:.]{2,45}(/\d{1,3})?$`)
+
+func (k KeyAccess) check() error {
+	switch k.Access {
+	case "", "sftp", "sftp-readonly":
+	default:
+		return fmt.Errorf("key access is full, sftp or sftp-readonly")
+	}
+	if len(k.AllowFrom) > 20 {
+		return fmt.Errorf("at most 20 addresses per key")
+	}
+	for _, a := range k.AllowFrom {
+		if !cidrRe.MatchString(a) {
+			return fmt.Errorf("%q is not an IP address or range", a)
+		}
+	}
+	if k.Expires != "" && !expiresRe.MatchString(k.Expires) {
+		return fmt.Errorf("expiry date looks like 2026-12-31")
+	}
+	return nil
+}
+
+// options renders the authorized_keys options for a key on an account in
+// the given SSH mode. Every key is "restrict"ed (no forwarding); shell keys
+// get a terminal back, file-transfer keys are forced into internal-sftp.
+func (k KeyAccess) options(mode string) string {
+	var o []string
+	start := "-d %d/web"
+	if mode == SSHSFTP {
+		start = "-d /web" // inside the chroot
+	}
+	switch {
+	case k.Access == "sftp-readonly":
+		o = append(o, "restrict", `command="internal-sftp -R `+start+`"`)
+	case k.Access == "sftp" || mode == SSHSFTP:
+		o = append(o, "restrict", `command="internal-sftp `+start+`"`)
+	default:
+		o = append(o, "restrict", "pty")
+	}
+	if len(k.AllowFrom) > 0 {
+		o = append(o, `from="`+strings.Join(k.AllowFrom, ",")+`"`)
+	}
+	if k.Expires != "" {
+		o = append(o, `expiry-time="`+strings.ReplaceAll(k.Expires, "-", "")+`2359"`)
+	}
+	return strings.Join(o, ",")
 }
 
 // ParsePublicKey validates a single OpenSSH public key line ("type base64 [comment]").
@@ -121,6 +183,12 @@ func (m *Manager) SetSSHMode(ctx context.Context, account, mode string) (*Accoun
 	if err := m.saveAccount(a); err != nil {
 		return nil, err
 	}
+	// Key options depend on the mode (chroot paths, forced SFTP).
+	if keys, err := m.readKeys(account); err == nil && len(keys) > 0 {
+		if err := m.writeKeys(account, keys); err != nil {
+			return nil, err
+		}
+	}
 	return a, nil
 }
 
@@ -133,10 +201,16 @@ func (m *Manager) ListSSHKeys(account string) ([]SSHKey, error) {
 }
 
 // AddSSHKey authorizes a public key for an account.
-func (m *Manager) AddSSHKey(account, publicKey string) (SSHKey, error) {
+func (m *Manager) AddSSHKey(account, publicKey string, acc ...KeyAccess) (SSHKey, error) {
 	k, err := ParsePublicKey(publicKey)
 	if err != nil {
 		return SSHKey{}, err
+	}
+	if len(acc) > 0 {
+		if err := acc[0].check(); err != nil {
+			return SSHKey{}, err
+		}
+		k.KeyAccess = acc[0]
 	}
 	if _, err := m.GetAccount(account); err != nil {
 		return SSHKey{}, err
@@ -156,6 +230,29 @@ func (m *Manager) AddSSHKey(account, publicKey string) (SSHKey, error) {
 		return SSHKey{}, fmt.Errorf("an account can have at most %d SSH keys", maxKeys)
 	}
 	return k, m.writeKeys(account, append(keys, k))
+}
+
+// SetKeyAccess changes what an existing key may do.
+func (m *Manager) SetKeyAccess(account, fingerprint string, acc KeyAccess) (SSHKey, error) {
+	if err := acc.check(); err != nil {
+		return SSHKey{}, err
+	}
+	if _, err := m.GetAccount(account); err != nil {
+		return SSHKey{}, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	keys, err := m.readKeys(account)
+	if err != nil {
+		return SSHKey{}, err
+	}
+	for i, k := range keys {
+		if k.Fingerprint == fingerprint {
+			keys[i].KeyAccess = acc
+			return keys[i], m.writeKeys(account, keys)
+		}
+	}
+	return SSHKey{}, fmt.Errorf("key %s %w", fingerprint, ErrNotFound)
 }
 
 // RemoveSSHKey removes a key by its SHA256 fingerprint.
@@ -186,7 +283,33 @@ func (m *Manager) RemoveSSHKey(account, fingerprint string) error {
 
 func (m *Manager) keysFile(usr string) string { return m.p(filepath.Join(keysDir, usr)) }
 
+// keyMetaFile keeps each key's access settings; the authorized_keys file is
+// rendered from it.
+func (m *Manager) keyMetaFile(usr string) string {
+	return m.p(filepath.Join(m.cfg.AccountsDir, usr+".keys.json"))
+}
+
+type keyMeta struct {
+	Line string `json:"line"`
+	KeyAccess
+}
+
 func (m *Manager) readKeys(usr string) ([]SSHKey, error) {
+	if b, err := os.ReadFile(m.keyMetaFile(usr)); err == nil {
+		var meta []keyMeta
+		if json.Unmarshal(b, &meta) == nil {
+			keys := []SSHKey{}
+			for _, km := range meta {
+				k, err := ParsePublicKey(km.Line)
+				if err != nil || km.KeyAccess.check() != nil {
+					continue
+				}
+				k.KeyAccess = km.KeyAccess
+				keys = append(keys, k)
+			}
+			return keys, nil
+		}
+	}
 	b, err := os.ReadFile(m.keysFile(usr))
 	if errors.Is(err, os.ErrNotExist) {
 		return []SSHKey{}, nil
@@ -209,11 +332,37 @@ func (m *Manager) readKeys(usr string) ([]SSHKey, error) {
 }
 
 func (m *Manager) writeKeys(usr string, keys []SSHKey) error {
+	mode := SSHShell
+	if a, err := m.getAccount(usr); err == nil {
+		mode = a.SSH
+	}
+	meta := make([]keyMeta, 0, len(keys))
 	var buf bytes.Buffer
 	buf.WriteString("# Managed by Ike. Edit keys in the panel, not here.\n")
 	for _, k := range keys {
-		buf.WriteString(k.line + "\n")
+		meta = append(meta, keyMeta{Line: k.line, KeyAccess: k.KeyAccess})
+		buf.WriteString(k.KeyAccess.options(mode) + " " + k.line + "\n")
+	}
+	mb, _ := json.MarshalIndent(meta, "", "  ")
+	if err := writeFile(m.keyMetaFile(usr), mb, 0o600); err != nil {
+		return err
 	}
 	// sshd requires the file and its directories to be root-owned and not group/world writable.
 	return writeFile(m.keysFile(usr), buf.Bytes(), 0o644)
+}
+
+// RewriteAllKeys renders every account's authorized_keys file again, so key
+// options follow the current rules after an upgrade.
+func (m *Manager) RewriteAllKeys() {
+	accts, err := m.Accounts()
+	if err != nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, a := range accts {
+		if keys, err := m.readKeys(a.Name); err == nil && len(keys) > 0 {
+			_ = m.writeKeys(a.Name, keys)
+		}
+	}
 }

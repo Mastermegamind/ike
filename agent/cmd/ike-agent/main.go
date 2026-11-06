@@ -92,6 +92,7 @@ func run(socket, cfgPath, root, group string, dryRun bool) error {
 	if err := srv.Setup(); err != nil {
 		return err
 	}
+	mgr.RewriteAllKeys()
 
 	if err := os.MkdirAll(filepath.Dir(socket), 0o750); err != nil {
 		return err

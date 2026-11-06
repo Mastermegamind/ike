@@ -22,19 +22,20 @@ import (
 const tokenPrefix = "ike_"
 
 // bearerUser signs a request in with an API token: Authorization: Bearer ike_…
-func (s *Server) bearerUser(r *http.Request) (user string, readOnly bool) {
+func (s *Server) bearerUser(r *http.Request) (user string, tok *store.APIToken) {
 	h := r.Header.Get("Authorization")
-	tok, ok := strings.CutPrefix(h, "Bearer ")
-	if !ok || !strings.HasPrefix(tok, tokenPrefix) {
-		return "", false
+	t, ok := strings.CutPrefix(h, "Bearer ")
+	if !ok || !strings.HasPrefix(t, tokenPrefix) {
+		return "", nil
 	}
-	hash := auth.HashToken(strings.TrimSpace(tok))
+	hash := auth.HashToken(strings.TrimSpace(t))
 	_ = s.Store.Update(func(d *store.Data) error {
-		for _, t := range d.APITokens {
-			if t.Hash == hash && (t.Expires.IsZero() || time.Now().Before(t.Expires)) {
-				user, readOnly = t.Username, t.ReadOnly
-				if time.Since(t.LastUsed) > time.Minute {
-					t.LastUsed = time.Now().UTC()
+		for _, x := range d.APITokens {
+			if x.Hash == hash && (x.Expires.IsZero() || time.Now().Before(x.Expires)) {
+				c := *x
+				user, tok = x.Username, &c
+				if time.Since(x.LastUsed) > time.Minute {
+					x.LastUsed = time.Now().UTC()
 					return nil
 				}
 				return errNoSave
@@ -42,7 +43,7 @@ func (s *Server) bearerUser(r *http.Request) (user string, readOnly bool) {
 		}
 		return errNoSave
 	})
-	return user, readOnly
+	return user, tok
 }
 
 var errNoSave = errors.New("nothing to save")
@@ -50,12 +51,20 @@ var errNoSave = errors.New("nothing to save")
 var tokenNameRe = regexp.MustCompile(`^[\p{L}\p{N} ._()-]{1,60}$`)
 
 type tokenView struct {
-	ID       string    `json:"id"`
-	Name     string    `json:"name"`
-	ReadOnly bool      `json:"read_only"`
-	Created  time.Time `json:"created"`
-	LastUsed time.Time `json:"last_used,omitempty"`
-	Expires  time.Time `json:"expires,omitempty"`
+	ID       string            `json:"id"`
+	Name     string            `json:"name"`
+	ReadOnly bool              `json:"read_only"`
+	Created  time.Time         `json:"created"`
+	LastUsed time.Time         `json:"last_used,omitempty"`
+	Expires  time.Time         `json:"expires,omitempty"`
+	Limited  bool              `json:"limited"`
+	Scopes   map[string]string `json:"scopes,omitempty"`
+	Accounts []string          `json:"accounts,omitempty"`
+	AllowIPs []string          `json:"allow_ips,omitempty"`
+}
+
+func viewOf(t *store.APIToken) tokenView {
+	return tokenView{t.ID, t.Name, t.ReadOnly, t.Created, t.LastUsed, t.Expires, t.Limited, t.Scopes, t.Accounts, t.AllowIPs}
 }
 
 func (s *Server) listTokens(w http.ResponseWriter, r *http.Request) {
@@ -64,7 +73,7 @@ func (s *Server) listTokens(w http.ResponseWriter, r *http.Request) {
 	s.Store.View(func(d *store.Data) {
 		for _, t := range d.APITokens {
 			if t.Username == me.Username {
-				out = append(out, tokenView{t.ID, t.Name, t.ReadOnly, t.Created, t.LastUsed, t.Expires})
+				out = append(out, viewOf(t))
 			}
 		}
 	})
@@ -74,9 +83,13 @@ func (s *Server) listTokens(w http.ResponseWriter, r *http.Request) {
 func (s *Server) createToken(w http.ResponseWriter, r *http.Request) {
 	me := personFrom(r)
 	var req struct {
-		Name     string `json:"name"`
-		ReadOnly bool   `json:"read_only"`
-		Days     int    `json:"days"` // 0 = never expires
+		Name     string            `json:"name"`
+		ReadOnly bool              `json:"read_only"`
+		Days     int               `json:"days"` // 0 = never expires
+		Limited  bool              `json:"limited"`
+		Scopes   map[string]string `json:"scopes"`
+		Accounts []string          `json:"accounts"`
+		AllowIPs []string          `json:"allow_ips"`
 	}
 	if !decodeBody(w, r, &req) {
 		return
@@ -85,8 +98,30 @@ func (s *Server) createToken(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "Give the token a short name; it can last up to 3650 days.")
 		return
 	}
+	if me.Token != nil {
+		fail(w, 403, "Create API tokens from the panel, not with another token.")
+		return
+	}
+	if req.Scopes == nil {
+		req.Scopes = map[string]string{}
+	}
+	if err := validScopes(req.Scopes, req.AllowIPs); err != nil {
+		fail(w, 400, err.Error())
+		return
+	}
+	acc := s.accessFor(me)
+	for _, a := range req.Accounts {
+		if !acc.has(a) {
+			fail(w, 403, "Account "+a+" isn't one you manage.")
+			return
+		}
+	}
 	tok := tokenPrefix + auth.RandomToken(32)
-	t := &store.APIToken{ID: kit.RandomHex(5), Hash: auth.HashToken(tok), Name: req.Name, Username: me.Username, ReadOnly: req.ReadOnly, Created: time.Now().UTC()}
+	t := &store.APIToken{ID: kit.RandomHex(5), Hash: auth.HashToken(tok), Name: req.Name, Username: me.Username, ReadOnly: req.ReadOnly, Created: time.Now().UTC(),
+		Limited: req.Limited, Accounts: req.Accounts, AllowIPs: req.AllowIPs}
+	if req.Limited {
+		t.Scopes = req.Scopes
+	}
 	if req.Days > 0 {
 		t.Expires = time.Now().AddDate(0, 0, req.Days).UTC()
 	}
@@ -107,7 +142,8 @@ func (s *Server) createToken(w http.ResponseWriter, r *http.Request) {
 		failErr(w, err)
 		return
 	}
-	writeJSON(w, 201, map[string]any{"token": tok, "id": t.ID, "name": t.Name, "read_only": t.ReadOnly, "expires": t.Expires})
+	writeJSON(w, 201, map[string]any{"token": tok, "id": t.ID, "name": t.Name, "read_only": t.ReadOnly, "expires": t.Expires, "limited": t.Limited,
+		"scopes": t.Scopes, "accounts": t.Accounts, "allow_ips": t.AllowIPs})
 }
 
 func (s *Server) deleteToken(w http.ResponseWriter, r *http.Request) {
@@ -387,7 +423,11 @@ func (e deniedErr) Is(target error) bool { return target == errForbidden }
 
 func denied(format string, args ...any) error { return deniedErr{fmt.Sprintf(format, args...)} }
 
-func limitErr(what string, n int) error {
+func limitErr(one, many string, n int) error {
+	what := many
+	if n == 1 {
+		what = one
+	}
 	return denied("your hosting package allows %d %s; upgrade it for more", n, what)
 }
 
@@ -412,7 +452,7 @@ func (s *Server) checkPackageLimits(ctx context.Context, p *store.Person, method
 		_ = json.Unmarshal(body, &req)
 		if pkg := s.packageOf(req.Account); pkg != nil && pkg.Limits.Sites > 0 {
 			if n := count("/v1/sites?account=" + req.Account); n >= pkg.Limits.Sites {
-				return limitErr("websites", pkg.Limits.Sites)
+				return limitErr("website", "websites", pkg.Limits.Sites)
 			}
 		}
 		return s.checkResellerSites(ctx, p, req.Account)
@@ -424,7 +464,7 @@ func (s *Server) checkPackageLimits(ctx context.Context, p *store.Person, method
 		}
 		_ = json.Unmarshal(body, &req)
 		if pkg := s.packageOf(acct); pkg != nil && pkg.Limits.Domains > 0 && len(req.Aliases) > pkg.Limits.Domains {
-			return limitErr("extra domains per website", pkg.Limits.Domains)
+			return limitErr("extra domain per website", "extra domains per website", pkg.Limits.Domains)
 		}
 		return s.checkResellerDomains(ctx, acct, domain, len(req.Aliases))
 	case method == "POST" && reMariaDB.MatchString(apiPath):
@@ -436,7 +476,7 @@ func (s *Server) checkPackageLimits(ctx context.Context, p *store.Person, method
 			}
 			_ = s.Agent.Get(ctx, "/v1/accounts/"+acct+"/dbs", &dbs)
 			if len(dbs.MariaDB)+len(dbs.Databases) >= pkg.Limits.Databases {
-				return limitErr("databases", pkg.Limits.Databases)
+				return limitErr("database", "databases", pkg.Limits.Databases)
 			}
 		}
 	case method == "POST" && reDBs.MatchString(apiPath):
@@ -448,13 +488,13 @@ func (s *Server) checkPackageLimits(ctx context.Context, p *store.Person, method
 			}
 			_ = s.Agent.Get(ctx, "/v1/accounts/"+acct+"/dbs", &dbs)
 			if len(dbs.MariaDB)+len(dbs.Databases) >= pkg.Limits.Databases {
-				return limitErr("databases", pkg.Limits.Databases)
+				return limitErr("database", "databases", pkg.Limits.Databases)
 			}
 		}
 	case method == "POST" && reMailDomains.MatchString(apiPath):
 		acct := reMailDomains.FindStringSubmatch(apiPath)[1]
 		if pkg := s.packageOf(acct); pkg != nil && pkg.Limits.EmailDomains > 0 && count("/v1/accounts/"+acct+"/mail/domains") >= pkg.Limits.EmailDomains {
-			return limitErr("email domains", pkg.Limits.EmailDomains)
+			return limitErr("email domain", "email domains", pkg.Limits.EmailDomains)
 		}
 	case method == "POST" && reMailboxes.MatchString(apiPath):
 		acct := reMailboxes.FindStringSubmatch(apiPath)[1]
@@ -468,13 +508,13 @@ func (s *Server) checkPackageLimits(ctx context.Context, p *store.Person, method
 				n += len(d.Mailboxes)
 			}
 			if n >= pkg.Limits.Mailboxes {
-				return limitErr("mailboxes", pkg.Limits.Mailboxes)
+				return limitErr("mailbox", "mailboxes", pkg.Limits.Mailboxes)
 			}
 		}
 	case method == "POST" && reZones.MatchString(apiPath):
 		acct := reZones.FindStringSubmatch(apiPath)[1]
 		if pkg := s.packageOf(acct); pkg != nil && pkg.Limits.Domains > 0 && count("/v1/accounts/"+acct+"/dns/zones") >= pkg.Limits.Domains {
-			return limitErr("DNS zones", pkg.Limits.Domains)
+			return limitErr("DNS zone", "DNS zones", pkg.Limits.Domains)
 		}
 		return s.checkResellerDomains(ctx, acct, "", 0)
 	case method == "PUT" && reSSH.MatchString(apiPath):

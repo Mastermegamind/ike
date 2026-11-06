@@ -24,6 +24,22 @@ type access struct {
 func (a access) has(acct string) bool { return a.all || a.accounts[acct] }
 
 func (s *Server) accessFor(p *store.Person) access {
+	full := s.roleAccess(p)
+	// A token limited to some accounts sees only those (and, for an
+	// admin, loses the server-wide view).
+	if p.Token != nil && len(p.Token.Accounts) > 0 {
+		lim := access{accounts: map[string]bool{}}
+		for _, a := range p.Token.Accounts {
+			if full.has(a) {
+				lim.accounts[a] = true
+			}
+		}
+		return lim
+	}
+	return full
+}
+
+func (s *Server) roleAccess(p *store.Person) access {
 	if p.Role == store.Admin {
 		return access{all: true}
 	}

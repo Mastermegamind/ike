@@ -343,3 +343,47 @@ func TestResellerDomainAndAllocationQuotas(t *testing.T) {
 		t.Fatalf("second package past 3000 MB total: %d", c)
 	}
 }
+
+func TestLimitedTokens(t *testing.T) {
+	e := setup(t)
+	admin := e.browser(e.admin)
+	admin.login("andre", "admin-password-1", "")
+	admin.do("POST", "/api/v1/accounts", map[string]string{"name": "shop"}, nil)
+	admin.do("POST", "/api/v1/accounts", map[string]string{"name": "other"}, nil)
+	var tok map[string]any
+	if c := admin.do("POST", "/api/v1/tokens", map[string]any{"name": "dns bot", "limited": true, "scopes": map[string]string{"dns": "write", "sites": "read"},
+		"accounts": []string{"shop"}}, &tok); c != 201 {
+		t.Fatalf("create: %d", c)
+	}
+	tk := tok["token"].(string)
+	var accts []map[string]any
+	if c := tokenCall(t, e.admin.URL, tk, "GET", "/api/v1/accounts", nil, &accts); c != 403 {
+		t.Fatalf("accounts area not in scope: %d", c)
+	}
+	if c := tokenCall(t, e.admin.URL, tk, "GET", "/api/v1/sites", nil, nil); c != 200 {
+		t.Fatalf("sites read: %d", c)
+	}
+	if c := tokenCall(t, e.admin.URL, tk, "POST", "/api/v1/sites", map[string]string{"domain": "x.ng", "account": "shop"}, nil); c != 403 {
+		t.Fatalf("sites write with read scope: %d", c)
+	}
+	if c := tokenCall(t, e.admin.URL, tk, "GET", "/api/v1/accounts/other/dns/zones", nil, nil); c != 403 {
+		t.Fatalf("account outside the token: %d", c)
+	}
+	if c := tokenCall(t, e.admin.URL, tk, "GET", "/api/v1/updates", nil, nil); c != 403 {
+		t.Fatalf("server area: %d", c)
+	}
+	if c := tokenCall(t, e.admin.URL, tk, "POST", "/api/v1/tokens", map[string]any{"name": "escalate"}, nil); c != 403 {
+		t.Fatalf("token minted another token: %d", c)
+	}
+	var ipTok map[string]any
+	admin.do("POST", "/api/v1/tokens", map[string]any{"name": "office", "allow_ips": []string{"198.51.100.0/24"}}, &ipTok)
+	if c := tokenCall(t, e.admin.URL, ipTok["token"].(string), "GET", "/api/v1/sites", nil, nil); c != 403 {
+		t.Fatalf("IP allow-list ignored: %d", c)
+	}
+	if c := admin.do("POST", "/api/v1/tokens", map[string]any{"name": "bad", "limited": true, "scopes": map[string]string{"nuclear": "write"}}, nil); c != 400 {
+		t.Fatalf("unknown area accepted: %d", c)
+	}
+	if areaOf("/api/v1/accounts/shop/mail/domains") != "mail" || areaOf("/api/v1/sites/x.ng/waf") != "security" || areaOf("/api/v1/jobs/1") != "" {
+		t.Fatal("areaOf")
+	}
+}

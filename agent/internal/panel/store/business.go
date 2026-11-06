@@ -12,7 +12,18 @@ type APIToken struct {
 	Created  time.Time `json:"created"`
 	LastUsed time.Time `json:"last_used,omitempty"`
 	Expires  time.Time `json:"expires,omitempty"` // zero = never
+	// Limited tokens may only use the areas in Scopes (area → "read" |
+	// "write"). Other tokens have the person's full access.
+	Limited bool              `json:"limited,omitempty"`
+	Scopes  map[string]string `json:"scopes,omitempty"`
+	// Accounts limits the token to some of the person's hosting accounts.
+	Accounts []string `json:"accounts,omitempty"`
+	// AllowIPs limits where the token may be used from (IPs or CIDR ranges).
+	AllowIPs []string `json:"allow_ips,omitempty"`
 }
+
+// TokenAreas are the parts of the API a token can be limited to.
+var TokenAreas = []string{"sites", "dns", "mail", "databases", "files", "backups", "containers", "security", "billing", "accounts", "server"}
 
 // PackageLimits cap what an account on a hosting package can have.
 // 0 means unlimited for counts and sizes.

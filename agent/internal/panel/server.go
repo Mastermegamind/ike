@@ -278,14 +278,18 @@ func (s *Server) authed(next func(w http.ResponseWriter, r *http.Request)) http.
 	return func(w http.ResponseWriter, r *http.Request) {
 		user, _ := s.sessionUser(r)
 		viaToken := false
+		var tok *store.APIToken
 		if user == "" {
-			// Scripts, the ike CLI and billing systems use API tokens. A
-			// browser never sends this header on its own, so no CSRF check.
-			var readOnly bool
-			if user, readOnly = s.bearerUser(r); user != "" {
+			// Scripts, the ike CLI, AI agents and billing systems use API
+			// tokens. A browser never sends this header on its own, so no CSRF check.
+			if user, tok = s.bearerUser(r); user != "" {
 				viaToken = true
-				if readOnly && r.Method != http.MethodGet {
+				if tok.ReadOnly && r.Method != http.MethodGet {
 					fail(w, 403, "This API token is read-only.")
+					return
+				}
+				if err := tokenAllows(tok, r.Method, r.URL.Path, clientIP(r)); err != nil {
+					fail(w, 403, err.Error())
 					return
 				}
 			}
@@ -310,6 +314,7 @@ func (s *Server) authed(next func(w http.ResponseWriter, r *http.Request)) http.
 			fail(w, 401, "Sign in to continue.")
 			return
 		}
+		p.Token = tok
 		ctx := context.WithValue(r.Context(), keyPerson, &p)
 		next(w, r.WithContext(ctx))
 	}

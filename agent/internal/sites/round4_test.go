@@ -9,6 +9,7 @@ import (
 	"encoding/pem"
 	"math/big"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -423,5 +424,42 @@ func TestRepquotaCSV(t *testing.T) {
 	got := parseRepquotaCSV(csv, map[string]bool{"shop": true, "full": true})
 	if len(got) != 2 || got[0].UsedMB != 1024 || got[0].HardMB != 2048 || got[0].Over || !got[1].Over {
 		t.Fatalf("%+v", got)
+	}
+}
+
+func TestSSHKeyAccess(t *testing.T) {
+	m, _, root := newTestManager(t)
+	mustAccount(t, m, "keys")
+	pub := "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl ci@example"
+	if _, err := m.AddSSHKey("keys", pub, KeyAccess{Access: "bogus"}); err == nil {
+		t.Fatal("bad access accepted")
+	}
+	k, err := m.AddSSHKey("keys", pub, KeyAccess{Access: "sftp-readonly", AllowFrom: []string{"198.51.100.0/24"}, Expires: "2027-01-31"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	line := read(t, root, "etc/ssh/ike/keys/keys")
+	has(t, "options", line, `restrict,command="internal-sftp -R -d %d/web",from="198.51.100.0/24",expiry-time="202701312359" ssh-ed25519 AAAA`)
+	if _, err := m.SetSSHMode(ctx, "keys", SSHSFTP); err != nil {
+		t.Fatal(err)
+	}
+	has(t, "chroot path", read(t, root, "etc/ssh/ike/keys/keys"), `command="internal-sftp -R -d /web"`)
+	if _, err := m.SetKeyAccess("keys", k.Fingerprint, KeyAccess{}); err != nil {
+		t.Fatal(err)
+	}
+	has(t, "forced sftp for sftp accounts", read(t, root, "etc/ssh/ike/keys/keys"), `restrict,command="internal-sftp -d /web" ssh-ed25519`)
+	_, _ = m.SetSSHMode(ctx, "keys", SSHShell)
+	has(t, "shell", read(t, root, "etc/ssh/ike/keys/keys"), "restrict,pty ssh-ed25519")
+	keys, _ := m.ListSSHKeys("keys")
+	if len(keys) != 1 || keys[0].Access != "" {
+		t.Fatalf("%+v", keys)
+	}
+	// OpenSSH itself accepts the options
+	if _, err := exec.LookPath("ssh-keygen"); err == nil {
+		_, _ = m.SetKeyAccess("keys", k.Fingerprint, KeyAccess{Access: "sftp", AllowFrom: []string{"10.0.0.1"}, Expires: "2030-01-01"})
+		out, err := exec.Command("ssh-keygen", "-lf", filepath.Join(root, "etc/ssh/ike/keys/keys")).CombinedOutput()
+		if err != nil || !strings.Contains(string(out), k.Fingerprint) {
+			t.Fatalf("ssh-keygen: %v %s", err, out)
+		}
 	}
 }

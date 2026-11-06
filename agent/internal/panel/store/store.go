@@ -53,6 +53,9 @@ type Person struct {
 	Disabled       bool      `json:"disabled"`
 	CreatedAt      time.Time `json:"created_at"`
 	LastLoginAt    time.Time `json:"last_login_at,omitempty"`
+
+	// Set for the length of one request made with a limited API token.
+	Token *APIToken `json:"-"`
 }
 
 // Public is a Person without secrets, for API responses.

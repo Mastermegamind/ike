@@ -1048,9 +1048,10 @@ configure_ssh() {
 	sed -i "/^# BEGIN ${PANEL_NAME}/,/^# END ${PANEL_NAME}/d" "$cfg"
 	cat >>"$cfg" <<EOF
 # BEGIN ${PANEL_NAME} (managed, do not edit between these markers)
+# SFTP accounts are chrooted; each key in ${SSH_KEYS_DIR} forces internal-sftp
+# (optionally read-only) with authorized_keys options written by Ike.
 Match Group ike-sftp
     ChrootDirectory %h
-    ForceCommand internal-sftp -d /web
     AuthorizedKeysFile ${SSH_KEYS_DIR}/%u
     PasswordAuthentication no
     KbdInteractiveAuthentication no
