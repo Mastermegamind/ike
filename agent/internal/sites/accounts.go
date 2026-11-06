@@ -128,6 +128,7 @@ func (m *Manager) DeleteAccount(ctx context.Context, name string, withSites bool
 			return fmt.Errorf("delete %s: %w", s.Domain, err)
 		}
 	}
+	m.deleteSFTPUsersFor(ctx, name, "") // they share the account's UID; remove them before it
 	A := m.accountLayout(name)
 	_ = removeIfExists(m.keysFile(name))
 	_ = m.disableCron(name)

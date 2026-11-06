@@ -49,6 +49,7 @@ func (m *Manager) SuspendAccount(ctx context.Context, name, reason string) (*Acc
 	if err := m.disableCron(name); err != nil {
 		return nil, err
 	}
+	m.lockSFTPUsers(ctx, name, true)
 	a.Suspended, a.SuspendReason = true, reason
 	if err := m.saveAccount(a); err != nil {
 		return nil, err
@@ -99,6 +100,7 @@ func (m *Manager) UnsuspendAccount(ctx context.Context, name string) (*Account, 
 		return nil, err
 	}
 	a.Suspended, a.SuspendReason, a.PreviousStatus = false, "", nil
+	m.lockSFTPUsers(ctx, name, false)
 	if err := m.writeCron(name); err != nil {
 		return nil, err
 	}

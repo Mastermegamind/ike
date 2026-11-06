@@ -358,6 +358,9 @@ Access
                [--from ADDRESS ...] [--expires YYYY-MM-DD]
   ike keys set FINGERPRINT --account A --access ... [--from ...] [--expires ...]
   ike keys rm FINGERPRINT --account A
+  ike sftp --account A                         website SFTP users (each sees one website)
+  ike sftp add NAME --account A --domain D [--folder public_html] [--read-only] [--key-file F] [--expires DATE]
+  ike sftp passwd USER --account A             ike sftp rm USER --account A
 
 Reseller and billing
   ike packages                                 ike packages assign ACCOUNT PACKAGE_ID
@@ -678,6 +681,8 @@ func run(args []string) error {
 		return metricsCmd(c)
 	case "protect":
 		return protectCmd(c, pos, fs)
+	case "sftp":
+		return sftpCmd(c, pos, fs)
 	case "tokens":
 		return tokensCmd(c, pos, fs)
 	case "keys":

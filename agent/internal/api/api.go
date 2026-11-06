@@ -62,6 +62,10 @@
 //	PUT    /v1/sites/{domain}/env              [{"key","value"}]
 //	PUT    /v1/accounts/{name}/limits          {"cpu_percent","memory_mb","max_processes","disk_mb","php_workers"}
 //	GET    /v1/server/metrics                  server CPU, memory, swap, network per interface, disk I/O (+24 h history)
+//	GET    /v1/accounts/{name}/sftp-users  website SFTP users (each locked to one website folder)
+//	POST   /v1/accounts/{name}/sftp-users  {"name","domain","folder","read_only","password","public_key","expires"} → password once
+//	PATCH  /v1/accounts/{name}/sftp-users/{user}  {"password" ("generate"|""),"public_key","keys","read_only","folder","expires"}
+//	DELETE /v1/accounts/{name}/sftp-users/{user}
 //	GET    /v1/usage                           per-account CPU, memory, disk, bandwidth (+24 h history)
 //	GET    /v1/security                        security baseline scan
 //	GET    /v1/drift                           managed config files changed by hand
@@ -223,6 +227,35 @@ func (s *Server) Handler() http.Handler {
 			return 0, nil, nil
 		}
 		return ok(s.Sites.SetSSHMode(r.Context(), r.PathValue("name"), body.Mode))
+	})
+	// Website SFTP users
+	h("GET /v1/accounts/{name}/sftp-users", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		return ok(s.Sites.ListSFTPUsers(r.PathValue("name")))
+	})
+	h("POST /v1/accounts/{name}/sftp-users", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		var body sites.SFTPUserRequest
+		if !decode(w, r, &body) {
+			return 0, nil, nil
+		}
+		u, made, err := s.Sites.CreateSFTPUser(r.Context(), r.PathValue("name"), body)
+		if err != nil {
+			return ok(nil, err)
+		}
+		return created(map[string]any{"user": u, "password": made, "host": s.Config.Hostname}, nil)
+	})
+	h("PATCH /v1/accounts/{name}/sftp-users/{user}", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		var body sites.SFTPUserRequest
+		if !decode(w, r, &body) {
+			return 0, nil, nil
+		}
+		u, made, err := s.Sites.UpdateSFTPUser(r.Context(), r.PathValue("name"), r.PathValue("user"), body)
+		if err != nil {
+			return ok(nil, err)
+		}
+		return ok(map[string]any{"user": u, "password": made}, nil)
+	})
+	h("DELETE /v1/accounts/{name}/sftp-users/{user}", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		return ok(map[string]string{"deleted": r.PathValue("user")}, s.Sites.DeleteSFTPUser(r.Context(), r.PathValue("name"), r.PathValue("user")))
 	})
 	h("GET /v1/accounts/{name}/ssh/keys", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
 		return ok(s.Sites.ListSSHKeys(r.PathValue("name")))

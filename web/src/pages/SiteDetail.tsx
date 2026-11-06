@@ -11,9 +11,10 @@ import { DomainsTab, PHPTab, RedirectsTab } from "./SiteWeb";
 import { DeployTab } from "./Deploy";
 import { WafPanel } from "./Malware";
 import { ProtectionTab } from "./Protection";
+import { SFTPUsersTab } from "./SFTPUsers";
 import { isApp as isAppRt, versioned } from "../api/runtime";
 
-type Tab = "overview" | "health" | "deploy" | "domains" | "redirects" | "php" | "runtime" | "env" | "passwords" | "firewall" | "status" | "logs" | "tools";
+type Tab = "overview" | "health" | "deploy" | "domains" | "redirects" | "php" | "runtime" | "env" | "passwords" | "sftp" | "firewall" | "status" | "logs" | "tools";
 
 export function SiteDetail({ domain }: { domain: string }) {
   const toast = useToast();
@@ -43,7 +44,7 @@ export function SiteDetail({ domain }: { domain: string }) {
         { value: "domains", label: "Domains & HTTPS" }, { value: "redirects", label: "Redirects" },
         ...(site.runtime === "php" ? [{ value: "php" as Tab, label: "PHP" }] : []),
         ...(site.runtime !== "proxy" ? [{ value: "runtime" as Tab, label: isApp ? "App" : "Runtime" }] : []),
-        ...(site.runtime !== "static" && site.runtime !== "proxy" ? [{ value: "env" as Tab, label: "Env vars" }] : []), { value: "passwords", label: "Passwords" }, { value: "firewall", label: "Firewall" }, { value: "status", label: "Status" }, { value: "logs", label: "Logs" }, { value: "tools", label: "Tools" },
+        ...(site.runtime !== "static" && site.runtime !== "proxy" ? [{ value: "env" as Tab, label: "Env vars" }] : []), { value: "passwords", label: "Passwords" }, { value: "sftp", label: "SFTP" }, { value: "firewall", label: "Firewall" }, { value: "status", label: "Status" }, { value: "logs", label: "Logs" }, { value: "tools", label: "Tools" },
       ]} />
 
       {tab === "overview" && (
@@ -81,6 +82,7 @@ export function SiteDetail({ domain }: { domain: string }) {
       {tab === "runtime" && isAppRt(site.runtime) && <HealthCheckPanel site={site} onChange={update} />}
       {tab === "env" && <EnvTab site={site} />}
       {tab === "passwords" && <ProtectionTab site={site} />}
+      {tab === "sftp" && <SFTPUsersTab site={site} />}
       {tab === "firewall" && <WafPanel site={site} onChange={update} />}
       {tab === "status" && <StatusTab site={site} onChange={update} />}
       {tab === "logs" && <LogsTab site={site} />}

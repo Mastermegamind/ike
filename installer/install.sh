@@ -1039,7 +1039,10 @@ configure_ssh() {
 	apt_install openssh-server
 	getent group ike-sftp >/dev/null || groupadd --system ike-sftp
 	getent group ike-ssh  >/dev/null || groupadd --system ike-ssh
-	install -d -m 0755 -o root -g root "/etc/ssh/${PANEL_NAME}" "$SSH_KEYS_DIR"
+	# Website SFTP users: chrooted to one website, files owned by the account.
+	getent group ike-sftpsite    >/dev/null || groupadd --system ike-sftpsite
+	getent group ike-sftpsite-ro >/dev/null || groupadd --system ike-sftpsite-ro
+	install -d -m 0755 -o root -g root "/etc/ssh/${PANEL_NAME}" "$SSH_KEYS_DIR" "${STATE_DIR}/sftp"
 
 	local cfg=/etc/ssh/sshd_config backup
 	backup="${cfg}.${PANEL_NAME}.bak.$(date +%s)"
@@ -1049,6 +1052,8 @@ configure_ssh() {
 	# belongs to it, so appending is the only placement that can't capture the
 	# admin's own settings.
 	sed -i "/^# BEGIN ${PANEL_NAME}/,/^# END ${PANEL_NAME}/d" "$cfg"
+	# The agent adds this block itself on servers installed before it existed.
+	sed -i "/^# BEGIN ike-sftpsite/,/^# END ike-sftpsite/d" "$cfg"
 	cat >>"$cfg" <<EOF
 # BEGIN ${PANEL_NAME} (managed, do not edit between these markers)
 # SFTP accounts are chrooted; each key in ${SSH_KEYS_DIR} forces internal-sftp
@@ -1069,6 +1074,30 @@ Match Group ike-ssh
     AllowTcpForwarding no
     X11Forwarding no
     PermitTunnel no
+# Website SFTP users: each sees one website folder, bind-mounted into its jail.
+# Password sign-in is allowed here (designers' FTP apps); fail2ban guards it.
+Match Group ike-sftpsite
+    ChrootDirectory ${STATE_DIR}/sftp/%u
+    ForceCommand internal-sftp
+    AuthorizedKeysFile ${SSH_KEYS_DIR}/%u
+    PasswordAuthentication yes
+    KbdInteractiveAuthentication no
+    AllowTcpForwarding no
+    AllowAgentForwarding no
+    X11Forwarding no
+    PermitTunnel no
+    PermitTTY no
+Match Group ike-sftpsite-ro
+    ChrootDirectory ${STATE_DIR}/sftp/%u
+    ForceCommand internal-sftp -R
+    AuthorizedKeysFile ${SSH_KEYS_DIR}/%u
+    PasswordAuthentication yes
+    KbdInteractiveAuthentication no
+    AllowTcpForwarding no
+    AllowAgentForwarding no
+    X11Forwarding no
+    PermitTunnel no
+    PermitTTY no
 # END ${PANEL_NAME}
 EOF
 	if ! sshd -t >>"$LOG_FILE" 2>&1; then

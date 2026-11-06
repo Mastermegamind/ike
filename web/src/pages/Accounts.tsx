@@ -108,7 +108,7 @@ function AccountDetail({ account, onClose, onChange }: { account: Account; onClo
           <Segmented<SSHMode> label="SSH access" value={a.ssh}
             onChange={(m) => run("ssh", async () => { setA(await api.setSSH(a.name, m)); toast("ok", `SSH set to ${sshLabel[m].toLowerCase()}`); })}
             options={[{ value: "none", label: "No login" }, { value: "sftp", label: "SFTP only" }, { value: "shell", label: "Full shell" }]} />
-          <div className="hint">{a.ssh === "shell" ? "Full shell isn't jailed. Only give it to people you trust." : a.ssh === "sftp" ? "File transfer only, locked to this account's home folder." : "Nobody can log in over SSH or SFTP."}</div>
+          <div className="hint">{a.ssh === "shell" ? "Full shell isn't jailed. Only give it to people you trust." : a.ssh === "sftp" ? "File transfer only, locked to this account's home folder." : "Nobody can log in over SSH or SFTP."} To share just one website, add an SFTP user on that website's SFTP tab.</div>
         </div>
 
         <div className="field">

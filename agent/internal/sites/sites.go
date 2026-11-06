@@ -542,6 +542,8 @@ func (m *Manager) Delete(ctx context.Context, domain string, removeFiles bool) e
 
 func (m *Manager) deleteSite(ctx context.Context, site *Site, removeFiles bool) error {
 	L := m.layout(site)
+	// Website SFTP users first: their jails mount this website's folder.
+	m.deleteSFTPUsersFor(ctx, site.Account, site.Domain)
 	if L.usesNginx() {
 		m.removeNginxVhost(ctx, L)
 	}

@@ -1126,3 +1126,88 @@ func protectCmd(c *client, pos []string, fs flagSet) error {
 	}
 	return errUsage
 }
+
+// sftpCmd manages website SFTP users.
+//
+//	ike sftp --account A
+//	ike sftp add NAME --account A --domain D [--folder F] [--read-only] [--key-file F] [--password P] [--expires DATE]
+//	ike sftp passwd USER --account A          a new password, shown once
+//	ike sftp rm USER --account A
+func sftpCmd(c *client, pos []string, fs flagSet) error {
+	base, err := acctBase(fs)
+	if err != nil {
+		return err
+	}
+	base += "/sftp-users"
+	if len(pos) == 0 {
+		var us []map[string]any
+		if err := c.do("GET", base, nil, &us); err != nil {
+			return err
+		}
+		c.show(us, func(w *tabwriter.Writer) {
+			fmt.Fprintln(w, "USER\tWEBSITE\tFOLDER\tACCESS\tEXPIRES")
+			for _, u := range us {
+				acc := "read-write"
+				if u["read_only"] == true {
+					acc = "download only"
+				}
+				folder := fmt.Sprint(u["folder"])
+				if folder == "" {
+					folder = "(whole website)"
+				}
+				fmt.Fprintf(w, "%v\t%v\t%s\t%s\t%v\n", u["name"], u["domain"], folder, acc, nv(u["expires"]))
+			}
+		})
+		return nil
+	}
+	if len(pos) != 2 {
+		return errUsage
+	}
+	printPw := func(user any, pw any) {
+		if s, _ := pw.(string); s != "" {
+			fmt.Printf("SFTP login for %v: password %s (shown once), port 22\n", user, s)
+		}
+	}
+	switch pos[0] {
+	case "add":
+		domain, err := fs.need("domain")
+		if err != nil {
+			return err
+		}
+		body := map[string]any{"name": pos[1], "domain": domain, "read_only": fs.bools["read-only"], "expires": fs.get("expires")}
+		if _, ok := fs.vals["folder"]; ok {
+			body["folder"] = fs.get("folder")
+		}
+		if p := fs.get("password"); p != "" {
+			body["password"] = p
+		}
+		if f := fs.get("key-file"); f != "" {
+			b, err := os.ReadFile(f)
+			if err != nil {
+				return err
+			}
+			body["public_key"] = strings.TrimSpace(string(b))
+		}
+		var r map[string]any
+		if err := c.do("POST", base, body, &r); err != nil {
+			return err
+		}
+		u, _ := r["user"].(map[string]any)
+		fmt.Printf("Added %v for %v.\n", u["name"], u["domain"])
+		printPw(u["name"], r["password"])
+		return nil
+	case "passwd":
+		var r map[string]any
+		if err := c.do("PATCH", base+"/"+esc(pos[1]), map[string]string{"password": "generate"}, &r); err != nil {
+			return err
+		}
+		printPw(pos[1], r["password"])
+		return nil
+	case "rm":
+		if err := confirm(fs, "Remove SFTP user "+pos[1]+"? (The website's files stay.)"); err != nil {
+			return err
+		}
+		return c.do("DELETE", base+"/"+esc(pos[1]), nil, nil)
+	}
+	return errUsage
+}

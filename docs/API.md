@@ -2,7 +2,7 @@
 
 Everything the panel does goes through this API, so anything you can click you can also script. The `ike` CLI, the MCP server (`ike-mcp`), and the WHMCS and Blesta modules all use it.
 
-This page is generated from the code by `scripts/gen_api_doc.py`. A test fails when a route is missing, so the list stays complete: 368 routes.
+This page is generated from the code by `scripts/gen_api_doc.py`. A test fails when a route is missing, so the list stays complete: 372 routes.
 
 ## Where to send requests
 
@@ -125,6 +125,10 @@ Token area: `accounts`.
 | `PUT /accounts/{name}/cron/{id}` | Change a cron job |
 | `DELETE /accounts/{name}/cron/{id}` | Delete a cron job |
 | `PUT /accounts/{name}/limits` | Set the limits: body `{"cpu_percent","memory_mb","max_processes","disk_mb","php_workers"}` |
+| `GET /accounts/{name}/sftp-users` | Website SFTP users (each locked to one website folder) |
+| `POST /accounts/{name}/sftp-users` | New website SFTP user {"name" (short, becomes <account>_<name>), "domain", "folder" (default public_html; "" for the whole website), "read_only", "password" or "public_key", "expires"} → a made-up password once when neither is given |
+| `PATCH /accounts/{name}/sftp-users/{user}` | Change a website SFTP user: "password" ("generate" makes one up, "" removes it), "public_key" (add), "keys" (replace all), "read_only", "folder", "expires" |
+| `DELETE /accounts/{name}/sftp-users/{user}` | Remove a website SFTP user (the website's files stay) |
 | `PUT /accounts/{name}/ssh` | Set the ssh: body `{"mode":` "none"\|"sftp"\|"shell"} |
 | `GET /accounts/{name}/ssh/keys` | SSH keys with each key's access (shell, sftp, sftp-readonly), allowed addresses and expiry |
 | `POST /accounts/{name}/ssh/keys` | Create an SSH key: body `{"public_key","access","allow_from","expires"}` |

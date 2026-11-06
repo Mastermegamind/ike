@@ -58,7 +58,7 @@ func areaOf(apiPath string) string {
 			return "mail"
 		case "dbs", "databases", "redis":
 			return "databases"
-		case "files", "snapshots", "shares", "terminal":
+		case "files", "snapshots", "shares", "terminal", "sftp-users":
 			return "files"
 		case "backups", "storage":
 			return "backups"

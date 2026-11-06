@@ -62,6 +62,11 @@ export class Demo5 {
   private tokens: APIToken[];
   private events: ServerEvent[];
   private readUpTo = 0;
+  private sftp: { name: string; domain: string; folder: string; read_only?: boolean; password: boolean; keys: SSHKey[]; expires?: string; created: string }[] = [
+    { name: "naijabites_designer", domain: "naijabites.ng", folder: "public_html/wp-content/themes", password: true, keys: [], expires: ago(-45 * day).slice(0, 10), created: ago(9 * day) },
+    { name: "naijabites_auditor", domain: "naijabites.ng", folder: "", read_only: true, password: false, created: ago(2 * day),
+      keys: [{ type: "ssh-ed25519", fingerprint: "SHA256:q8Jp2bV0xwT0Vdk3mDqzF6v3H5X1aYc7gKe2uLrN9sM", comment: "auditor@laptop" }] },
+  ];
   private protection: Record<string, { paths: { id: string; path: string; realm: string; users?: string[]; allow_ips?: string[] }[]; users: { name: string; created: string }[] }> = {
     "naijabites.ng": { paths: [{ id: "a1b2c3d4", path: "/wp-login.php", realm: "Naija Bites staff", allow_ips: ["102.89.0.0/16"] }],
       users: [{ name: "chidi", created: ago(30 * day) }, { name: "kitchen", created: ago(12 * day) }] },
@@ -218,6 +223,30 @@ export class Demo5 {
       return out;
     };
     let p: Record<string, string> | null;
+
+    // ---- website SFTP users
+    if ((p = is("GET", "/accounts/:a/sftp-users"))) return this.sftp.filter((u) => u.name.startsWith(p!.a + "_"));
+    if ((p = is("POST", "/accounts/:a/sftp-users"))) {
+      if (!/^[a-z][a-z0-9]{0,11}$/.test(b.name || "")) bad("the name must be 1-12 lowercase letters or digits, starting with a letter");
+      const name = `${p.a}_${b.name}`;
+      if (this.sftp.some((u) => u.name === name)) bad(`SFTP user ${name} already exists`);
+      if (b.password && String(b.password).length < 10) bad("the password must be 10-200 characters, without : or line breaks");
+      if (b.expires && b.expires < now().slice(0, 10)) bad("the expiry date has already passed");
+      const keys = b.public_key ? [{ type: String(b.public_key).split(" ")[0], fingerprint: "SHA256:" + btoa(hex(16)).slice(0, 43), comment: String(b.public_key).split(" ")[2] ?? "" }] : [];
+      const made = !b.password && !keys.length ? pw() + pw().slice(0, 4) : "";
+      const u = { name, domain: b.domain, folder: b.folder ?? "public_html", read_only: !!b.read_only, password: !!b.password || !!made, keys, expires: b.expires || undefined, created: now() };
+      this.sftp.push(u);
+      return { user: u, password: made, host: "vps-lagos-1.megamind.ng" };
+    }
+    if ((p = is("PATCH", "/accounts/:a/sftp-users/:u"))) {
+      const u = this.sftp.find((x) => x.name === p!.u) ?? nf("SFTP user");
+      const made = b.password === "generate" ? pw() + pw().slice(0, 4) : "";
+      Object.assign(u!, { folder: b.folder ?? u!.folder, read_only: b.read_only ?? u!.read_only, expires: b.expires === undefined ? u!.expires : b.expires || undefined });
+      if (made) u!.password = true;
+      if (b.public_key) u!.keys.push({ type: "ssh-ed25519", fingerprint: "SHA256:" + btoa(hex(16)).slice(0, 43), comment: String(b.public_key).split(" ")[2] ?? "" });
+      return { user: u, password: made };
+    }
+    if ((p = is("DELETE", "/accounts/:a/sftp-users/:u"))) { this.sftp = this.sftp.filter((x) => x.name !== p!.u); return { deleted: p.u }; }
 
     // ---- password protection
     if ((p = is("GET", "/sites/:d/protection"))) return this.protection[p.d] ?? { paths: [], users: [] };

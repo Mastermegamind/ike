@@ -152,6 +152,9 @@ MANUAL = {
  "DELETE /v1/kubernetes/{}/{}/{}": "Delete a Kubernetes object",
  "GET /v1/kubernetes/pods/{}/{}/logs": "A pod's logs",
  # dns
+ "POST /v1/accounts/{}/sftp-users": "New website SFTP user {\"name\" (short, becomes <account>_<name>), \"domain\", \"folder\" (default public_html; \"\" for the whole website), \"read_only\", \"password\" or \"public_key\", \"expires\"} → a made-up password once when neither is given",
+ "PATCH /v1/accounts/{}/sftp-users/{}": "Change a website SFTP user: \"password\" (\"generate\" makes one up, \"\" removes it), \"public_key\" (add), \"keys\" (replace all), \"read_only\", \"folder\", \"expires\"",
+ "DELETE /v1/accounts/{}/sftp-users/{}": "Remove a website SFTP user (the website's files stay)",
  "PUT /v1/sites/{}/protection/users/{}": "Add a user or change their password {\"password\"}; leave it empty to have one made up, returned once",
  "PUT /v1/accounts/{}/dns/zones/{}/records/{}": "Replace one record {\"name\",\"type\",\"content\",\"ttl\",\"priority\",…}",
  "DELETE /v1/accounts/{}/dns/zones/{}/records/{}": "Delete one record",

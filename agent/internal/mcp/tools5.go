@@ -136,6 +136,29 @@ func (s *Server) tools5() []tool {
 	}
 
 	return []tool{
+		// ------------------------------------------------- website SFTP users
+		{Name: "list_sftp_users", Title: "Website SFTP users", area: "files", Annotations: readOnly(),
+			Description: "An account's website SFTP users: each signs in as <account>_<name> and only reaches one website's folder (public_html by default), read-write or download only, with a password and/or keys, optionally until a date.",
+			InputSchema: obj(map[string]any{"account": argAccount}, "account"),
+			handler:     s.get(func(a map[string]any) string { return acct(a) + "/sftp-users" })},
+		{Name: "create_sftp_user", Title: "Add a website SFTP user", area: "files", write: true, Annotations: write(false, false),
+			Description: "Give someone SFTP access to just one website. folder is inside the website folder: public_html (default), \"\" for the whole website (includes settings files like .env), or e.g. public_html/wp-content/themes. With no password and no key, a password is made up and returned once; give it to the human with the server name and port 22.",
+			InputSchema: obj(map[string]any{"account": argAccount, "name": str("Short name, 1-12 lowercase letters/digits (they sign in as <account>_<name>)"),
+				"domain": argDomain, "folder": str("Folder inside the website (optional)"), "read_only": boolean("Download only"),
+				"password": str("10+ characters (optional)"), "public_key": str("Their SSH public key (optional)"), "expires": str("Last day it works, YYYY-MM-DD (optional)")},
+				"account", "name", "domain"),
+			handler: s.call("POST", func(a map[string]any) string { return acct(a) + "/sftp-users" }, pick("name", "domain", "folder", "read_only", "password", "public_key", "expires"))},
+		{Name: "update_sftp_user", Title: "Change a website SFTP user", area: "files", write: true, Annotations: write(false, true),
+			Description: "Change a website SFTP user: password (\"generate\" makes a new one, returned once; \"\" removes it when they have a key), add a public_key, read_only, folder or expires.",
+			InputSchema: obj(map[string]any{"account": argAccount, "user": str("Full user name, e.g. shop_designer"), "password": str("New password, \"generate\" or \"\""),
+				"public_key": str("Add this key"), "read_only": boolean("Download only"), "folder": str("Folder inside the website"), "expires": str("YYYY-MM-DD, or \"\" for never")},
+				"account", "user"),
+			handler: s.call("PATCH", func(a map[string]any) string { return acct(a) + "/sftp-users/" + esc(argStr(a, "user")) }, pick("password", "public_key", "read_only", "folder", "expires"))},
+		{Name: "delete_sftp_user", Title: "Remove a website SFTP user", area: "files", write: true, Annotations: write(true, true),
+			Description: "Remove a website SFTP user. The website's files stay. Only when the human asked.",
+			InputSchema: obj(map[string]any{"account": argAccount, "user": str("Full user name")}, "account", "user"),
+			handler:     s.call("DELETE", func(a map[string]any) string { return acct(a) + "/sftp-users/" + esc(argStr(a, "user")) }, nil)},
+
 		// ------------------------------------------------- password protection
 		{Name: "get_site_protection", Title: "Password-protected paths", area: "sites", Annotations: readOnly(),
 			Description: "A website's password-protected paths (who can open each, which addresses skip the password) and its sign-in users. Passwords are never shown.",
