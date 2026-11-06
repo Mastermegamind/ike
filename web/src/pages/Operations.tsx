@@ -5,7 +5,8 @@ import {
   ShieldAlert, ShieldCheck, SlidersHorizontal, TriangleAlert,
 } from "lucide-react";
 import { api } from "../api/client";
-import type { AccountUsage, AutoUpdates, ImportPlan, Limits, SecurityCheck } from "../api/types";
+import type { AccountUsage, AutoUpdates, ImportPlan, Job, Limits, SecurityCheck } from "../api/types";
+import { UploadButton } from "../components/kit5";
 import { Badge, Button, Empty, Field, Meter, Modal, Segmented, Skeleton, formatMB, timeAgo, useAsync, useToast } from "../components/ui";
 import { PageHead, Toggle } from "../components/common";
 import { JobModal, useJob } from "../components/job";
@@ -337,6 +338,31 @@ function LimitsModal({ usage, onClose, onSaved }: { usage: AccountUsage | null; 
 
 /* ============================================================ Migration */
 
+function RestoreControls({ plan }: { plan: ImportPlan }) {
+  const toast = useToast();
+  const [account, setAccount] = useState(plan.account);
+  const [skip, setSkip] = useState<string[]>([]);
+  const [point, setPoint] = useState(true);
+  const { job, start, clear } = useJob((j) => toast(j.status === "done" ? "ok" : "error", j.status === "done" ? `${account} restored` : j.error || "Restore failed"));
+  const [busy, setBusy] = useState(false);
+  const parts: [string, string][] = [["files", "Files"], ["databases", "Databases"], ["mail", "Email and passwords"], ["cron", "Cron jobs"], ["dns", "DNS zones"]];
+  return (
+    <div className="panel-body form-grid" style={{ borderTop: "1px solid var(--line)" }}>
+      <h3 style={{ fontSize: "1rem" }}>3. Restore</h3>
+      <Field label="Ike account name">{(id) => <input id={id} className="input mono" value={account} onChange={(e) => setAccount(e.target.value.toLowerCase())} />}</Field>
+      <div className="row">{parts.map(([k, l]) => <Toggle key={k} checked={!skip.includes(k)} label={l} onChange={(v) => setSkip(v ? skip.filter((x) => x !== k) : [...skip, k])} />)}</div>
+      <Toggle checked={point} onChange={setPoint} label="Point DNS records that used the old server's IP at this server" />
+      <p className="small muted">Everything is written as the new account's own user, never as root, so nothing in the backup can reach the rest of the server. Mailboxes keep their passwords; database passwords are new and shown in the job log.</p>
+      <div><Button variant="primary" loading={busy} onClick={async () => {
+        setBusy(true);
+        try { start(await api.call<Job>("POST", `/imports/cpanel/${encodeURIComponent(plan.file)}/restore`, { account, skip, point_to_this_server: point })); }
+        catch (e) { toast("error", (e as Error).message); } finally { setBusy(false); }
+      }}><FolderInput size={16} />Restore account</Button></div>
+      <JobModal job={job} onClose={clear} />
+    </div>
+  );
+}
+
 export function Migration() {
   const [file, setFile] = useState("");
   const [plan, setPlan] = useState<ImportPlan | null>(null);
@@ -353,10 +379,12 @@ export function Migration() {
             e.preventDefault(); setBusy(true); setError(null); setPlan(null);
             try { setPlan(await api.inspectImport(file.trim())); } catch (err) { setError((err as Error).message); } finally { setBusy(false); }
           }}>
-            <Field label="Backup file" error={error} hint={<>Upload it to <code>/var/lib/ike/imports</code> over SFTP as root first. In this preview, try <code>cpmove-tundeprops.tar.gz</code>.</>}>
+            <Field label="Backup file" error={error} hint={<>Upload it here, or copy it to <code>/var/lib/ike/imports</code> over SFTP. In this preview, try <code>cpmove-tundeprops.tar.gz</code>.</>}>
               {(id) => <input id={id} className="input mono" value={file} onChange={(e) => setFile(e.target.value)} placeholder="cpmove-username.tar.gz" spellCheck={false} />}
             </Field>
-            <div><Button variant="primary" type="submit" loading={busy} disabled={!file.trim()}><Search size={16} />Read backup</Button></div>
+            <div className="row"><Button variant="primary" type="submit" loading={busy} disabled={!file.trim()}><Search size={16} />Read backup</Button>
+              <UploadButton path={(f) => `/imports/cpanel/${encodeURIComponent(f.name)}/upload`} label="Upload backup" accept=".gz,.tar"
+                onDone={(r) => { const p = r as ImportPlan; if (p?.cpanel_user) { setPlan(p); setFile(p.file); } }} /></div>
           </form>
         </section>
         <section className="panel">
@@ -396,10 +424,7 @@ export function Migration() {
               <dt>Cron jobs</dt><dd>{plan.cron_jobs}</dd>
             </dl>
           </div>
-          <div className="panel-body row" style={{ borderTop: "1px solid var(--line)" }}>
-            <Button variant="primary" disabled><FolderInput size={16} />Import account</Button>
-            <span className="small muted">Importing lands in the next release. Reading backups works now, so you can plan the move.</span>
-          </div>
+          <RestoreControls plan={plan} />
         </section>
       ) : null}
     </div>

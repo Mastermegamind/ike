@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Globe, Gauge, Mail, Menu, Moon, Search, Sun, Users, Database, X } from "lucide-react";
-import { Logo } from "../components/brand";
+import { useEffect, useState, type ReactNode } from "react";
+import { Globe, Gauge, Mail, Menu, Moon, Sun, Users, Database, X } from "lucide-react";
+import { BrandLogo as Logo, CommandPalette, HelpButton, HelpDrawer, NotificationBell, PaletteButton, PoweredBy, ServerSwitcher,
+  ShortcutsDialog, useShortcuts } from "../components/shellx";
+import { languages, t, useI18n, type Lang } from "../i18n";
 import { useAppearance } from "../theme/appearance";
-import { href, navigate } from "../router";
+import { href } from "../router";
 import { isDemo } from "../api/client";
 import type { Role } from "../api/types";
 import { isActive, roleLabel, visibleGroups, type NavItem } from "./nav";
@@ -13,6 +15,7 @@ interface Props {
   role: Role;
   onRole: (r: Role) => void;
   onLogout: () => void;
+  onServerChange: () => void;
   children: ReactNode;
 }
 
@@ -21,55 +24,15 @@ function NavLink({ item, route, withTip }: { item: NavItem; route: string; withT
   return (
     <a className="nav-link" href={href(item.to)} aria-current={isActive(route, item.to) ? "page" : undefined}>
       <Icon size={18} aria-hidden />
-      {withTip ? <span className="tip">{item.label}</span> : <span>{item.label}</span>}
+      {withTip ? <span className="tip">{t(item.label)}</span> : <span>{t(item.label)}</span>}
       {!withTip && item.soon ? <span className="soon">Soon</span> : null}
     </a>
   );
 }
 
-function ServerSwitch() {
-  return (
-    <button className="server-switch" type="button" title="Switch server (multi-server arrives in phase 6)">
-      <span className="dot" aria-hidden />
-      <span>
-        <span className="name">vps-lagos-1</span>
-        <span className="sub" style={{ display: "block" }}>Ubuntu 24.04</span>
-      </span>
-    </button>
-  );
-}
-
-function GlobalSearch() {
-  const ref = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    const on = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        ref.current?.focus();
-      }
-    };
-    window.addEventListener("keydown", on);
-    return () => window.removeEventListener("keydown", on);
-  }, []);
-  return (
-    <form
-      className="search desktop-only"
-      role="search"
-      onSubmit={(e) => {
-        e.preventDefault();
-        const q = ref.current?.value.trim();
-        if (q) navigate(`/sites?q=${encodeURIComponent(q)}`);
-      }}
-    >
-      <Search size={16} aria-hidden />
-      <input ref={ref} placeholder="Search websites, accounts, mailboxes" aria-label="Search" />
-      <kbd>Ctrl K</kbd>
-    </form>
-  );
-}
-
-function TopRight({ user, role, onRole, onLogout }: Pick<Props, "user" | "role" | "onRole" | "onLogout">) {
+function TopRight({ user, role, onRole, onLogout, onHelp }: Pick<Props, "user" | "role" | "onRole" | "onLogout"> & { onHelp: () => void }) {
   const { resolvedMode, set } = useAppearance();
+  const { lang, setLang, t } = useI18n();
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -87,6 +50,8 @@ function TopRight({ user, role, onRole, onLogout }: Pick<Props, "user" | "role" 
       >
         {resolvedMode === "dark" ? <Sun size={18} /> : <Moon size={18} />}
       </button>
+      <HelpButton onOpen={onHelp} />
+      <NotificationBell />
       <div style={{ position: "relative" }}>
         <button className="avatar" type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-label="Account menu">
           {user.slice(0, 2).toUpperCase()}
@@ -103,9 +68,16 @@ function TopRight({ user, role, onRole, onLogout }: Pick<Props, "user" | "role" 
                 {(Object.keys(roleLabel) as Role[]).map((r) => <option key={r} value={r}>{roleLabel[r]}</option>)}
               </select>
             </label> : null}
-            <a className="nav-link" href={href("/appearance")} onClick={() => setOpen(false)}>Appearance</a>
-            <a className="nav-link" href={href("/profile")} onClick={() => setOpen(false)}>Sign-in security</a>
-            <button className="nav-link" type="button" onClick={onLogout}>Sign out</button>
+            <label style={{ display: "grid", gap: 4, padding: "6px 10px" }}>
+              <span className="small muted">{t("Language")}</span>
+              <select className="select" value={lang} onChange={(e) => setLang(e.target.value as Lang)}>
+                {languages.map((l) => <option key={l.id} value={l.id}>{l.name}{l.id !== "en" ? ` (${l.english})` : ""}</option>)}
+              </select>
+            </label>
+            <a className="nav-link" href={href("/appearance")} onClick={() => setOpen(false)}>{t("Appearance")}</a>
+            <a className="nav-link" href={href("/profile")} onClick={() => setOpen(false)}>{t("Sign-in security")}</a>
+            <a className="nav-link" href={href("/tokens")} onClick={() => setOpen(false)}>{t("API tokens")}</a>
+            <button className="nav-link" type="button" onClick={onLogout}>{t("Sign out")}</button>
           </div>
         )}
       </div>
@@ -117,10 +89,10 @@ function MobileTabs({ route, role }: { route: string; role: Role }) {
   const [more, setMore] = useState(false);
   useEffect(() => setMore(false), [route]);
   const tabs = [
-    { to: "/", label: "Home", icon: Gauge },
-    { to: "/sites", label: "Websites", icon: Globe },
-    { to: "/email", label: "Email", icon: Mail },
-    role === "user" ? { to: "/databases", label: "Databases", icon: Database } : { to: "/accounts", label: "Accounts", icon: Users },
+    { to: "/", label: t("Dashboard"), icon: Gauge },
+    { to: "/sites", label: t("Websites"), icon: Globe },
+    { to: "/email", label: t("Email"), icon: Mail },
+    role === "user" ? { to: "/databases", label: t("Databases"), icon: Database } : { to: "/accounts", label: t("Accounts"), icon: Users },
   ];
   return (
     <>
@@ -154,7 +126,7 @@ function MobileTabs({ route, role }: { route: string; role: Role }) {
             </div>
             {visibleGroups(role).map((g, i) => (
               <div key={i} className="nav-group">
-                {g.title ? <div className="nav-group-title">{g.title}</div> : null}
+                {g.title ? <div className="nav-group-title">{t(g.title)}</div> : null}
                 {g.items.map((it) => <NavLink key={it.to} item={it} route={route} />)}
               </div>
             ))}
@@ -172,10 +144,25 @@ function DemoRibbon() {
 
 export function Shell(props: Props) {
   const { template } = useAppearance();
+  useI18n(); // re-render on language change
   const groups = visibleGroups(props.role);
+  const [palette, setPalette] = useState(false);
+  const [keys, setKeys] = useState(false);
+  const [helpOpen, setHelp] = useState(false);
+  useShortcuts({ palette: () => setPalette(true), shortcuts: () => setKeys(true), help: () => setHelp(true) });
   const top = (
-    <TopRight user={props.user} role={props.role} onRole={props.onRole} onLogout={props.onLogout} />
+    <TopRight user={props.user} role={props.role} onRole={props.onRole} onLogout={props.onLogout} onHelp={() => setHelp(true)} />
   );
+  const overlays = (
+    <>
+      <CommandPalette open={palette} onClose={() => setPalette(false)} role={props.role} onLogout={props.onLogout}
+        onHelp={() => setHelp(true)} onShortcuts={() => setKeys(true)} />
+      <ShortcutsDialog open={keys} onClose={() => setKeys(false)} />
+      <HelpDrawer open={helpOpen} onClose={() => setHelp(false)} route={props.route} />
+    </>
+  );
+  const switcher = <ServerSwitcher role={props.role} onChange={props.onServerChange} />;
+  const search = <PaletteButton onOpen={() => setPalette(true)} />;
 
   if (template === "horizon") {
     const flat = groups.flatMap((g) => g.items).filter((i) => !i.soon);
@@ -189,18 +176,19 @@ export function Shell(props: Props) {
             <nav className="hnav" aria-label="Main">
               {primary.map((it) => (
                 <a key={it.to} className="nav-link" href={href(it.to)} aria-current={isActive(props.route, it.to) ? "page" : undefined}>
-                  {it.label}
+                  {t(it.label)}
                 </a>
               ))}
-              <a className="nav-link" href={href("/more")} aria-current={props.route === "/more" ? "page" : undefined}>More</a>
+              <a className="nav-link" href={href("/more")} aria-current={props.route === "/more" ? "page" : undefined}>{t("Everything")}</a>
             </nav>
             <div className="spacer" />
-            <span className="desktop-only"><ServerSwitch /></span>
+            <span className="desktop-only">{switcher}</span>
             {top}
           </header>
         </div>
         <main className="main"><div className="content">{props.children}</div></main>
         <MobileTabs route={props.route} role={props.role} />
+        {overlays}
       </div>
     );
   }
@@ -221,14 +209,15 @@ export function Shell(props: Props) {
           <DemoRibbon />
           <header className="topbar">
             <span className="mobile-only"><Logo size={26} /></span>
-            <span className="desktop-only"><ServerSwitch /></span>
-            <GlobalSearch />
+            <span className="desktop-only">{switcher}</span>
+            {search}
             <div className="spacer" />
             {top}
           </header>
           <main className="content">{props.children}</main>
         </div>
         <MobileTabs route={props.route} role={props.role} />
+        {overlays}
       </div>
     );
   }
@@ -237,28 +226,29 @@ export function Shell(props: Props) {
     <div className="app layout-command">
       <aside className="sidebar" aria-label="Main">
         <a className="brand" href={href("/")} aria-label="Ike home"><Logo /></a>
-        <ServerSwitch />
+        {switcher}
         <nav>
           {groups.map((g, i) => (
             <div key={i} className="nav-group">
-              {g.title ? <div className="nav-group-title">{g.title}</div> : null}
+              {g.title ? <div className="nav-group-title">{t(g.title)}</div> : null}
               {g.items.map((it) => <NavLink key={it.to} item={it} route={props.route} />)}
             </div>
           ))}
         </nav>
-        <div className="sidebar-foot small muted">Ike 0.2, open source under AGPL-3.0</div>
+        <div className="sidebar-foot small muted"><PoweredBy /></div>
       </aside>
       <div className="main">
         <DemoRibbon />
         <header className="topbar">
           <span className="mobile-only"><Logo size={26} /></span>
-          <GlobalSearch />
+          {search}
           <div className="spacer" />
           {top}
         </header>
         <main className="content">{props.children}</main>
       </div>
       <MobileTabs route={props.route} role={props.role} />
+      {overlays}
     </div>
   );
 }

@@ -10,8 +10,14 @@ import { ConfirmDelete, PageHead, Toggle } from "../components/common";
 export function useAccountParam(route: string) {
   const accounts = useAsync(() => api.accounts());
   const initial = new URLSearchParams(route.split("?")[1] || "").get("account") || "";
-  const [account, setAccount] = useState(initial);
-  useEffect(() => { if (!account && accounts.data?.length) setAccount(accounts.data[0].name); }, [accounts.data, account]);
+  const [account, setAccountState] = useState(initial);
+  const setAccount = (a: string) => { setAccountState(a); try { sessionStorage.setItem("ike.account", a); } catch { /* storage off */ } };
+  useEffect(() => {
+    if (account || !accounts.data?.length) return;
+    let last = "";
+    try { last = sessionStorage.getItem("ike.account") || ""; } catch { /* storage off */ }
+    setAccountState(accounts.data.some((a) => a.name === last) ? last : accounts.data[0].name);
+  }, [accounts.data, account]);
   const picker = (
     <select className="select" style={{ width: "auto", minWidth: 180 }} value={account} onChange={(e) => setAccount(e.target.value)} aria-label="Account">
       {(accounts.data ?? []).map((a) => <option key={a.name} value={a.name}>{a.name}</option>)}

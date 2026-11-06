@@ -80,6 +80,7 @@ function HTTPSPanel({ site, onChange, http3 }: { site: Site; onChange: (s: Site)
   const ssl = site.ssl;
   const [email, setEmail] = useState("");
   const [withAliases, setWithAliases] = useState(true);
+  const [wildcard, setWildcard] = useState(false);
   const [upload, setUpload] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -93,7 +94,7 @@ function HTTPSPanel({ site, onChange, http3 }: { site: Site; onChange: (s: Site)
   };
   const issue = async () => {
     setBusy("issue");
-    try { start(await api.issueCertificate(site.domain, { email: email || undefined, include_aliases: withAliases })); }
+    try { start(await api.issueCertificate(site.domain, { email: email || undefined, include_aliases: withAliases, wildcard })); }
     catch (e) { toast("error", (e as Error).message); } finally { setBusy(null); }
   };
 
@@ -113,6 +114,7 @@ function HTTPSPanel({ site, onChange, http3 }: { site: Site; onChange: (s: Site)
             <p className="small muted">From Let's Encrypt, renewed automatically every 60 days. The domain must already point to this server.</p>
             <Field label="Email for expiry notices (optional)">{(id) => <input id={id} className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" />}</Field>
             {(site.aliases ?? []).length ? <Toggle checked={withAliases} onChange={setWithAliases} label="Include the other domains" /> : null}
+            <Toggle checked={wildcard} onChange={setWildcard} label={`Wildcard (*.${site.domain}), checked through DNS: the domain's DNS zone must be in Ike`} />
             {(site.aliases ?? []).some((a) => a.startsWith("*.")) ? <p className="small muted">Wildcard domains need DNS validation, which comes with the DNS manager.</p> : null}
             <div><Button variant="primary" loading={busy === "issue"} onClick={issue}><Lock size={16} />Get free certificate</Button></div>
           </div>

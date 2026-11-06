@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "./api/client";
 import { Construction } from "lucide-react";
+import { useI18n } from "./i18n";
 import { useRoute, href } from "./router";
 import { Shell } from "./layouts/Shell";
 import { visibleGroups, isActive } from "./layouts/nav";
@@ -9,9 +10,17 @@ import { Dashboard } from "./pages/Dashboard";
 import { Accounts } from "./pages/Accounts";
 import { Sites } from "./pages/Sites";
 import { SiteDetail } from "./pages/SiteDetail";
-import { Email } from "./pages/Email";
-import { Cron, Databases } from "./pages/AccountTools";
-import { ActivityPage, AiAgents, AppInstaller, Firewall, Software, Terminal } from "./pages/ServerPages";
+import { Cron } from "./pages/AccountTools";
+import { ActivityPage, AiAgents, AppInstaller, Firewall, Software } from "./pages/ServerPages";
+import { DnsPage, DnsSettingsPage } from "./pages/Dns";
+import { MailPage, MailSettingsPage } from "./pages/Mail";
+import { MalwarePage } from "./pages/Malware";
+import { DatabasesPage } from "./pages/DataServices";
+import { FilesPage, TerminalPage } from "./pages/Files";
+import { BackupsPage } from "./pages/Backups";
+import { InfraPage } from "./pages/Infra";
+import { BrandingPage, NotificationsPage, PackagesPage, TokensPage } from "./pages/Hosting";
+import { loadBranding, restoreServer } from "./components/shellx";
 import { Appearance } from "./pages/Appearance";
 import { Migration, Security, Updates, Usage } from "./pages/Operations";
 import { Alerts, Billing, People } from "./pages/Business";
@@ -22,9 +31,6 @@ import { PageHead } from "./components/common";
 import type { Role } from "./api/types";
 
 const soonText: Record<string, [string, string]> = {
-  dns: ["DNS zones", "A zone editor for every record type, DNSSEC, and Cloudflare sync, powered by PowerDNS."],
-  backups: ["Backups", "Scheduled, encrypted, incremental backups of websites, databases and email to S3, Backblaze B2 or another server, with one-click restore."],
-  plans: ["Hosting plans", "Named plans that bundle disk, bandwidth, website and email limits, with recurring invoices and reseller branding. Invoices, payments and limits already work on their own."],
   phpmyadmin: ["phpMyAdmin", "phpMyAdmin opens here with single sign-on once the control-plane API ships. Until then, reach it through an SSH tunnel on port 8090."],
 };
 
@@ -40,16 +46,17 @@ function Soon({ id }: { id: string }) {
 }
 
 function More({ role, route }: { role: Role; route: string }) {
+  const { t } = useI18n();
   return (
     <div className="stack">
-      <PageHead title="Everything" />
+      <PageHead title={t("Everything")} />
       {visibleGroups(role).map((g, i) => (
         <section key={i} className="panel">
-          {g.title ? <div className="panel-head"><h2>{g.title}</h2></div> : null}
+          {g.title ? <div className="panel-head"><h2>{t(g.title)}</h2></div> : null}
           <div className="panel-body" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 6 }}>
             {g.items.map((it) => (
               <a key={it.to} className="nav-link" href={href(it.to)} aria-current={isActive(route, it.to) ? "page" : undefined}>
-                <it.icon size={18} aria-hidden />{it.label}
+                <it.icon size={18} aria-hidden />{t(it.label)}
               </a>
             ))}
           </div>
@@ -66,9 +73,13 @@ function saveSession(s: { user: string; role: Role } | null) {
   try { if (s) sessionStorage.setItem("ike.session", JSON.stringify(s)); else sessionStorage.removeItem("ike.session"); } catch { /* private mode */ }
 }
 
+restoreServer();
+
 export function App() {
   const route = useRoute();
   const [session, setSession] = useState(loadSession);
+  const [serverKey, setServerKey] = useState(0);
+  useEffect(() => { loadBranding(); }, [session?.user]);
   // The panel answers 401 when a session expires; go back to sign-in.
   useEffect(() => {
     const out = () => { saveSession(null); setSession(null); };
@@ -85,11 +96,22 @@ export function App() {
   else if (path === "/accounts") page = <Accounts role={role} />;
   else if (path === "/sites") page = <Sites route={route} role={role} />;
   else if (path.startsWith("/sites/")) page = <SiteDetail domain={decodeURIComponent(path.slice(7))} />;
-  else if (path === "/email") page = <Email />;
-  else if (path === "/databases") page = <Databases route={route} />;
+  else if (path === "/email" || path.startsWith("/email/")) page = <MailPage route={route} role={role} />;
+  else if (path === "/mail-settings") page = <MailSettingsPage />;
+  else if (path === "/dns" || path.startsWith("/dns/")) page = <DnsPage route={route} role={role} />;
+  else if (path === "/dns-settings") page = <DnsSettingsPage />;
+  else if (path === "/databases") page = <DatabasesPage route={route} role={role} />;
+  else if (path === "/files") page = <FilesPage route={route} role={role} />;
+  else if (path === "/backups") page = <BackupsPage route={route} role={role} />;
+  else if (path === "/malware") page = <MalwarePage route={route} role={role} />;
+  else if (path === "/servers") page = <InfraPage route={route} />;
+  else if (path === "/packages") page = <PackagesPage role={role} />;
+  else if (path === "/branding") page = <BrandingPage role={role} />;
+  else if (path === "/tokens") page = <TokensPage role={role} />;
+  else if (path === "/notifications") page = <NotificationsPage />;
   else if (path === "/cron") page = <Cron route={route} />;
   else if (path === "/apps") page = <AppInstaller />;
-  else if (path === "/terminal") page = <Terminal />;
+  else if (path === "/terminal") page = <TerminalPage route={route} role={role} />;
   else if (path === "/firewall") page = <Firewall />;
   else if (path === "/software") page = <Software />;
   else if (path === "/activity") page = <ActivityPage />;
@@ -115,8 +137,9 @@ export function App() {
   return (
     <Shell route={path} user={session.user} role={role}
       onRole={(r) => { const s = { ...session, role: r }; saveSession(s); setSession(s); }}
-      onLogout={() => { api.logout().catch(() => {}); saveSession(null); setSession(null); }}>
-      {page}
+      onLogout={() => { api.logout().catch(() => {}); saveSession(null); setSession(null); }}
+      onServerChange={() => setServerKey((k) => k + 1)}>
+      <div key={serverKey} style={{ display: "contents" }}>{page}</div>
     </Shell>
   );
 }

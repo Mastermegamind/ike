@@ -59,6 +59,16 @@ function loadFonts() {
   document.head.appendChild(l);
 }
 
+/** A reseller's or admin's brand colour replaces the theme accent. */
+export function applyBrandAccent() {
+  const root = document.documentElement;
+  const brand = root.style.getPropertyValue("--brand-accent");
+  if (!brand || root.dataset.brand !== "1") return;
+  root.style.setProperty("--accent", brand);
+  root.style.setProperty("--accent-ink", root.style.getPropertyValue("--brand-accent-ink") || "#fff");
+  root.style.setProperty("--accent-soft", `color-mix(in srgb, ${brand} 14%, var(--surface))`);
+}
+
 interface Ctx extends Appearance {
   resolvedMode: "light" | "dark";
   /** Data saver is in effect: no web fonts, no motion, no background refresh. */
@@ -92,6 +102,7 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
     const p = t[resolvedMode];
     const root = document.documentElement;
     (Object.keys(cssVar) as (keyof Palette)[]).forEach((k) => root.style.setProperty(cssVar[k], p[k]));
+    applyBrandAccent();
     root.style.setProperty("--radius", `${t.radius}px`);
     root.style.setProperty("--font-ui", t.fontUi);
     root.style.setProperty("--font-display", t.fontDisplay);

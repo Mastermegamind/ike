@@ -53,7 +53,7 @@ export interface CreateSiteRequest {
   port?: number;
 }
 
-export interface SSHKey { type: string; fingerprint: string; comment: string }
+export interface SSHKey { type: string; fingerprint: string; comment: string; access?: "" | "sftp" | "sftp-readonly"; allow_from?: string[]; expires?: string }
 
 export interface SystemInfo {
   hostname: string;
@@ -246,6 +246,14 @@ export interface KubeWorkloads {
 }
 
 export interface Api {
+  /** Any API route, for the newer screens: path is relative to /api/v1. */
+  call<T = unknown>(method: string, path: string, body?: unknown): Promise<T>;
+  /** Sends a file as the raw request body (uploads, imports). */
+  upload<T = unknown>(method: "PUT" | "POST", path: string, file: Blob, onProgress?: (pct: number) => void): Promise<T>;
+  /** A link the browser can download from (exports, file downloads). Empty in the preview. */
+  fileUrl(path: string): string;
+  /** WebSocket address for terminals. Null in the preview. */
+  socketUrl(path: string): string | null;
   login(username: string, password: string, code?: string): Promise<{ name: string; role: Role }>;
   logout(): Promise<void>;
   setup2fa(): Promise<{ secret: string; otpauth_url: string }>;
@@ -332,7 +340,7 @@ export interface Api {
   setRedirects(domain: string, rules: Redirect[]): Promise<Site>;
   setPHPSettings(domain: string, p: PHPSettings): Promise<Site>;
   runComposer(domain: string, r: { action: string; package?: string; dev?: boolean }): Promise<Job>;
-  issueCertificate(domain: string, r: { email?: string; include_aliases?: boolean }): Promise<Job>;
+  issueCertificate(domain: string, r: { email?: string; include_aliases?: boolean; wildcard?: boolean }): Promise<Job>;
   uploadCertificate(domain: string, r: { certificate: string; private_key: string }): Promise<Site>;
   updateSSL(domain: string, o: Partial<Pick<SSLSettings, "force_https" | "hsts" | "http2" | "http3">>): Promise<Site>;
   removeSSL(domain: string): Promise<Site>;

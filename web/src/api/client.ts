@@ -13,6 +13,11 @@ export { TwoFactorRequired };
 
 const e = encodeURIComponent;
 
+/** Which server the panel is managing ("" = this one). Set by the server switcher. */
+let currentServer = "";
+export function setServer(id: string) { currentServer = id === "local" ? "" : id; }
+export function getServer() { return currentServer || "local"; }
+
 /** Talks to the Ike control-plane API, which authorizes the user and forwards to ike-agent. */
 class HttpApi implements Api {
   constructor(private base = "/api/v1") {}
@@ -22,8 +27,8 @@ class HttpApi implements Api {
       method,
       credentials: "same-origin",
       // The panel requires this header on every change (CSRF protection).
-      headers: { "X-Requested-With": "ike", ...(body ? { "Content-Type": "application/json" } : {}) },
-      body: body ? JSON.stringify(body) : undefined,
+      headers: { "X-Requested-With": "ike", ...(currentServer ? { "X-Ike-Server": currentServer } : {}), ...(body !== undefined ? { "Content-Type": "application/json" } : {}) },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
     });
     const data = await res.json().catch(() => ({}));
     if ((data as { two_factor_required?: boolean }).two_factor_required) throw new TwoFactorRequired((data as { error: string }).error);
@@ -32,6 +37,37 @@ class HttpApi implements Api {
     return data as T;
   }
   private get<T>(p: string) { return this.req<T>("GET", p); }
+
+  call<T = unknown>(method: string, path: string, body?: unknown) { return this.req<T>(method, path, body); }
+  upload<T = unknown>(method: "PUT" | "POST", path: string, file: Blob, onProgress?: (pct: number) => void): Promise<T> {
+    // XMLHttpRequest reports upload progress; fetch doesn't.
+    return new Promise((resolve, reject) => {
+      const x = new XMLHttpRequest();
+      x.open(method, this.base + path);
+      x.setRequestHeader("X-Requested-With", "ike");
+      if (currentServer) x.setRequestHeader("X-Ike-Server", currentServer);
+      x.setRequestHeader("Content-Type", "application/octet-stream");
+      x.upload.onprogress = (ev) => { if (ev.lengthComputable) onProgress?.(Math.round((ev.loaded / ev.total) * 100)); };
+      x.onload = () => {
+        let data: { error?: string } = {};
+        try { data = JSON.parse(x.responseText || "{}"); } catch { /* not JSON */ }
+        if (x.status === 401) window.dispatchEvent(new Event("ike:signed-out"));
+        if (x.status >= 300) reject(new Error(data.error || `Upload failed (HTTP ${x.status})`));
+        else resolve(data as T);
+      };
+      x.onerror = () => reject(new Error("The upload was interrupted. Check your connection and try again."));
+      x.send(file);
+    });
+  }
+  fileUrl(path: string) {
+    const sep = path.includes("?") ? "&" : "?";
+    return this.base + path + (currentServer ? `${sep}_server=${e(currentServer)}` : "");
+  }
+  socketUrl(path: string) {
+    const u = new URL(this.fileUrl(path), window.location.href);
+    u.protocol = u.protocol === "https:" ? "wss:" : "ws:";
+    return u.toString();
+  }
 
   async login(username: string, password: string, code?: string) {
     const p = await this.req<{ username: string; role: Role }>("POST", "/session", { username, password, code });
@@ -124,7 +160,7 @@ class HttpApi implements Api {
   setRedirects(d: string, rules: Redirect[]) { return this.req<Site>("PUT", `/sites/${e(d)}/redirects`, rules); }
   setPHPSettings(d: string, p: PHPSettings) { return this.req<Site>("PUT", `/sites/${e(d)}/php`, p); }
   runComposer(d: string, r: { action: string; package?: string; dev?: boolean }) { return this.req<Job>("POST", `/sites/${e(d)}/composer`, r); }
-  issueCertificate(d: string, r: { email?: string; include_aliases?: boolean }) { return this.req<Job>("POST", `/sites/${e(d)}/ssl`, r); }
+  issueCertificate(d: string, r: { email?: string; include_aliases?: boolean; wildcard?: boolean }) { return this.req<Job>("POST", `/sites/${e(d)}/ssl`, r); }
   uploadCertificate(d: string, r: { certificate: string; private_key: string }) { return this.req<Site>("PUT", `/sites/${e(d)}/ssl/custom`, r); }
   updateSSL(d: string, o: Partial<Pick<SSLSettings, "force_https" | "hsts" | "http2" | "http3">>) { return this.req<Site>("PATCH", `/sites/${e(d)}/ssl`, o); }
   removeSSL(d: string) { return this.req<Site>("DELETE", `/sites/${e(d)}/ssl`); }

@@ -85,6 +85,7 @@ function AccountDetail({ account, onClose, onChange }: { account: Account; onClo
   const [a, setA] = useState(account);
   const keys = useAsync(() => api.sshKeys(a.name), [a.name]);
   const [newKey, setNewKey] = useState("");
+  const [keyOpts, setKeyOpts] = useState({ access: "" as string, from: "", expires: "" });
   const [keyErr, setKeyErr] = useState<string | null>(null);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
@@ -119,7 +120,15 @@ function AccountDetail({ account, onClose, onChange }: { account: Account; onClo
                   <div style={{ flex: 1, minWidth: 0, padding: "8px 0" }}>
                     <div>{k.comment || k.type}</div>
                     <div className="small muted mono" style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{k.fingerprint}</div>
+                    <div className="small muted">{keyAccessLabel(k)}</div>
                   </div>
+                  <select className="select" style={{ width: "auto", height: 32 }} aria-label={`Access for ${k.comment || k.type}`} value={k.access ?? ""}
+                    onChange={(e) => run("key", async () => {
+                      await api.call("PUT", `/accounts/${encodeURIComponent(a.name)}/ssh/keys?fingerprint=${encodeURIComponent(k.fingerprint)}`, { access: e.target.value, allow_from: k.allow_from ?? [], expires: k.expires ?? "" });
+                      keys.reload(); toast("ok", "Key access changed");
+                    })}>
+                    <option value="">{a.ssh === "shell" ? "Full shell" : "File transfer"}</option><option value="sftp">SFTP only</option><option value="sftp-readonly">Read-only SFTP</option>
+                  </select>
                   <Button variant="ghost" size="sm" icon aria-label={`Remove key ${k.comment}`}
                     onClick={() => run("key", async () => { await api.removeSSHKey(a.name, k.fingerprint); keys.reload(); toast("ok", "Key removed"); })}>
                     <Trash2 size={15} />
@@ -129,10 +138,24 @@ function AccountDetail({ account, onClose, onChange }: { account: Account; onClo
             </ul>
           )}
           <textarea className="textarea" rows={2} placeholder="ssh-ed25519 AAAA… you@laptop" value={newKey} onChange={(e) => { setNewKey(e.target.value); setKeyErr(null); }} aria-label="New public key" />
+          <div className="grid-2" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))" }}>
+            <label className="small" style={{ display: "grid", gap: 4 }}>This key can
+              <select className="select" value={keyOpts.access} onChange={(e) => setKeyOpts({ ...keyOpts, access: e.target.value as SSHKey["access"] & string })}>
+                <option value="">Do what the account allows</option><option value="sftp">Transfer files only</option><option value="sftp-readonly">Download files only</option>
+              </select></label>
+            <label className="small" style={{ display: "grid", gap: 4 }}>Only from (IPs, optional)
+              <input className="input mono" value={keyOpts.from} onChange={(e) => setKeyOpts({ ...keyOpts, from: e.target.value })} placeholder="203.0.113.0/24" /></label>
+            <label className="small" style={{ display: "grid", gap: 4 }}>Stops working after
+              <input className="input" type="date" value={keyOpts.expires} onChange={(e) => setKeyOpts({ ...keyOpts, expires: e.target.value })} /></label>
+          </div>
           {keyErr ? <div className="error">{keyErr}</div> : null}
           <div><Button size="sm" disabled={!newKey.trim()} loading={busy === "add"} onClick={async () => {
             setBusy("add");
-            try { await api.addSSHKey(a.name, newKey); setNewKey(""); keys.reload(); toast("ok", "Key added"); } catch (e) { setKeyErr((e as Error).message); } finally { setBusy(null); }
+            try {
+              await api.call("POST", `/accounts/${encodeURIComponent(a.name)}/ssh/keys`, { public_key: newKey.trim(), access: keyOpts.access,
+                allow_from: keyOpts.from.split(/[\s,]+/).filter(Boolean), expires: keyOpts.expires });
+              setNewKey(""); setKeyOpts({ access: "", from: "", expires: "" }); keys.reload(); toast("ok", "Key added");
+            } catch (e) { setKeyErr((e as Error).message); } finally { setBusy(null); }
           }}>Add key</Button></div>
         </div>
 
@@ -166,4 +189,11 @@ function AccountDetail({ account, onClose, onChange }: { account: Account; onClo
         onConfirm={async () => { await api.deleteAccount(a.name, true); toast("ok", `Deleted ${a.name}`); onChange(); onClose(); }} />
     </Modal>
   );
+}
+
+function keyAccessLabel(k: SSHKey) {
+  const parts = [k.access === "sftp" ? "SFTP only" : k.access === "sftp-readonly" ? "Read-only SFTP" : ""];
+  if (k.allow_from?.length) parts.push(`from ${k.allow_from.join(", ")}`);
+  if (k.expires) parts.push(`until ${k.expires}`);
+  return parts.filter(Boolean).join(" · ");
 }

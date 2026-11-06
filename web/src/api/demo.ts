@@ -8,6 +8,7 @@ import type {
   Deployment, QueueStatus, Container, ContainerSpec, StackInfo, DockerOverview, ImageUpdate, KubeStatus, KubeWorkloads,
 } from "./types";
 import { isApp as isAppRt, isProxied } from "./runtime";
+import { Demo5 } from "./demo5";
 
 // Same rules as agent/internal/validate, so demo errors match the real server.
 const domainLabel = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/;
@@ -509,6 +510,32 @@ export class DemoApi implements Api {
     this.record("POST", `/v1/jobs/${kind}`, 202);
     return { ...j };
   }
+  // Newer screens talk to the API through call(); the preview answers them
+  // from an in-memory server in demo5.ts.
+  private d5: Demo5 | null = null;
+  private v5() {
+    if (!this.d5) this.d5 = new Demo5({
+      accounts: () => this.accounts_.map((a) => a.name),
+      sites: () => this.sites_.map((s) => ({ domain: s.domain, account: s.account, runtime: s.runtime })),
+      job: (kind: string, title: string, steps: string[], onDone?: () => void) => this.startJob(kind, title, steps, onDone),
+      mariadb: (a: string) => (this.dbs[a] ?? []).map((d) => d.name),
+      sshKeys: (a: string) => (this.keys[a] ??= []),
+    });
+    return this.d5;
+  }
+  async call<T = unknown>(method: string, path: string, body?: unknown): Promise<T> {
+    await wait(method === "GET" ? 220 : 380);
+    const out = this.v5().handle(method, path, body);
+    if (method !== "GET") this.record(method, "/v1" + path.split("?")[0]);
+    return out as T;
+  }
+  async upload<T = unknown>(method: "PUT" | "POST", path: string, file: Blob, onProgress?: (pct: number) => void): Promise<T> {
+    for (let p = 10; p <= 100; p += 30) { onProgress?.(Math.min(p, 100)); await wait(150); }
+    return this.v5().handle(method, path, { size: file.size, name: (file as File).name }) as T;
+  }
+  fileUrl() { return ""; }
+  socketUrl() { return null; }
+
   async job(id: string) { await wait(100); const j = this.jobs_[id]; if (!j) throw new Error("Job not found."); return { ...j, log: [...j.log] }; }
 
   async updates(): Promise<UpdateStatus> {
@@ -891,10 +918,10 @@ export class DemoApi implements Api {
       "Loading composer repositories with package information", r.action === "require" ? `Using version ^3.2 for ${r.package}` : "Installing dependencies from lock file",
       "Package operations: 3 installs, 12 updates, 0 removals", "Generating optimized autoload files", "No security vulnerability advisories found."]);
   }
-  async issueCertificate(domain: string, r: { email?: string; include_aliases?: boolean }) {
+  async issueCertificate(domain: string, r: { email?: string; include_aliases?: boolean; wildcard?: boolean }) {
     await wait(300);
     const s = this.find(domain);
-    const names = [domain, ...(s.www === "none" ? [] : [`www.${domain}`]), ...(r.include_aliases ? (s.aliases || []).filter((a) => !a.startsWith("*.")) : [])];
+    const names = [domain, ...(s.www === "none" ? [] : [`www.${domain}`]), ...(r.wildcard ? [`*.${domain}`] : []), ...(r.include_aliases ? (s.aliases || []).filter((a) => !a.startsWith("*.") || r.wildcard) : [])];
     return this.startJob("ssl", `Get an HTTPS certificate for ${domain}`, [...names.map((n) => `${n} points to 203.0.113.24`),
       `Asking Let's Encrypt for a certificate for ${names.join(", ")}`, "Requesting a certificate for " + names[0], "Successfully received certificate.",
       `HTTPS is on for ${domain}`], () => {

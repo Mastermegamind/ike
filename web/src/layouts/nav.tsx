@@ -2,7 +2,8 @@ import {
   Box, Cloud, Puzzle, Ship,
   ArrowUpCircle, BarChart3, BellRing, CreditCard, FolderInput, KeyRound, ShieldHalf, UserCog,
   Activity, AppWindow, Bot, Boxes, CalendarClock, Database, Gauge, Globe, HardDriveDownload, LockKeyhole, Mail,
-  Network, Palette, Server, ShieldCheck, SquareTerminal, Users, type LucideIcon,
+  Network, Palette, Server, ShieldCheck, SquareTerminal, Users, FolderOpen, ServerCog, Bug, Inbox, Settings2, Brush, Bell, KeySquare,
+  type LucideIcon,
 } from "lucide-react";
 import type { Role } from "../api/types";
 
@@ -29,7 +30,10 @@ export const navGroups: NavGroup[] = [
       { to: "/accounts", label: "Accounts", icon: Users, roles: ["admin", "reseller"] },
       { to: "/sites", label: "Websites", icon: Globe, roles: all },
       { to: "/email", label: "Email", icon: Mail, roles: all },
+      { to: "/dns", label: "DNS zones", icon: Network, roles: all },
       { to: "/databases", label: "Databases", icon: Database, roles: all },
+      { to: "/files", label: "Files", icon: FolderOpen, roles: all },
+      { to: "/backups", label: "Backups", icon: HardDriveDownload, roles: all },
       { to: "/cron", label: "Cron jobs", icon: CalendarClock, roles: all },
       { to: "/apps", label: "App installer", icon: AppWindow, roles: all },
       { to: "/containers", label: "Containers", icon: Box, roles: all },
@@ -40,14 +44,18 @@ export const navGroups: NavGroup[] = [
   {
     title: "Server",
     items: [
+      { to: "/servers", label: "Infrastructure", icon: ServerCog, roles: ["admin"] },
       { to: "/firewall", label: "Firewall", icon: ShieldCheck, roles: ["admin"] },
+      { to: "/malware", label: "Malware scanner", icon: Bug, roles: all },
+      { to: "/security", label: "Security scan", icon: ShieldHalf, roles: ["admin"] },
       { to: "/software", label: "Server software", icon: Server, roles: ["admin"] },
+      { to: "/mail-settings", label: "Mail settings", icon: Inbox, roles: ["admin"] },
+      { to: "/dns-settings", label: "DNS settings", icon: Settings2, roles: ["admin"] },
       { to: "/php-extensions", label: "PHP extensions", icon: Puzzle, roles: ["admin"] },
       { to: "/docker", label: "Docker", icon: Ship, roles: ["admin"] },
       { to: "/kubernetes", label: "Kubernetes", icon: Cloud, roles: ["admin"] },
       { to: "/usage", label: "Resource usage", icon: BarChart3, roles: ["admin", "reseller"] },
       { to: "/updates", label: "Updates", icon: ArrowUpCircle, roles: ["admin"] },
-      { to: "/security", label: "Security scan", icon: ShieldHalf, roles: ["admin"] },
       { to: "/migrate", label: "Migrate from cPanel", icon: FolderInput, roles: ["admin"] },
       { to: "/activity", label: "Activity", icon: Activity, roles: ["admin", "reseller"] },
       { to: "/ai", label: "AI agents", icon: Bot, roles: ["admin"] },
@@ -56,22 +64,18 @@ export const navGroups: NavGroup[] = [
   {
     title: "Business",
     items: [
+      { to: "/packages", label: "Hosting packages", icon: Boxes, roles: ["admin", "reseller"] },
       { to: "/billing", label: "Billing", icon: CreditCard, roles: all },
       { to: "/people", label: "People", icon: UserCog, roles: ["admin", "reseller"] },
+      { to: "/branding", label: "Branding", icon: Brush, roles: ["admin", "reseller"] },
       { to: "/alerts", label: "Alerts", icon: BellRing, roles: ["admin"] },
     ],
   },
-  {
-    title: "Coming next",
-    items: [
-      { to: "/soon/dns", label: "DNS zones", icon: Network, roles: all, soon: true },
-      { to: "/soon/backups", label: "Backups", icon: HardDriveDownload, roles: all, soon: true },
-      { to: "/soon/plans", label: "Hosting plans", icon: Boxes, roles: ["admin"], soon: true },
-    ],
-  },
   { title: "Settings", items: [
+    { to: "/notifications", label: "Notifications", icon: Bell, roles: all },
     { to: "/appearance", label: "Appearance", icon: Palette, roles: all },
     { to: "/profile", label: "Sign-in security", icon: KeyRound, roles: all },
+    { to: "/tokens", label: "API tokens", icon: KeySquare, roles: all },
   ] },
 ];
 
