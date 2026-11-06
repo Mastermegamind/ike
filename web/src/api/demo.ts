@@ -145,6 +145,7 @@ export class DemoApi implements Api {
     { port: "465", proto: "tcp", comment: "SMTP (SSL/TLS)", protected: false },
     { port: "587", proto: "tcp", comment: "SMTP (STARTTLS)", protected: false },
     { port: "993", proto: "tcp", comment: "IMAP (SSL/TLS)", protected: false },
+    { port: "6379", proto: "tcp", comment: "Redis replica", from: "102.89.34.17", protected: false },
   ];
   private blocks: FirewallBlock[] = [
     { address: "45.95.147.0/24", comment: "Scanner network", added_at: ago(3 * day) },
@@ -455,17 +456,17 @@ export class DemoApi implements Api {
   }
 
   // --------------------------------------------------------------- firewall
-  async firewall() { await wait(200); return { ports: [...this.ports], blocks: [...this.blocks] }; }
-  async openPort(port: string, proto: "tcp" | "udp", comment: string) {
+  async firewall() { await wait(200); return { backend: "nftables", ports: [...this.ports], blocks: [...this.blocks] }; }
+  async openPort(port: string, proto: "tcp" | "udp", comment: string, from = "") {
     await wait(400);
     if (!/^\d{1,5}(:\d{1,5})?$/.test(port) || +port.split(":")[0] < 1 || +port.split(":")[0] > 65535) throw new Error("Use a port from 1 to 65535, or a range like 6000:6100.");
-    if (this.ports.some((p) => p.port === port && p.proto === proto)) throw new Error(`${port}/${proto} is already open.`);
-    this.ports.push({ port, proto, comment, protected: false });
+    if (this.ports.some((p) => p.port === port && p.proto === proto && (p.from ?? "") === from)) throw new Error(`${port}/${proto} is already open.`);
+    this.ports.push({ port, proto, comment, protected: false, ...(from ? { from } : {}) });
     this.record("POST", "/v1/firewall/ports", 201);
   }
-  async closePort(port: string, proto: "tcp" | "udp") {
+  async closePort(port: string, proto: "tcp" | "udp", from = "") {
     await wait(400);
-    const p = this.ports.find((x) => x.port === port && x.proto === proto);
+    const p = this.ports.find((x) => x.port === port && x.proto === proto && (x.from ?? "") === from);
     if (p?.protected) throw new Error(`${port}/${proto} keeps you connected to this server and can't be closed here.`);
     this.ports = this.ports.filter((x) => x !== p);
     this.record("DELETE", "/v1/firewall/ports");

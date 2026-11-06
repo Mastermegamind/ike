@@ -347,6 +347,11 @@ Security
   ike malware quarantine SCAN_ID --account A [--finding ID ...]
   ike waf DOMAIN off|detect|block [--profile wordpress] [--disable-rule 942100 ...]
   ike waf DOMAIN events
+  ike firewall                                 (ufw, nftables or firewalld: whichever the server uses)
+  ike firewall open PORT/PROTO [--from ADDRESS/RANGE] [--note TEXT]
+  ike firewall close PORT/PROTO [--from ADDRESS/RANGE]
+  ike firewall block ADDRESS/RANGE [--note TEXT]    ike firewall unblock ADDRESS/RANGE
+  ike firewall bans                            ike firewall unban JAIL IP
 
 Access
   ike tokens                                   ike tokens revoke ID
@@ -679,6 +684,8 @@ func run(args []string) error {
 		return malwareCmd(c, pos, fs)
 	case "waf":
 		return wafCmd(c, pos, fs)
+	case "firewall", "fw":
+		return firewallCmd(c, pos, fs)
 	case "packages":
 		return packagesCmd(c, pos, fs)
 	case "servers":

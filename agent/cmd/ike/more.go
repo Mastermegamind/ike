@@ -1317,3 +1317,136 @@ func generatePassword() string {
 	}
 	return string(b)
 }
+
+// ---------------------------------------------------------------- firewall
+
+func splitPort(arg string) (port, proto string, err error) {
+	port, proto, ok := strings.Cut(arg, "/")
+	if !ok {
+		proto = "tcp"
+	}
+	if port == "" || (proto != "tcp" && proto != "udp") {
+		return "", "", fmt.Errorf("write the port as 8080/tcp, 53/udp or 6000:6100/udp")
+	}
+	return port, proto, nil
+}
+
+func firewallCmd(c *client, pos []string, fs flagSet) error {
+	if len(pos) == 0 || pos[0] == "status" || pos[0] == "list" {
+		var st struct {
+			Backend string           `json:"backend"`
+			Ports   []map[string]any `json:"ports"`
+			Blocks  []map[string]any `json:"blocks"`
+		}
+		if err := c.do("GET", "/firewall", nil, &st); err != nil {
+			return err
+		}
+		c.show(st, func(w *tabwriter.Writer) {
+			fmt.Fprintf(w, "Firewall\t%s\n\n", orDefault(st.Backend, "ufw"))
+			fmt.Fprintln(w, "PORT\tFROM\tNOTE\t")
+			for _, p := range st.Ports {
+				from, _ := p["from"].(string)
+				lock := ""
+				if p["protected"] == true {
+					lock = "always open"
+				}
+				fmt.Fprintf(w, "%v/%v\t%s\t%v\t%s\n", p["port"], p["proto"], orDefault(from, "anyone"), text(p["comment"]), lock)
+			}
+			if len(st.Blocks) > 0 {
+				fmt.Fprintln(w, "\nBLOCKED\tNOTE\tSINCE\t")
+				for _, b := range st.Blocks {
+					fmt.Fprintf(w, "%v\t%v\t%v\t\n", b["address"], text(b["comment"]), b["added_at"])
+				}
+			}
+		})
+		return nil
+	}
+	switch pos[0] {
+	case "open", "close":
+		if len(pos) != 2 {
+			return errUsage
+		}
+		port, proto, err := splitPort(pos[1])
+		if err != nil {
+			return err
+		}
+		from := fs.get("from")
+		if pos[0] == "open" {
+			if err := c.do("POST", "/firewall/ports", map[string]string{"port": port, "proto": proto, "from": from, "comment": fs.get("note")}, nil); err != nil {
+				return err
+			}
+			c.done("Opened %s/%s for %s", port, proto, orDefault(from, "anyone"))
+			return nil
+		}
+		q := "/firewall/ports?port=" + url.QueryEscape(port) + "&proto=" + proto
+		if from != "" {
+			q += "&from=" + url.QueryEscape(from)
+		}
+		if err := c.do("DELETE", q, nil, nil); err != nil {
+			return err
+		}
+		c.done("Closed %s/%s", port, proto)
+		return nil
+	case "block":
+		if len(pos) != 2 {
+			return errUsage
+		}
+		if err := c.do("POST", "/firewall/blocks", map[string]string{"address": pos[1], "comment": fs.get("note")}, nil); err != nil {
+			return err
+		}
+		c.done("Blocked %s", pos[1])
+		return nil
+	case "unblock":
+		if len(pos) != 2 {
+			return errUsage
+		}
+		if err := c.do("DELETE", "/firewall/blocks?address="+url.QueryEscape(pos[1]), nil, nil); err != nil {
+			return err
+		}
+		c.done("Unblocked %s", pos[1])
+		return nil
+	case "bans":
+		var bans []map[string]any
+		if err := c.do("GET", "/firewall/bans", nil, &bans); err != nil {
+			return err
+		}
+		c.show(bans, func(w *tabwriter.Writer) {
+			fmt.Fprintln(w, "JAIL\tADDRESS")
+			for _, b := range bans {
+				fmt.Fprintf(w, "%v\t%v\n", b["jail"], b["ip"])
+			}
+		})
+		return nil
+	case "unban":
+		if len(pos) != 3 {
+			return errUsage
+		}
+		if err := c.do("DELETE", "/firewall/bans?jail="+url.QueryEscape(pos[1])+"&ip="+url.QueryEscape(pos[2]), nil, nil); err != nil {
+			return err
+		}
+		c.done("Released %s from %s", pos[2], pos[1])
+		return nil
+	}
+	return errUsage
+}
+
+func orDefault(s, def string) string {
+	if s == "" {
+		return def
+	}
+	return s
+}
+
+func text(v any) string {
+	if v == nil {
+		return ""
+	}
+	return fmt.Sprint(v)
+}
+
+// done prints a one-line confirmation (nothing with --json).
+func (c *client) done(format string, args ...any) {
+	if !c.asJSON {
+		fmt.Printf(format+"\n", args...)
+	}
+}

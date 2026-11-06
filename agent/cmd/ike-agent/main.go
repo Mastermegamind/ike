@@ -83,7 +83,11 @@ func run(socket, cfgPath, root, group string, dryRun bool) error {
 	if err := mgr.EnsurePages(); err != nil {
 		slog.Warn("could not write default status/error pages", "err", err)
 	}
-	fw := &firewall.Manager{Run: r, StateFile: filepath.Join(root, cfg.FirewallState), Protected: cfg.ProtectedPorts}
+	fw := &firewall.Manager{Run: r, StateFile: filepath.Join(root, cfg.FirewallState), Protected: cfg.ProtectedPorts,
+		Backend: cfg.Firewall, RulesetFile: filepath.Join(root, cfg.FirewallRuleset)}
+	if err := fw.Sync(context.Background()); err != nil {
+		slog.Warn("could not load the firewall rules", "backend", cfg.Firewall, "err", err)
+	}
 	jm := jobs.NewManager()
 	up := &updates.Manager{Run: r, Jobs: jm, Root: root, DryRun: dryRun, Version: api.Version, Repo: cfg.Repo,
 		APIBase: "https://api.github.com", DownloadBase: "https://github.com", BinDir: "/usr/local/bin"}

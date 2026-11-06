@@ -72,9 +72,9 @@
 //	POST   /v1/drift/reconcile                 {"paths": [...]} restore them (all when empty)
 //	GET    /v1/imports/cpanel/{file}           inspect a cPanel backup in the imports folder
 //
-//	GET    /v1/firewall                        open ports + blocked addresses
-//	POST   /v1/firewall/ports                  {"port","proto","comment"}
-//	DELETE /v1/firewall/ports?port=&proto=
+//	GET    /v1/firewall                        the firewall in use (ufw|nftables|firewalld), open ports + blocked addresses
+//	POST   /v1/firewall/ports                  {"port","proto","comment","from"}
+//	DELETE /v1/firewall/ports?port=&proto=[&from=]
 //	POST   /v1/firewall/blocks                 {"address","comment"}
 //	DELETE /v1/firewall/blocks?address=
 //	GET    /v1/firewall/bans                   fail2ban bans
@@ -572,16 +572,16 @@ func (s *Server) Handler() http.Handler {
 		return ok(s.Firewall.Status())
 	})
 	h("POST /v1/firewall/ports", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
-		var body struct{ Port, Proto, Comment string }
+		var body struct{ Port, Proto, Comment, From string }
 		if !decode(w, r, &body) {
 			return 0, nil, nil
 		}
-		return created(s.Firewall.OpenPort(r.Context(), body.Port, body.Proto, body.Comment))
+		return created(s.Firewall.AllowFrom(r.Context(), body.From, body.Port, body.Proto, body.Comment))
 	})
 	h("DELETE /v1/firewall/ports", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
 		q := r.URL.Query()
 		return ok(map[string]string{"closed": q.Get("port") + "/" + q.Get("proto")},
-			s.Firewall.ClosePort(r.Context(), q.Get("port"), q.Get("proto")))
+			s.Firewall.ClosePort(r.Context(), q.Get("port"), q.Get("proto"), q.Get("from")))
 	})
 	h("POST /v1/firewall/blocks", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
 		var body struct{ Address, Comment string }

@@ -110,9 +110,9 @@ class HttpApi implements Api {
     return this.req<WordPressResult>("POST", `/sites/${e(d)}/apps/wordpress`, r);
   }
 
-  firewall() { return this.get<{ ports: FirewallPort[]; blocks: FirewallBlock[] }>("/firewall"); }
-  async openPort(port: string, proto: "tcp" | "udp", comment: string) { await this.req("POST", "/firewall/ports", { port, proto, comment }); }
-  async closePort(port: string, proto: "tcp" | "udp") { await this.req("DELETE", `/firewall/ports?port=${e(port)}&proto=${proto}`); }
+  firewall() { return this.get<{ backend?: string; ports: FirewallPort[]; blocks: FirewallBlock[] }>("/firewall"); }
+  async openPort(port: string, proto: "tcp" | "udp", comment: string, from = "") { await this.req("POST", "/firewall/ports", { port, proto, comment, ...(from ? { from } : {}) }); }
+  async closePort(port: string, proto: "tcp" | "udp", from = "") { await this.req("DELETE", `/firewall/ports?port=${e(port)}&proto=${proto}${from ? `&from=${e(from)}` : ""}`); }
   async block(address: string, comment: string) { await this.req("POST", "/firewall/blocks", { address, comment }); }
   async unblock(address: string) { await this.req("DELETE", `/firewall/blocks?address=${e(address)}`); }
   bans() { return this.get<Ban[]>("/firewall/bans"); }

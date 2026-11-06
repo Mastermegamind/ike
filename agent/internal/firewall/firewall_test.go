@@ -28,10 +28,10 @@ func TestPorts(t *testing.T) {
 			t.Errorf("OpenPort(%v) should fail", bad)
 		}
 	}
-	if err := m.ClosePort(ctx, "22", "tcp"); err == nil {
+	if err := m.ClosePort(ctx, "22", "tcp", ""); err == nil {
 		t.Error("closing SSH must be refused")
 	}
-	if err := m.ClosePort(ctx, "8080", "tcp"); err != nil {
+	if err := m.ClosePort(ctx, "8080", "tcp", ""); err != nil {
 		t.Fatal(err)
 	}
 	cmds := strings.Join(r.History(), "\n")

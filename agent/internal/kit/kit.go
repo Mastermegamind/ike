@@ -43,6 +43,13 @@ type Env struct {
 	Run      runner.Runner
 	Accounts Accounts
 	Events   *Bus
+	// Firewall opens ports for features that need them (may be nil).
+	Firewall Opener
+}
+
+// Opener lets features open a port in the server firewall.
+type Opener interface {
+	AllowFrom(ctx context.Context, from, port, proto, comment string) error
 }
 
 // P maps an absolute system path into the configured root.

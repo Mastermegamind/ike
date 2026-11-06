@@ -45,6 +45,7 @@ import (
 	"github.com/YOUR-ORG/ike/agent/internal/databases"
 	"github.com/YOUR-ORG/ike/agent/internal/dns"
 	"github.com/YOUR-ORG/ike/agent/internal/files"
+	"github.com/YOUR-ORG/ike/agent/internal/firewall"
 	"github.com/YOUR-ORG/ike/agent/internal/infra"
 	"github.com/YOUR-ORG/ike/agent/internal/kit"
 	"github.com/YOUR-ORG/ike/agent/internal/mail"
@@ -102,6 +103,9 @@ func (z zoneAdapter) SetManagedTXT(ctx context.Context, tag, domain string, recs
 func (s *Server) Setup() error {
 	cfg := s.Config
 	env := &kit.Env{Cfg: cfg, Run: s.Runner, Accounts: s.Sites, Events: kit.NewBus()}
+	if s.Firewall != nil {
+		env.Firewall = fwOpener{s.Firewall}
+	}
 	keys, err := secrets.Open(env.P(cfg.MasterKey))
 	if err != nil {
 		return err
@@ -466,3 +470,14 @@ func decodeBig(w http.ResponseWriter, r *http.Request, v any, limit int64) bool 
 }
 
 var _ = strings.TrimSpace
+
+// fwOpener adapts the firewall manager for features (kit.Opener).
+type fwOpener struct{ m *firewall.Manager }
+
+func (o fwOpener) AllowFrom(ctx context.Context, from, port, proto, comment string) error {
+	_, err := o.m.AllowFrom(ctx, from, port, proto, comment)
+	if errors.Is(err, firewall.ErrExists) {
+		return nil
+	}
+	return err
+}

@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/YOUR-ORG/ike/agent/internal/firewall"
 )
 
 // SecurityCheck is one line of the security baseline.
@@ -59,10 +61,10 @@ func (m *Manager) SecurityScan(ctx context.Context) *SecurityReport {
 	}
 
 	// Firewall and brute-force protection.
-	if out, _ := m.run.Run(ctx, "ufw", "status"); strings.Contains(string(out), "Status: active") {
+	if firewall.Active(ctx, m.run, m.cfg.Firewall) {
 		add("firewall", "firewall", "ok", "The firewall is on", "")
 	} else if !m.cfg.DryRun {
-		add("firewall", "firewall", "bad", "The firewall is off", "Run: ufw --force enable (SSH stays open).")
+		add("firewall", "firewall", "bad", "The firewall is off", firewall.EnableHint(m.cfg.Firewall))
 	}
 	if m.serviceActive(ctx, "fail2ban") {
 		add("fail2ban", "firewall", "ok", "Repeated failed logins are banned automatically", "")

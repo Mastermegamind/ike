@@ -48,6 +48,8 @@ JOIN_TOKEN=""
 JOIN_FINGERPRINT=""
 DISK_QUOTAS=0               # Linux user quotas so per-account disk limits are enforced
 QUOTAS_ACTIVE=0
+FIREWALL="ufw"              # ufw | nftables | firewalld
+FW_EXTRA=""                 # ports later steps open (DNS, mail, webmail), kept open by the agent
 INSTALL_MODSEC=0            # ModSecurity web application firewall with the OWASP Core Rule Set
 INSTALL_SCANNER=0           # ClamAV for malware scans of websites (always on with --mail)
 FORCE=0
@@ -139,6 +141,9 @@ DNS and email
   --hostname mail.example.com This server's name (mail greeting, reverse DNS); default: hostname -f
 
 Security
+  --firewall ufw|nftables|firewalld
+                              The firewall Ike drives (default: ufw). nftables: Ike keeps its own "inet ike"
+                              table, loaded at boot by ike-firewall.service. fail2ban bans through the same one.
   --disk-quotas               Enforce per-account disk limits with Linux user quotas (ext4; XFS after a reboot).
   --modsecurity               Web application firewall (ModSecurity + OWASP Core Rule Set), switched on per website.
                               With Nginx this uses Ubuntu's Nginx package, which the ModSecurity module is built for.
@@ -190,6 +195,7 @@ while [ $# -gt 0 ]; do
 		--no-mariadb) INSTALL_MARIADB=0; shift ;;
 		--dns) INSTALL_DNS=1; shift ;;
 		--modsecurity) INSTALL_MODSEC=1; shift ;;
+		--firewall) FIREWALL="${2:?}"; shift 2 ;;
 		--disk-quotas) DISK_QUOTAS=1; shift ;;
 		--join) JOIN_URL="${2:?}"; shift 2 ;;
 		--join-token) JOIN_TOKEN="${2:?}"; shift 2 ;;
@@ -264,6 +270,7 @@ run_wizard() {
 	fi
 	ask "Enforce disk limits per account with Linux quotas (yes/no)" "yes"
 	[ "$REPLY" = "yes" ] && DISK_QUOTAS=1
+	ask "Firewall (ufw, nftables or firewalld)" "$FIREWALL"; FIREWALL="$REPLY"
 	ask "Web application firewall, ModSecurity (yes/no)" "no"
 	[ "$REPLY" = "yes" ] && INSTALL_MODSEC=1
 	if [ "$INSTALL_MAIL" -eq 0 ]; then
@@ -300,6 +307,7 @@ for v in $GO_VERSIONS; do case "$v" in 1.[2-9][0-9]) ;; *) die "--go takes versi
 for v in $DART_VERSIONS; do case "$v" in latest|[3-9].[0-9]*.[0-9]*) ;; *) die "--dart takes latest or a version like 3.9.4" ;; esac; done
 
 case "$WEB_STACK" in nginx|apache|hybrid) ;; *) die "--web must be nginx, apache or hybrid" ;; esac
+case "$FIREWALL" in ufw|nftables|firewalld) ;; *) die "--firewall must be ufw, nftables or firewalld" ;; esac
 case "$DEFAULT_WEB_SERVER" in
 	"") [ "$WEB_STACK" = "hybrid" ] && DEFAULT_WEB_SERVER="nginx+apache" ;;
 	nginx|nginx+apache) [ "$WEB_STACK" = "hybrid" ] || die "--default-web-server only applies to --web hybrid" ;;
@@ -388,7 +396,7 @@ install_base() {
 	apt-get update -q >>"$LOG_FILE" 2>&1
 	info "Installing base packages"
 	apt_install ca-certificates curl gnupg software-properties-common lsb-release \
-		ufw fail2ban zip unzip xz-utils bzip2 restic acl openssl cron logrotate python3 rsync unattended-upgrades quota \
+		fail2ban zip unzip xz-utils bzip2 restic acl openssl cron logrotate python3 rsync unattended-upgrades quota \
 		git certbot
 	systemctl enable --now cron >>"$LOG_FILE" 2>&1
 }
@@ -1107,25 +1115,142 @@ EOF
 	systemctl reload ssh >>"$LOG_FILE" 2>&1 || systemctl reload sshd >>"$LOG_FILE" 2>&1 || true
 }
 
+# fw_allow PORT PROTO NOTE opens a port in the chosen firewall. With nftables
+# the port is also remembered so the agent keeps it in Ike's table.
+fw_allow() {
+	case "$FIREWALL" in
+		ufw) ufw allow "$1/$2" comment "$3" ;;
+		firewalld)
+			firewall-cmd --zone=public --add-port="$1/$2"
+			firewall-cmd --permanent --zone=public --add-port="$1/$2" ;;
+		nftables)
+			case " $FW_EXTRA " in
+				*" $1/$2 "*) ;;
+				*) FW_EXTRA="${FW_EXTRA} $1/$2"
+				   nft add rule inet ike input "$2" dport "$1" accept comment "\"$3\"" ;;
+			esac ;;
+	esac
+}
+
+# nft_ruleset writes Ike's starting table. The agent rewrites it from its own
+# record once it runs.
+nft_ruleset() {
+	local p rules=""
+	for p in $SSH_PORTS; do rules="${rules}		tcp dport ${p} accept comment \"SSH\"
+"; done
+	for p in 80 443 $PANEL_PORTS; do rules="${rules}		tcp dport ${p} accept comment \"Required\"
+"; done
+	install -d -m 0755 "$CONF_DIR"
+	cat >"$CONF_DIR/nftables.nft" <<NFT
+#!/usr/sbin/nft -f
+# Written by Ike. Edit open ports and blocked addresses in the panel; changes here are overwritten.
+
+table inet ike
+delete table inet ike
+
+table inet ike {
+	set blocked4 {
+		type ipv4_addr
+		flags interval
+		auto-merge
+	}
+
+	set blocked6 {
+		type ipv6_addr
+		flags interval
+		auto-merge
+	}
+
+	chain input {
+		type filter hook input priority filter - 10; policy drop;
+		ip saddr @blocked4 drop
+		ip6 saddr @blocked6 drop
+		ct state established,related accept
+		ct state invalid drop
+		iif "lo" accept
+		meta l4proto icmp accept
+		meta l4proto ipv6-icmp accept
+${rules}	}
+}
+NFT
+	chmod 0600 "$CONF_DIR/nftables.nft"
+}
+
 configure_firewall() {
-	info "Configuring firewall (ufw) and fail2ban"
+	info "Configuring the firewall (${FIREWALL}) and fail2ban"
 	SSH_PORTS=$(sshd -T 2>/dev/null | awk '$1=="port" {print $2}')
 	SSH_PORTS="${SSH_PORTS:-22}"
-	local p
-	# Allow SSH before enabling the firewall so the current session is never cut off.
-	for p in $SSH_PORTS; do
-		ufw allow "${p}/tcp" comment 'SSH' >>"$LOG_FILE" 2>&1
-	done
-	{
-		ufw allow 80/tcp comment 'HTTP'
-		ufw allow 443/tcp comment 'HTTPS'
-		for p in $PANEL_PORTS; do ufw allow "${p}/tcp" comment 'Ike panel'; done
-		ufw default deny incoming
-		ufw default allow outgoing
-		ufw --force enable
-	} >>"$LOG_FILE" 2>&1
+	local p banaction="" banaction_all=""
+	case "$FIREWALL" in
+	ufw)
+		apt_install ufw
+		# Allow SSH before enabling the firewall so the current session is never cut off.
+		for p in $SSH_PORTS; do
+			ufw allow "${p}/tcp" comment 'SSH' >>"$LOG_FILE" 2>&1
+		done
+		{
+			ufw allow 80/tcp comment 'HTTP'
+			ufw allow 443/tcp comment 'HTTPS'
+			for p in $PANEL_PORTS; do ufw allow "${p}/tcp" comment 'Ike panel'; done
+			ufw default deny incoming
+			ufw default allow outgoing
+			ufw --force enable
+		} >>"$LOG_FILE" 2>&1
+		;;
+	firewalld)
+		apt_install firewalld
+		if command -v ufw >/dev/null 2>&1; then ufw --force disable >>"$LOG_FILE" 2>&1 || true; fi
+		# firewalld's public zone already lets SSH (port 22) in; open the
+		# configured SSH ports and the panel before anything else changes.
+		systemctl enable --now firewalld >>"$LOG_FILE" 2>&1
+		{
+			firewall-cmd --set-default-zone=public
+			for p in $SSH_PORTS 80 443 $PANEL_PORTS; do
+				firewall-cmd --permanent --zone=public --add-port="${p}/tcp"
+			done
+			firewall-cmd --reload
+		} >>"$LOG_FILE" 2>&1
+		banaction="firewallcmd-rich-rules"
+		banaction_all="firewallcmd-allports"
+		;;
+	nftables)
+		apt_install nftables
+		if command -v ufw >/dev/null 2>&1; then ufw --force disable >>"$LOG_FILE" 2>&1 || true; fi
+		nft_ruleset
+		nft --check --file "$CONF_DIR/nftables.nft" >>"$LOG_FILE" 2>&1 || die "nftables rejected Ike's starting rules. See $LOG_FILE"
+		cat >"/etc/systemd/system/${PANEL_NAME}-firewall.service" <<UNIT
+[Unit]
+Description=Ike firewall rules (nftables table inet ike)
+DefaultDependencies=no
+Before=network-pre.target
+Wants=network-pre.target
 
-	local jails="[sshd]
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft --file ${CONF_DIR}/nftables.nft
+ExecReload=/usr/sbin/nft --file ${CONF_DIR}/nftables.nft
+ExecStop=/usr/sbin/nft delete table inet ike
+
+[Install]
+WantedBy=sysinit.target
+UNIT
+		systemctl daemon-reload
+		systemctl enable --now "${PANEL_NAME}-firewall" >>"$LOG_FILE" 2>&1 || die "Could not load the nftables rules. See $LOG_FILE"
+		banaction="nftables-multiport"
+		banaction_all="nftables-allports"
+		;;
+	esac
+
+	local jails=""
+	if [ -n "$banaction" ]; then
+		jails="[DEFAULT]
+banaction = ${banaction}
+banaction_allports = ${banaction_all}
+
+"
+	fi
+	jails="${jails}[sshd]
 enabled  = true
 maxretry = 5
 findtime = 10m
@@ -1193,8 +1318,8 @@ EOF
 	fi
 	systemctl enable pdns >>"$LOG_FILE" 2>&1
 	systemctl restart pdns || die "PowerDNS did not start. Check: journalctl -u pdns"
-	ufw allow 53/tcp comment 'DNS' >>"$LOG_FILE" 2>&1
-	ufw allow 53/udp comment 'DNS' >>"$LOG_FILE" 2>&1
+	fw_allow 53 tcp 'DNS' >>"$LOG_FILE" 2>&1
+	fw_allow 53 udp 'DNS' >>"$LOG_FILE" 2>&1
 }
 
 # ------------------------------------------------------------- security ----
@@ -1418,7 +1543,7 @@ EOF
 	systemctl restart postfix || die "Postfix did not start. Check: journalctl -u postfix"
 
 	local p
-	for p in 25 465 587 143 993 110 995 4190; do ufw allow "${p}/tcp" comment 'Mail' >>"$LOG_FILE" 2>&1; done
+	for p in 25 465 587 143 993 110 995 4190; do fw_allow "$p" tcp 'Mail' >>"$LOG_FILE" 2>&1; done
 	cat >/etc/fail2ban/jail.d/${PANEL_NAME}-mail.conf <<'EOF'
 [postfix-sasl]
 enabled  = true
@@ -1736,7 +1861,7 @@ php_admin_value[post_max_size] = 55M
 php_admin_value[open_basedir] = /usr/share/roundcube:/var/lib/roundcube:/etc/roundcube:/var/log/roundcube:/usr/share/php:/usr/share/javascript:/tmp
 EOF
 	systemctl restart "php${php}-fpm" >>"$LOG_FILE" 2>&1
-	ufw allow "${WEBMAIL_PORT}/tcp" comment 'Webmail' >>"$LOG_FILE" 2>&1
+	fw_allow "$WEBMAIL_PORT" tcp 'Webmail' >>"$LOG_FILE" 2>&1
 }
 
 fetch_binary() { # name dest local_path
@@ -1782,6 +1907,7 @@ install_agent() {
 
 	local protected="" p
 	for p in $SSH_PORTS 80 443 $PANEL_PORTS; do protected="${protected}\"${p}/tcp\", "; done
+	for p in $FW_EXTRA; do protected="${protected}\"${p}\", "; done
 	cat >"$CONF_DIR/agent.json" <<EOF
 {
   "web_stack": "${WEB_STACK}",
@@ -1821,6 +1947,8 @@ install_agent() {
   "antivirus": "$( { [ "$INSTALL_CLAMAV" -eq 1 ] || [ "$INSTALL_SCANNER" -eq 1 ]; } && echo clamav )",
   "disk_quotas": $( [ "$QUOTAS_ACTIVE" -eq 1 ] && echo true || echo false ),
   "docker_for_accounts": $( [ "$DOCKER_FOR_ACCOUNTS" -eq 1 ] && echo true || echo false ),
+  "firewall": "${FIREWALL}",
+  "firewall_ruleset": "${CONF_DIR}/nftables.nft",
   "protected_ports": [${protected%, }]
 }
 EOF
@@ -1958,6 +2086,7 @@ ${C_BLD}${C_GRN}${PANEL_NAME} installed successfully${C_RST}
   MariaDB       $( [ "$INSTALL_MARIADB" -eq 1 ] && echo installed || echo skipped )
   phpMyAdmin    ${PMA_INSTALLED:-not installed}$( [ -n "${PMA_INSTALLED:-}" ] && echo " — ssh -L ${PMA_PORT}:127.0.0.1:${PMA_PORT} root@${ip}, then open http://localhost:${PMA_PORT}" )
   Server IP     ${ip}
+  Firewall      ${FIREWALL}
   Install log   ${LOG_FILE}
 
 ${C_BLD}Sign in to the panel${C_RST} (browsers warn about the panel's self-signed certificate; websites get free Let's Encrypt certificates from their HTTPS tab):

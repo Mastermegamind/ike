@@ -112,7 +112,7 @@ export interface WordPressResult {
   url: string; admin_url: string; admin_user: string; admin_password: string; database: NewDatabase;
 }
 
-export interface FirewallPort { port: string; proto: "tcp" | "udp"; comment?: string; protected: boolean }
+export interface FirewallPort { port: string; proto: "tcp" | "udp"; comment?: string; from?: string; protected: boolean }
 export interface FirewallBlock { address: string; comment?: string; added_at: string }
 export interface Ban { jail: string; ip: string }
 
@@ -294,9 +294,9 @@ export interface Api {
   apps(): Promise<CatalogApp[]>;
   installWordPress(domain: string, req: { title: string; admin_user: string; admin_email: string }): Promise<WordPressResult>;
 
-  firewall(): Promise<{ ports: FirewallPort[]; blocks: FirewallBlock[] }>;
-  openPort(port: string, proto: "tcp" | "udp", comment: string): Promise<void>;
-  closePort(port: string, proto: "tcp" | "udp"): Promise<void>;
+  firewall(): Promise<{ backend?: string; ports: FirewallPort[]; blocks: FirewallBlock[] }>;
+  openPort(port: string, proto: "tcp" | "udp", comment: string, from?: string): Promise<void>;
+  closePort(port: string, proto: "tcp" | "udp", from?: string): Promise<void>;
   block(address: string, comment: string): Promise<void>;
   unblock(address: string): Promise<void>;
   bans(): Promise<Ban[]>;

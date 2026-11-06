@@ -9,6 +9,10 @@ import { PageHead, webServerLabel } from "../components/common";
 import { ActorIcon, describeAudit } from "./Dashboard";
 import { WordPressDialog } from "./SiteDetail";
 
+export function firewallLabel(b: string) {
+  return b === "nftables" ? "Uses nftables" : b === "firewalld" ? "Uses firewalld" : "Uses ufw";
+}
+
 export function Firewall() {
   const toast = useToast();
   const fw = useAsync(() => api.firewall());
@@ -17,6 +21,7 @@ export function Firewall() {
   const [port, setPort] = useState("");
   const [proto, setProto] = useState<"tcp" | "udp">("tcp");
   const [note, setNote] = useState("");
+  const [from, setFrom] = useState("");
   const [addr, setAddr] = useState("");
   const [why, setWhy] = useState("");
   const [busy, setBusy] = useState(false);
@@ -27,7 +32,8 @@ export function Firewall() {
 
   return (
     <div className="stack">
-      <PageHead title="Firewall" text="Choose which ports are open and which addresses are blocked. Ports that keep you connected can't be closed here." />
+      <PageHead title="Firewall" text="Choose which ports are open and which addresses are blocked. Ports that keep you connected can't be closed here."
+        actions={fw.data?.backend ? <Badge>{firewallLabel(fw.data.backend)}</Badge> : undefined} />
       <Tabs value={tab} onChange={setTab} tabs={[
         { value: "ports", label: "Open ports" }, { value: "blocks", label: `Blocked addresses${fw.data ? ` (${fw.data.blocks.length})` : ""}` },
         { value: "bans", label: `Automatic bans${bans.data ? ` (${bans.data.length})` : ""}` },
@@ -37,17 +43,19 @@ export function Firewall() {
           <div className="panel-body row" style={{ alignItems: "flex-end" }}>
             <Field label="Port or range">{(id) => <input id={id} className="input mono" style={{ width: 150 }} value={port} onChange={(e) => setPort(e.target.value)} placeholder="8080 or 6000:6100" />}</Field>
             <Segmented label="Protocol" value={proto} onChange={setProto} options={[{ value: "tcp", label: "TCP" }, { value: "udp", label: "UDP" }]} />
+            <Field label="Only from (optional)" hint="An IP address or range; empty lets anyone connect.">{(id) => <input id={id} className="input mono" style={{ width: 190 }} value={from} onChange={(e) => setFrom(e.target.value)} placeholder="Anyone" />}</Field>
             <Field label="Note">{(id) => <input id={id} className="input" style={{ width: 200 }} value={note} onChange={(e) => setNote(e.target.value)} placeholder="What uses it" />}</Field>
-            <Button variant="primary" loading={busy} disabled={!port} onClick={() => run(async () => { await api.openPort(port, proto, note); setPort(""); setNote(""); }, `Opened ${port}/${proto}`)}><Plus size={16} />Open port</Button>
+            <Button variant="primary" loading={busy} disabled={!port} onClick={() => run(async () => { await api.openPort(port, proto, note, from.trim()); setPort(""); setNote(""); setFrom(""); }, `Opened ${port}/${proto}${from.trim() ? ` for ${from.trim()}` : ""}`)}><Plus size={16} />Open port</Button>
           </div>
           {!fw.data ? <div className="panel-body"><Skeleton /></div> : (
             <div className="table-wrap"><table>
-              <thead><tr><th>Port</th><th>Protocol</th><th>Used for</th><th /></tr></thead>
+              <thead><tr><th>Port</th><th>Protocol</th><th>Who can connect</th><th>Used for</th><th /></tr></thead>
               <tbody>{fw.data.ports.map((p) => (
-                <tr key={p.port + p.proto}>
-                  <td className="mono">{p.port}</td><td>{p.proto.toUpperCase()}</td><td>{p.comment}</td>
+                <tr key={p.port + p.proto + (p.from ?? "")}>
+                  <td className="mono">{p.port}</td><td>{p.proto.toUpperCase()}</td>
+                  <td className={p.from ? "mono small" : "small muted"}>{p.from || "Anyone"}</td><td>{p.comment}</td>
                   <td style={{ textAlign: "right" }}>{p.protected ? <Badge><Lock size={12} />Always open</Badge> :
-                    <Button variant="ghost" size="sm" onClick={() => run(() => api.closePort(p.port, p.proto), `Closed ${p.port}/${p.proto}`)}>Close</Button>}</td>
+                    <Button variant="ghost" size="sm" onClick={() => run(() => api.closePort(p.port, p.proto, p.from), `Closed ${p.port}/${p.proto}`)}>Close</Button>}</td>
                 </tr>
               ))}</tbody>
             </table></div>

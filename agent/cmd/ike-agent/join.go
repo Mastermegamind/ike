@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
@@ -19,6 +20,8 @@ import (
 
 	"github.com/YOUR-ORG/ike/agent/internal/cluster"
 	"github.com/YOUR-ORG/ike/agent/internal/config"
+	"github.com/YOUR-ORG/ike/agent/internal/firewall"
+	"github.com/YOUR-ORG/ike/agent/internal/runner"
 )
 
 // join connects this server to a panel on another server.
@@ -108,7 +111,11 @@ func doJoin(panelURL, token, fingerprint, cfgPath string) error {
 	}
 	// only the panel may reach port 2089
 	if ip := net.ParseIP(res.PanelIP); ip != nil {
-		_ = exec.Command("ufw", "allow", "from", ip.String(), "to", "any", "port", "2089", "proto", "tcp", "comment", "Ike panel").Run()
+		fw := &firewall.Manager{Run: runner.Exec{}, StateFile: cfg.FirewallState, Protected: cfg.ProtectedPorts,
+			Backend: cfg.Firewall, RulesetFile: cfg.FirewallRuleset}
+		if _, err := fw.AllowFrom(context.Background(), ip.String(), "2089", "tcp", "Ike panel"); err != nil && !errors.Is(err, firewall.ErrExists) {
+			fmt.Fprintf(os.Stderr, "warning: couldn't open port 2089 for the panel: %v\n", err)
+		}
 	}
 	_ = exec.Command("systemctl", "restart", "ike-agent").Run()
 	fmt.Printf("Joined. This server is %s in the panel; it now accepts the panel on port 2089.\n", res.ServerID)

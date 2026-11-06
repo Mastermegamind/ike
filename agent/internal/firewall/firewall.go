@@ -1,6 +1,7 @@
-// Package firewall manages open ports and blocked addresses through ufw, and
-// reads/clears fail2ban bans. Ike keeps its own record of the rules it added
-// so it never touches rules an admin created by hand.
+// Package firewall manages open ports and blocked addresses through ufw,
+// nftables or firewalld, and reads/clears fail2ban bans. Ike keeps its own
+// record of the rules it added so it never touches rules an admin created by
+// hand (with nftables, Ike's rules live in their own "inet ike" table).
 package firewall
 
 import (
@@ -32,7 +33,8 @@ type Port struct {
 	Port      string    `json:"port"`  // "8080" or a range "6000:6100"
 	Proto     string    `json:"proto"` // tcp | udp
 	Comment   string    `json:"comment,omitempty"`
-	Protected bool      `json:"protected"` // can't be closed from the panel (SSH, panel ports)
+	From      string    `json:"from,omitempty"` // only this IP or range may connect; empty means anyone
+	Protected bool      `json:"protected"`      // can't be closed from the panel (SSH, panel ports)
 	AddedAt   time.Time `json:"added_at"`
 }
 
@@ -48,15 +50,21 @@ type Ban struct {
 }
 
 type State struct {
-	Ports  []Port  `json:"ports"`
-	Blocks []Block `json:"blocks"`
+	Backend string  `json:"backend,omitempty"` // filled in by Status
+	Ports   []Port  `json:"ports"`
+	Blocks  []Block `json:"blocks"`
 }
 
 type Manager struct {
 	Run       runner.Runner
 	StateFile string   // absolute, already rooted
 	Protected []string // ports that may never be closed, e.g. "22/tcp"
-	mu        sync.Mutex
+	// Backend is "ufw" (the default), "nftables" or "firewalld".
+	Backend string
+	// RulesetFile is where the nftables backend keeps Ike's table, loaded at
+	// boot by ike-firewall.service. Absolute, already rooted.
+	RulesetFile string
+	mu          sync.Mutex
 }
 
 func (m *Manager) load() (*State, error) {
@@ -103,7 +111,7 @@ func (m *Manager) Status() (*State, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := &State{Blocks: s.Blocks, Ports: []Port{}}
+	out := &State{Backend: m.backend(), Blocks: s.Blocks, Ports: []Port{}}
 	for _, p := range m.Protected {
 		port, proto, _ := strings.Cut(p, "/")
 		out.Ports = append(out.Ports, Port{Port: port, Proto: proto, Protected: true, Comment: "Required"})
@@ -133,13 +141,23 @@ func checkPort(port, proto string) error {
 	return nil
 }
 
-// OpenPort allows incoming traffic on a port.
+// OpenPort allows incoming traffic on a port from anyone.
 func (m *Manager) OpenPort(ctx context.Context, port, proto, comment string) (*Port, error) {
+	return m.AllowFrom(ctx, "", port, proto, comment)
+}
+
+// AllowFrom allows incoming traffic on a port, only from one IP address or
+// range when from isn't empty (e.g. the panel reaching a joined server).
+func (m *Manager) AllowFrom(ctx context.Context, from, port, proto, comment string) (*Port, error) {
 	if err := checkPort(port, proto); err != nil {
 		return nil, err
 	}
 	if !commentRe.MatchString(comment) {
 		return nil, fmt.Errorf("note may only contain letters, numbers and basic punctuation (max 60)")
+	}
+	from, err := normalizeSource(from)
+	if err != nil {
+		return nil, err
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -147,32 +165,33 @@ func (m *Manager) OpenPort(ctx context.Context, port, proto, comment string) (*P
 	if err != nil {
 		return nil, err
 	}
-	if m.isProtected(port, proto) {
+	if from == "" && m.isProtected(port, proto) {
 		return nil, fmt.Errorf("port %s/%s is already open", port, proto)
 	}
 	for _, p := range s.Ports {
-		if p.Port == port && p.Proto == proto {
+		if p.Port == port && p.Proto == proto && p.From == from {
 			return nil, fmt.Errorf("port %s/%s %w", port, proto, ErrExists)
 		}
 	}
-	args := []string{"allow", port + "/" + proto}
-	if comment != "" {
-		args = append(args, "comment", comment)
-	}
-	if _, err := m.Run.Run(ctx, "ufw", args...); err != nil {
+	p := Port{Port: port, Proto: proto, Comment: comment, From: from, AddedAt: time.Now().UTC()}
+	next := &State{Ports: append(append([]Port{}, s.Ports...), p), Blocks: s.Blocks}
+	if err := m.change(ctx, opAllow, p, Block{}, next); err != nil {
 		return nil, err
 	}
-	p := Port{Port: port, Proto: proto, Comment: comment, AddedAt: time.Now().UTC()}
-	s.Ports = append(s.Ports, p)
-	return &p, m.save(s)
+	return &p, m.save(next)
 }
 
-// ClosePort removes a port Ike opened. Protected ports can't be closed.
-func (m *Manager) ClosePort(ctx context.Context, port, proto string) error {
+// ClosePort removes a port Ike opened (from one source when from isn't
+// empty). Protected ports can't be closed.
+func (m *Manager) ClosePort(ctx context.Context, port, proto, from string) error {
 	if err := checkPort(port, proto); err != nil {
 		return err
 	}
-	if m.isProtected(port, proto) {
+	from, err := normalizeSource(from)
+	if err != nil {
+		return err
+	}
+	if from == "" && m.isProtected(port, proto) {
 		return fmt.Errorf("port %s/%s is needed to reach this server and can't be closed from the panel", port, proto)
 	}
 	m.mu.Lock()
@@ -181,23 +200,23 @@ func (m *Manager) ClosePort(ctx context.Context, port, proto string) error {
 	if err != nil {
 		return err
 	}
-	out := s.Ports[:0]
-	found := false
+	out := []Port{}
+	var gone *Port
 	for _, p := range s.Ports {
-		if p.Port == port && p.Proto == proto {
-			found = true
+		if p.Port == port && p.Proto == proto && p.From == from {
+			gone = &p
 			continue
 		}
 		out = append(out, p)
 	}
-	if !found {
+	if gone == nil {
 		return fmt.Errorf("port %s/%s %w", port, proto, ErrNotFound)
 	}
-	if _, err := m.Run.Run(ctx, "ufw", "delete", "allow", port+"/"+proto); err != nil {
+	next := &State{Ports: out, Blocks: s.Blocks}
+	if err := m.change(ctx, opDisallow, *gone, Block{}, next); err != nil {
 		return err
 	}
-	s.Ports = out
-	return m.save(s)
+	return m.save(next)
 }
 
 // normalizeAddress accepts an IP or CIDR and refuses blocks that would cut off
@@ -245,16 +264,12 @@ func (m *Manager) BlockAddress(ctx context.Context, addr, comment string) (*Bloc
 			return nil, fmt.Errorf("%s is already blocked", a)
 		}
 	}
-	args := []string{"insert", "1", "deny", "from", a}
-	if comment != "" {
-		args = append(args, "comment", comment)
-	}
-	if _, err := m.Run.Run(ctx, "ufw", args...); err != nil {
+	b := Block{Address: a, Comment: comment, AddedAt: time.Now().UTC()}
+	next := &State{Ports: s.Ports, Blocks: append(append([]Block{}, s.Blocks...), b)}
+	if err := m.change(ctx, opBlock, Port{}, b, next); err != nil {
 		return nil, err
 	}
-	b := Block{Address: a, Comment: comment, AddedAt: time.Now().UTC()}
-	s.Blocks = append(s.Blocks, b)
-	return &b, m.save(s)
+	return &b, m.save(next)
 }
 
 // UnblockAddress removes a block Ike added.
@@ -269,23 +284,23 @@ func (m *Manager) UnblockAddress(ctx context.Context, addr string) error {
 	if err != nil {
 		return err
 	}
-	out := s.Blocks[:0]
-	found := false
+	out := []Block{}
+	var gone *Block
 	for _, b := range s.Blocks {
 		if b.Address == a {
-			found = true
+			gone = &b
 			continue
 		}
 		out = append(out, b)
 	}
-	if !found {
+	if gone == nil {
 		return fmt.Errorf("%s %w in the block list", a, ErrNotFound)
 	}
-	if _, err := m.Run.Run(ctx, "ufw", "delete", "deny", "from", a); err != nil {
+	next := &State{Ports: s.Ports, Blocks: out}
+	if err := m.change(ctx, opUnblock, Port{}, *gone, next); err != nil {
 		return err
 	}
-	s.Blocks = out
-	return m.save(s)
+	return m.save(next)
 }
 
 // Bans lists addresses fail2ban has banned automatically.

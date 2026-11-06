@@ -125,11 +125,11 @@ MANUAL = {
  "GET /v1/health": "Health checks with problems explained",
  "GET /v1/jobs/{}": "A background job: status, log lines, result",
  "GET /v1/php/{}/extensions": "Optional PHP extensions for a PHP version",
- "POST /v1/firewall/ports": "Open a port {\"port\",\"proto\",\"comment\"}",
+ "POST /v1/firewall/ports": "Open a port {\"port\",\"proto\",\"comment\",\"from\"}; from limits it to one IP or range",
  "POST /v1/firewall/blocks": "Block an address or range {\"address\",\"comment\"}",
  "POST /v1/accounts/{}/malware/scans": "Start a malware scan {\"path\"} (optional folder) → job",
  "POST /v1/accounts/{}/dns/zones/{}/records": "Add a record {\"name\",\"type\",\"content\",\"ttl\",\"priority\",\"weight\",\"port\",\"proxied\",\"comment\"}",
- "DELETE /v1/firewall/ports": "Close a port: ?port=&proto=",
+ "DELETE /v1/firewall/ports": "Close a port: ?port=&proto=[&from=]",
  "DELETE /v1/firewall/bans": "Unban an address: ?ip=&jail=",
  "DELETE /v1/firewall/blocks": "Unblock an address or range: ?address=",
  # containers

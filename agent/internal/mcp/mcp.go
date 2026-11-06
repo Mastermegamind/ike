@@ -382,7 +382,7 @@ func (s *Server) tools() []tool {
 		{Name: "list_apps", Title: "One-click apps", Annotations: readOnly(), InputSchema: none,
 			Description: "Apps that can be installed into a website (WordPress, ...).", handler: s.get(fixed("/v1/apps"))},
 		{Name: "get_firewall", Title: "Firewall rules", Annotations: readOnly(), InputSchema: none,
-			Description: "Open ports and blocked IP addresses/ranges.", handler: s.get(fixed("/v1/firewall"))},
+			Description: "Which firewall the server uses (ufw, nftables or firewalld), its open ports (with any source limits) and blocked IP addresses/ranges.", handler: s.get(fixed("/v1/firewall"))},
 		{Name: "list_bans", Title: "Automatic bans", Annotations: readOnly(), InputSchema: none,
 			Description: "IP addresses fail2ban banned for repeated failed logins.", handler: s.get(fixed("/v1/firewall/bans"))},
 
@@ -579,17 +579,23 @@ func (s *Server) tools() []tool {
 			InputSchema: obj(map[string]any{"account": argAccount}, "account"),
 			handler:     s.call("POST", func(a map[string]any) string { return acct(a) + "/unsuspend" }, nil)},
 		{Name: "open_port", Title: "Open firewall port", write: true, Annotations: write(false, false),
-			Description: "Allow incoming traffic on a port or range. Only open ports the human asked for.",
+			Description: "Allow incoming traffic on a port or range, from anyone or only from one IP address or range. Only open ports the human asked for. Works the same with ufw, nftables or firewalld.",
 			InputSchema: obj(map[string]any{"port": str("Port or range, e.g. 8080 or 6000:6100"),
 				"proto":   map[string]any{"type": "string", "enum": []string{"tcp", "udp"}},
+				"from":    str("Only this IP address or range may connect (optional; empty means anyone)"),
 				"comment": str("Short note (optional)")}, "port", "proto"),
-			handler: s.call("POST", fixed("/v1/firewall/ports"), pick("port", "proto", "comment"))},
+			handler: s.call("POST", fixed("/v1/firewall/ports"), pick("port", "proto", "comment", "from"))},
 		{Name: "close_port", Title: "Close firewall port", write: true, Annotations: write(true, true),
 			Description: "Close a port opened earlier. SSH and web ports can't be closed.",
 			InputSchema: obj(map[string]any{"port": str("Port or range"),
-				"proto": map[string]any{"type": "string", "enum": []string{"tcp", "udp"}}}, "port", "proto"),
+				"proto": map[string]any{"type": "string", "enum": []string{"tcp", "udp"}},
+				"from":  str("The IP address or range the rule was limited to (empty for open-to-anyone rules)")}, "port", "proto"),
 			handler: s.call("DELETE", func(a map[string]any) string {
-				return "/v1/firewall/ports?port=" + client.QueryEscape(argStr(a, "port")) + "&proto=" + client.QueryEscape(argStr(a, "proto"))
+				q := "/v1/firewall/ports?port=" + client.QueryEscape(argStr(a, "port")) + "&proto=" + client.QueryEscape(argStr(a, "proto"))
+				if f := argStr(a, "from"); f != "" {
+					q += "&from=" + client.QueryEscape(f)
+				}
+				return q
 			}, nil)},
 		{Name: "block_address", Title: "Block IP address", write: true, Annotations: write(false, false),
 			Description: "Block all traffic from an IP address or range (e.g. 203.0.113.7 or 203.0.113.0/24).",

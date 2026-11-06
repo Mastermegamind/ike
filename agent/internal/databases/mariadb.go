@@ -506,6 +506,8 @@ func (m *Manager) RedisPrimary(ctx context.Context, replicaIP string) (string, i
 		}
 	}
 	_, _ = m.env.Run.Exec(ctx, runnerCmd(cli, []string{"CONFIG", "REWRITE"}, env))
-	_, _ = m.env.Run.Run(ctx, "ufw", "allow", "from", replicaIP, "to", "any", "port", "6379", "proto", "tcp", "comment", "Redis replica")
+	if m.env.Firewall != nil {
+		_ = m.env.Firewall.AllowFrom(ctx, replicaIP, "6379", "tcp", "Redis replica")
+	}
 	return saved.Password, 6379, nil
 }
