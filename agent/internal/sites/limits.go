@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"text/template"
 )
 
@@ -159,4 +160,72 @@ func (m *Manager) layoutWith(s *Site, a *Account) layout {
 		L.applyPHP(s.PHP, a.Limits)
 	}
 	return L
+}
+
+// QuotaUsage is one account's disk use as the kernel counts it.
+type QuotaUsage struct {
+	Account string  `json:"account"`
+	UsedMB  float64 `json:"used_mb"`
+	SoftMB  float64 `json:"soft_mb"`
+	HardMB  float64 `json:"hard_mb"`
+	Over    bool    `json:"over"`
+}
+
+// QuotaReport says whether disk quotas are on and, if so, every account's
+// usage from repquota (fast: no walking of files).
+func (m *Manager) QuotaReport(ctx context.Context) (map[string]any, error) {
+	out := map[string]any{"enabled": m.cfg.DiskQuotas, "accounts": []QuotaUsage{}}
+	if !m.cfg.DiskQuotas {
+		out["note"] = "Disk quotas are off. Re-run the installer with --disk-quotas to enforce per-account disk limits."
+		return out, nil
+	}
+	b, err := m.run.Run(ctx, "repquota", "-u", "-O", "csv", "-a")
+	if err != nil {
+		out["note"] = "Quotas are configured but not active yet (reboot the server if the installer asked you to)."
+		return out, nil
+	}
+	accts, _ := m.Accounts()
+	mine := map[string]bool{}
+	for _, a := range accts {
+		mine[a.Name] = true
+	}
+	out["accounts"] = parseRepquotaCSV(string(b), mine)
+	return out, nil
+}
+
+func parseRepquotaCSV(s string, keep map[string]bool) []QuotaUsage {
+	lines := strings.Split(strings.TrimSpace(s), "\n")
+	col := map[string]int{"name": 0, "used": 3, "soft": 4, "hard": 5}
+	if len(lines) > 0 && strings.Contains(strings.ToLower(lines[0]), "blockused") {
+		for i, h := range strings.Split(lines[0], ",") {
+			switch strings.ToLower(strings.TrimSpace(h)) {
+			case "blockused":
+				col["used"] = i
+			case "blocksoftlimit":
+				col["soft"] = i
+			case "blockhardlimit":
+				col["hard"] = i
+			}
+		}
+		lines = lines[1:]
+	}
+	out := []QuotaUsage{}
+	for _, l := range lines {
+		f := strings.Split(l, ",")
+		if len(f) <= col["hard"] {
+			continue
+		}
+		name := strings.Trim(f[col["name"]], `" `)
+		if !keep[name] {
+			continue
+		}
+		kb := func(i int) float64 {
+			v, _ := strconv.ParseFloat(strings.Trim(f[i], `" `), 64)
+			return float64(int(v/1024*10)) / 10
+		}
+		q := QuotaUsage{Account: name, UsedMB: kb(col["used"]), SoftMB: kb(col["soft"]), HardMB: kb(col["hard"])}
+		q.Over = q.HardMB > 0 && q.UsedMB >= q.HardMB
+		out = append(out, q)
+	}
+	return out
 }

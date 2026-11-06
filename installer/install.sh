@@ -46,6 +46,8 @@ MONGODB_VERSION=""          # e.g. 8.0
 JOIN_URL=""                 # join another server's panel instead of being managed here
 JOIN_TOKEN=""
 JOIN_FINGERPRINT=""
+DISK_QUOTAS=0               # Linux user quotas so per-account disk limits are enforced
+QUOTAS_ACTIVE=0
 INSTALL_MODSEC=0            # ModSecurity web application firewall with the OWASP Core Rule Set
 INSTALL_SCANNER=0           # ClamAV for malware scans of websites (always on with --mail)
 FORCE=0
@@ -136,6 +138,7 @@ DNS and email
   --hostname mail.example.com This server's name (mail greeting, reverse DNS); default: hostname -f
 
 Security
+  --disk-quotas               Enforce per-account disk limits with Linux user quotas (ext4; XFS after a reboot).
   --modsecurity               Web application firewall (ModSecurity + OWASP Core Rule Set), switched on per website.
                               With Nginx this uses Ubuntu's Nginx package, which the ModSecurity module is built for.
   --clamav                    ClamAV for malware scans of websites (included with --mail)
@@ -185,6 +188,7 @@ while [ $# -gt 0 ]; do
 		--no-mariadb) INSTALL_MARIADB=0; shift ;;
 		--dns) INSTALL_DNS=1; shift ;;
 		--modsecurity) INSTALL_MODSEC=1; shift ;;
+		--disk-quotas) DISK_QUOTAS=1; shift ;;
 		--join) JOIN_URL="${2:?}"; shift 2 ;;
 		--join-token) JOIN_TOKEN="${2:?}"; shift 2 ;;
 		--join-fingerprint) JOIN_FINGERPRINT="${2:?}"; shift 2 ;;
@@ -255,6 +259,8 @@ run_wizard() {
 		ask "This server's hostname (used in mail headers and reverse DNS)" "$(hostname -f 2>/dev/null || hostname)"
 		SERVER_HOSTNAME="$REPLY"
 	fi
+	ask "Enforce disk limits per account with Linux quotas (yes/no)" "yes"
+	[ "$REPLY" = "yes" ] && DISK_QUOTAS=1
 	ask "Web application firewall, ModSecurity (yes/no)" "no"
 	[ "$REPLY" = "yes" ] && INSTALL_MODSEC=1
 	if [ "$INSTALL_MAIL" -eq 0 ]; then
@@ -1778,6 +1784,7 @@ install_agent() {
   "data_dir": "${STATE_DIR}/data",
   "modsecurity": $( [ "$INSTALL_MODSEC" -eq 1 ] && echo true || echo false ),
   "antivirus": "$( { [ "$INSTALL_CLAMAV" -eq 1 ] || [ "$INSTALL_SCANNER" -eq 1 ]; } && echo clamav )",
+  "disk_quotas": $( [ "$QUOTAS_ACTIVE" -eq 1 ] && echo true || echo false ),
   "docker_for_accounts": $( [ "$DOCKER_FOR_ACCOUNTS" -eq 1 ] && echo true || echo false ),
   "protected_ports": [${protected%, }]
 }
@@ -1944,6 +1951,72 @@ Customize the starter, maintenance, suspended and error pages in ${CONF_DIR}/pag
 EOF
 }
 
+# --------------------------------------------------------------- quotas ----
+
+# install_quotas turns on journaled user quotas for the filesystem that holds
+# the account homes, so the agent's setquota limits are enforced.
+#   ext4:  fstab gets usrjquota=aquota.user,jqfmt=vfsv1, then remount, quotacheck, quotaon.
+#   xfs:   needs the uquota mount option at boot (rootflags for /), so a reboot.
+#   other: not supported; disk limits are shown but not enforced.
+install_quotas() {
+	[ "$DISK_QUOTAS" -eq 1 ] || return 0
+	local mnt fstype
+	read -r mnt fstype < <(findmnt -n -o TARGET,FSTYPE --target /home)
+	info "Disk quotas for /home (${fstype} on ${mnt})"
+	if quotaon -pu "$mnt" 2>/dev/null | grep -q " is on"; then
+		QUOTAS_ACTIVE=1
+		return 0
+	fi
+	case "$fstype" in
+	ext4|ext3)
+		if ! modprobe quota_v2 2>>"$LOG_FILE"; then
+			apt_install "linux-modules-extra-$(uname -r)" || true
+			modprobe quota_v2 2>>"$LOG_FILE" || { warn "This kernel has no quota support; disk limits will be shown but not enforced."; return 0; }
+		fi
+		cp -a /etc/fstab "/etc/fstab.ike-$(date +%Y%m%d%H%M%S)"
+		# add the options to the fstab line for this mount point (column 2)
+		if ! awk -v m="$mnt" '$2==m && $1 !~ /^#/ {found=1} END {exit !found}' /etc/fstab; then
+			warn "${mnt} isn't listed in /etc/fstab; add usrjquota=aquota.user,jqfmt=vfsv1 to its options yourself to enable quotas."
+			return 0
+		fi
+		if ! awk -v m="$mnt" '$2==m && $1 !~ /^#/ && $4 ~ /usrjquota/ {found=1} END {exit !found}' /etc/fstab; then
+			awk -v m="$mnt" 'BEGIN{OFS="\t"} $2==m && $1 !~ /^#/ && $4 !~ /usrjquota/ {$4=$4",usrjquota=aquota.user,jqfmt=vfsv1"} {print}' /etc/fstab >/etc/fstab.ike-new
+			# same lines as before, exactly one of them changed
+			if [ "$(wc -l </etc/fstab)" != "$(wc -l </etc/fstab.ike-new)" ] || [ "$(diff /etc/fstab /etc/fstab.ike-new | grep -c '^>')" -ne 1 ]; then
+				rm -f /etc/fstab.ike-new
+				warn "Could not update /etc/fstab safely; quotas were not enabled."
+				return 0
+			fi
+			mv /etc/fstab.ike-new /etc/fstab
+		fi
+		systemctl daemon-reload
+		if mount -o remount "$mnt" >>"$LOG_FILE" 2>&1 && quotacheck -ucm "$mnt" >>"$LOG_FILE" 2>&1 && quotaon -u "$mnt" >>"$LOG_FILE" 2>&1; then
+			QUOTAS_ACTIVE=1
+			info "Disk quotas are on for ${mnt}"
+		else
+			warn "Quotas are set up in /etc/fstab but could not be switched on now; they start after a reboot."
+			QUOTAS_ACTIVE=1
+		fi
+		;;
+	xfs)
+		if [ "$mnt" = "/" ]; then
+			if ! grep -q 'rootflags=uquota' /etc/default/grub; then
+				sed -i 's/^GRUB_CMDLINE_LINUX="\(.*\)"/GRUB_CMDLINE_LINUX="\1 rootflags=uquota"/' /etc/default/grub
+				update-grub >>"$LOG_FILE" 2>&1 || true
+			fi
+		else
+			cp -a /etc/fstab "/etc/fstab.ike-$(date +%Y%m%d%H%M%S)"
+			awk -v m="$mnt" 'BEGIN{OFS="\t"} $2==m && $1 !~ /^#/ && $4 !~ /uquota/ {$4=$4",uquota"} {print}' /etc/fstab >/etc/fstab.ike-new && mv /etc/fstab.ike-new /etc/fstab
+		fi
+		QUOTAS_ACTIVE=1
+		warn "XFS quotas start after the next reboot. Reboot the server when the install has finished."
+		;;
+	*)
+		warn "${fstype} has no Linux user quotas Ike can use; disk limits will be shown but not enforced."
+		;;
+	esac
+}
+
 main() {
 	: >"$LOG_FILE"
 	chmod 0600 "$LOG_FILE"
@@ -1972,6 +2045,7 @@ main() {
 	install_docker
 	install_pack
 	install_k3s
+	install_quotas
 	install_modsecurity
 	install_dns
 	install_mail

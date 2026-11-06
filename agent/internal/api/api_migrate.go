@@ -2,6 +2,7 @@ package api
 
 // cPanel migration (admin only):
 //
+//	GET    /v1/quotas                           disk quota status and per-account use
 //	GET    /v1/imports                          backups waiting in the imports folder
 //	PUT    /v1/imports/cpanel/{file}/upload     the archive as the request body (streamed)
 //	POST   /v1/imports/cpanel/{file}/restore    {"account","skip":[...],"point_to_this_server"} → job
@@ -45,6 +46,9 @@ func (s *Server) migrateRoutes(h func(string, handler)) {
 			return fn(w, r)
 		}
 	}
+	h("GET /v1/quotas", adminOnly(func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		return ok(s.Sites.QuotaReport(r.Context()))
+	}))
 	h("GET /v1/imports", adminOnly(func(w http.ResponseWriter, r *http.Request) (int, any, error) {
 		dir := filepath.Join(s.Config.Root, s.Config.ImportsDir)
 		ents, err := os.ReadDir(dir)

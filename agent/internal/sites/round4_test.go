@@ -416,3 +416,12 @@ func TestWAF(t *testing.T) {
 	}
 	_ = r
 }
+
+func TestRepquotaCSV(t *testing.T) {
+	csv := "User,BlockStatus,FileStatus,BlockUsed,BlockSoftLimit,BlockHardLimit,BlockGrace,FileUsed,FileSoftLimit,FileHardLimit,FileGrace\n" +
+		"root,ok,ok,2048000,0,0,0,40000,0,0,0\nshop,ok,ok,1048576,2097152,2097152,0,900,0,0,0\nfull,over,ok,2097152,1048576,2097152,0,10,0,0,0\n"
+	got := parseRepquotaCSV(csv, map[string]bool{"shop": true, "full": true})
+	if len(got) != 2 || got[0].UsedMB != 1024 || got[0].HardMB != 2048 || got[0].Over || !got[1].Over {
+		t.Fatalf("%+v", got)
+	}
+}
