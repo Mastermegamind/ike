@@ -195,6 +195,8 @@ p { margin: 0; }
 .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .grid-2 { display: grid; grid-template-columns: 1.4fr 1fr; gap: var(--gap); }
 @media (max-width: 1080px) { .grid-2 { grid-template-columns: 1fr; } }
+.grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--gap); }
+@media (max-width: 720px) { .grid-3 { grid-template-columns: 1fr; } }
 
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
@@ -447,7 +449,7 @@ dialog.modal[open] { animation: pop 0.18s cubic-bezier(.2,.8,.2,1); }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }
 button.link { background: none; border: 0; padding: 0; font: inherit; color: var(--ink); cursor: pointer; text-align: left; }
 button.link:hover { text-decoration: underline; text-underline-offset: 3px; }
-.stack > *, .grid-2 > *, .panel-body > * { min-width: 0; }
+.stack > *, .grid-2 > *, .grid-3 > *, .panel-body > * { min-width: 0; }
 .form-grid > *, .field, .field > * { min-width: 0; }
 textarea.input { height: auto; min-height: 80px; padding-block: 10px; line-height: 1.5; resize: vertical; }
 

@@ -30,6 +30,8 @@ import { Empty } from "./components/ui";
 import { PageHead } from "./components/common";
 import type { Role } from "./api/types";
 import { DevelopersPage } from "./pages/Developers";
+import { ExpiryPage } from "./pages/Expiry";
+import { RealtimePage } from "./pages/Realtime";
 import { setDeveloperAreas, setSignedInRole } from "./layouts/nav";
 
 const soonText: Record<string, [string, string]> = {
@@ -140,6 +142,8 @@ export function App() {
   else if (path === "/profile") page = <Profile user={session.user} />;
   else if (path === "/containers") page = <Containers route={route} role={role} />;
   else if (path === "/ssl") page = <Certificates />;
+  else if (path === "/expiry") page = <ExpiryPage role={role} />;
+  else if (path === "/realtime") page = <RealtimePage route={route} role={role} />;
   else if (path === "/docker") page = <DockerHost />;
   else if (path === "/kubernetes") page = <Kubernetes />;
   else if (path === "/php-extensions") page = <PHPExtensions />;
