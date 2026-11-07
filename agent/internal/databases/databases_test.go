@@ -87,3 +87,92 @@ SELECT SLEEP(9);
 		t.Fatalf("%+v", all)
 	}
 }
+
+func TestCacheEnginesSideBySide(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Default()
+	cfg.Root, cfg.DryRun, cfg.Redis = root, true, "redis"
+	cfg.CacheEngines = []string{"valkey", "dragonfly"}
+	run := &runner.DryRun{Responses: map[string]string{"redis-cli": "# Server\nredis_version:7.4.0\ndragonfly_version:df-v1.34.1\nused_memory:1048576\ndb0:keys=3,expires=0\n"}}
+	m := New(&kit.Env{Cfg: cfg, Run: run})
+	ctx := context.Background()
+	if got := m.Engines().Caches; strings.Join(got, ",") != "redis,valkey,dragonfly" {
+		t.Fatalf("caches %v", got)
+	}
+
+	// Dragonfly: a flag file, its own unit, raised to its 256 MB floor.
+	cred, inst, err := m.SetRedis(ctx, "app", RedisRequest{Engine: "dragonfly"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inst.Engine != "dragonfly" || inst.MemoryMB != 256 || cred == nil || cred.Engine != "dragonfly" {
+		t.Fatalf("%+v %+v", inst, cred)
+	}
+	flags, _ := os.ReadFile(filepath.Join(root, "etc/ike/redis/app.dragonfly.flags"))
+	for _, want := range []string{"--port=0\n", "--unixsocket=/home/app/.redis/redis.sock", "--requirepass=" + cred.Password,
+		"--maxmemory=268435456", "--cache_mode=true", "--proactor_threads=1", "--admin_port=0", "--restricted_commands=CONFIG"} {
+		if !strings.Contains(string(flags), want) {
+			t.Errorf("flags missing %q:\n%s", want, flags)
+		}
+	}
+	if _, _, err := m.SetRedis(ctx, "app", RedisRequest{Engine: "dragonfly", MemoryMB: 64}, false); err == nil {
+		t.Fatal("Dragonfly accepted 64 MB")
+	}
+	// noeviction turns cache mode off
+	if _, _, err := m.SetRedis(ctx, "app", RedisRequest{MemoryMB: 512, Policy: "noeviction"}, false); err != nil {
+		t.Fatal(err)
+	}
+	flags, _ = os.ReadFile(filepath.Join(root, "etc/ike/redis/app.dragonfly.flags"))
+	if !strings.Contains(string(flags), "--cache_mode=false") || !strings.Contains(string(flags), "--requirepass="+cred.Password) {
+		t.Fatalf("policy or password lost:\n%s", flags)
+	}
+	info, err := m.RedisStatus(ctx, "app")
+	if err != nil || info.Engine != "dragonfly" || info.Version != "v1.34.1" || info.Keys != 3 {
+		t.Fatalf("%+v %v", info, err)
+	}
+
+	// Switching to Valkey stops Dragonfly first and keeps the password.
+	cred2, inst2, err := m.SetRedis(ctx, "app", RedisRequest{Engine: "valkey", MemoryMB: 128}, false)
+	if err != nil || cred2 != nil || inst2.Engine != "valkey" {
+		t.Fatalf("%+v %+v %v", cred2, inst2, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "etc/ike/redis/app.dragonfly.flags")); !os.IsNotExist(err) {
+		t.Fatal("old flag file left behind")
+	}
+	conf, _ := os.ReadFile(filepath.Join(root, "etc/ike/redis/app.conf"))
+	if !strings.Contains(string(conf), "requirepass "+cred.Password) {
+		t.Fatal("password changed on switch")
+	}
+	h := strings.Join(run.History(), "\n")
+	for _, want := range []string{"systemctl enable --now ike-dragonfly@app.service", "systemctl restart ike-dragonfly@app.service",
+		"systemctl disable --now ike-dragonfly@app.service", "systemctl enable --now ike-valkey@app.service"} {
+		if !strings.Contains(h, want) {
+			t.Errorf("missing %q in\n%s", want, h)
+		}
+	}
+	if strings.Index(h, "disable --now ike-dragonfly@app") > strings.Index(h, "enable --now ike-valkey@app") {
+		t.Fatal("Valkey started before Dragonfly stopped")
+	}
+	if strings.Contains(h, cred.Password) {
+		t.Fatal("password on a command line")
+	}
+	// The server-wide engine keeps the old unit name.
+	if _, _, err := m.SetRedis(ctx, "web", RedisRequest{}, false); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(run.History(), "\n"), "systemctl enable --now ike-redis@web.service") {
+		t.Fatal("default engine didn't use ike-redis@")
+	}
+	if _, _, err := m.SetRedis(ctx, "web", RedisRequest{Engine: "keydb"}, false); err == nil {
+		t.Fatal("unknown engine accepted")
+	}
+}
+
+func TestCacheEngineNotInstalled(t *testing.T) {
+	cfg := config.Default()
+	cfg.Root, cfg.DryRun, cfg.Redis = t.TempDir(), true, "valkey"
+	m := New(&kit.Env{Cfg: cfg, Run: &runner.DryRun{}})
+	if _, _, err := m.SetRedis(context.Background(), "shop", RedisRequest{Engine: "dragonfly"}, false); err == nil || !strings.Contains(err.Error(), "not installed") {
+		t.Fatalf("got %v", err)
+	}
+}

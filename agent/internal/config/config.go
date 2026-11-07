@@ -108,11 +108,14 @@ type Config struct {
 	// Databases
 	Postgres    bool   `json:"postgres"`
 	PostgresVer string `json:"postgres_version"`
-	Redis       string `json:"redis"` // "redis", "valkey" or ""
-	MongoDB     bool   `json:"mongodb"`
-	DBBackupDir string `json:"db_backup_dir"`
-	DataDir     string `json:"data_dir"` // per-account services (Redis instances)
-	StorageFile string `json:"storage_file"`
+	Redis       string `json:"redis"` // "redis", "valkey" or "": the server-wide engine (replication)
+	// CacheEngines are the engines installed for per-account cache instances
+	// ("redis", "valkey", "dragonfly"). Empty means just Redis above.
+	CacheEngines []string `json:"cache_engines,omitempty"`
+	MongoDB      bool     `json:"mongodb"`
+	DBBackupDir  string   `json:"db_backup_dir"`
+	DataDir      string   `json:"data_dir"` // per-account services (Redis instances)
+	StorageFile  string   `json:"storage_file"`
 
 	// Files
 	SnapshotDir string `json:"snapshot_dir"`
@@ -123,6 +126,41 @@ type Config struct {
 	ClusterListen string `json:"cluster_listen"` // ":2089" when this server is managed remotely
 	SpecDir       string `json:"spec_dir"`
 	DiskQuotas    bool   `json:"disk_quotas"`
+
+	// Real-time media: a TURN server (coturn) and LiveKit. Empty paths mean
+	// the defaults; each is offered only when its program is installed.
+	RealtimeDir   string `json:"realtime_dir,omitempty"`   // settings and sealed keys
+	TurnConfig    string `json:"turn_config,omitempty"`    // /etc/turnserver.conf
+	LiveKitConfig string `json:"livekit_config,omitempty"` // /etc/livekit/livekit.yaml
+	LiveKitBinary string `json:"livekit_binary,omitempty"` // /usr/local/bin/livekit-server
+}
+
+// Caches lists the per-account cache engines this server has, the
+// server-wide one first.
+func (c Config) Caches() []string {
+	out := []string{}
+	seen := map[string]bool{}
+	add := func(e string) {
+		if e != "" && !seen[e] {
+			seen[e] = true
+			out = append(out, e)
+		}
+	}
+	add(c.Redis)
+	for _, e := range c.CacheEngines {
+		add(e)
+	}
+	return out
+}
+
+// HasCache reports whether an engine is installed for account instances.
+func (c Config) HasCache(engine string) bool {
+	for _, e := range c.Caches() {
+		if e == engine {
+			return true
+		}
+	}
+	return false
 }
 
 // WebServers lists the per-website choices this stack allows, default first.
@@ -206,6 +244,10 @@ func Default() Config {
 		ShareDir:        "/var/lib/ike/shares",
 		ClusterDir:      "/etc/ike/cluster",
 		SpecDir:         "/var/lib/ike/specs",
+		RealtimeDir:     "/etc/ike/realtime",
+		TurnConfig:      "/etc/turnserver.conf",
+		LiveKitConfig:   "/etc/livekit/livekit.yaml",
+		LiveKitBinary:   "/usr/local/bin/livekit-server",
 	}
 }
 

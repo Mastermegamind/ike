@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -371,6 +372,7 @@ func (m *Manager) deleteCertificate(ctx context.Context, s *Site) {
 // CertInfo summarizes one website's certificate for expiry monitoring.
 type CertInfo struct {
 	Domain    string    `json:"domain"`
+	Account   string    `json:"account"`
 	Provider  string    `json:"provider"`
 	Names     []string  `json:"names"`
 	Issuer    string    `json:"issuer"`
@@ -390,7 +392,7 @@ func (m *Manager) Certificates() []CertInfo {
 		if s.SSL == nil {
 			continue
 		}
-		ci := CertInfo{Domain: s.Domain, Provider: s.SSL.Provider, Names: s.SSL.Names, Issuer: s.SSL.Issuer, ExpiresAt: s.SSL.ExpiresAt}
+		ci := CertInfo{Domain: s.Domain, Account: s.Account, Provider: s.SSL.Provider, Names: s.SSL.Names, Issuer: s.SSL.Issuer, ExpiresAt: s.SSL.ExpiresAt}
 		cert, _ := m.certPaths(s)
 		if c, err := readCert(m.p(cert)); err == nil {
 			ci.ExpiresAt, ci.Names, ci.Issuer = c.NotAfter, c.DNSNames, c.Issuer.CommonName
@@ -410,6 +412,26 @@ func (m *Manager) Certificates() []CertInfo {
 		out = append(out, ci)
 	}
 	return out
+}
+
+// CertFiles finds the certificate that covers a host name: a website's own,
+// or one whose certificate lists the name. Paths are absolute system paths.
+func (m *Manager) CertFiles(name string) (cert, key string, ok bool) {
+	sites, _ := m.List()
+	for _, want := range []bool{true, false} { // the website named exactly first
+		for i := range sites {
+			s := &sites[i]
+			if s.SSL == nil || (s.Domain == name) != want {
+				continue
+			}
+			if !want && !slices.Contains(s.SSL.Names, name) {
+				continue
+			}
+			c, k := m.certPaths(s)
+			return c, k, true
+		}
+	}
+	return "", "", false
 }
 
 func readCert(path string) (*x509.Certificate, error) {
