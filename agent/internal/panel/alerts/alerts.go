@@ -377,6 +377,119 @@ type Monitor struct {
 	fails map[string]int
 	down  map[string]time.Time
 	Log   []Event
+	// days counts checks per website per UTC day: domain → "2006-01-02" →
+	// [checks, ok]. Kept 90 days; Snapshot and Restore persist it.
+	days    map[string]map[string][2]int
+	checked map[string]time.Time
+}
+
+// historyDays is how much uptime history status pages show.
+const historyDays = 90
+
+// Uptime is one website's state and history.
+type Uptime struct {
+	Domain    string    `json:"domain"`
+	Up        bool      `json:"up"`
+	DownSince time.Time `json:"down_since,omitzero"`
+	Checked   time.Time `json:"checked,omitzero"`
+	// Days are the last 90 days, oldest first; -1 means not checked that day.
+	Days    []float64 `json:"days"`
+	Percent float64   `json:"percent"` // over the days that were checked; -1 when none
+}
+
+func (m *Monitor) record(domain string, ok bool) {
+	day := time.Now().UTC().Format("2006-01-02")
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.days == nil {
+		m.days = map[string]map[string][2]int{}
+	}
+	if m.checked == nil {
+		m.checked = map[string]time.Time{}
+	}
+	d := m.days[domain]
+	if d == nil {
+		d = map[string][2]int{}
+		m.days[domain] = d
+	}
+	c := d[day]
+	c[0]++
+	if ok {
+		c[1]++
+	}
+	d[day] = c
+	m.checked[domain] = time.Now().UTC()
+	if len(d) > historyDays+5 {
+		cut := time.Now().UTC().AddDate(0, 0, -historyDays).Format("2006-01-02")
+		for k := range d {
+			if k < cut {
+				delete(d, k)
+			}
+		}
+	}
+}
+
+// Snapshot copies the history for saving.
+func (m *Monitor) Snapshot() map[string]map[string][2]int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make(map[string]map[string][2]int, len(m.days))
+	for dom, d := range m.days {
+		c := make(map[string][2]int, len(d))
+		for k, v := range d {
+			c[k] = v
+		}
+		out[dom] = c
+	}
+	return out
+}
+
+// Restore loads saved history (at start, before the first check).
+func (m *Monitor) Restore(h map[string]map[string][2]int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.days == nil {
+		m.days = map[string]map[string][2]int{}
+	}
+	for dom, d := range h {
+		if m.days[dom] == nil {
+			m.days[dom] = map[string][2]int{}
+		}
+		for k, v := range d {
+			m.days[dom][k] = v
+		}
+	}
+}
+
+// Uptimes reports each named website, in the order given.
+func (m *Monitor) Uptimes(domains []string) []Uptime {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	today := time.Now().UTC()
+	out := make([]Uptime, 0, len(domains))
+	for _, dom := range domains {
+		u := Uptime{Domain: dom, Up: true, Checked: m.checked[dom], Percent: -1, Days: make([]float64, historyDays)}
+		if since, down := m.down[dom]; down {
+			u.Up, u.DownSince = false, since.UTC()
+		}
+		var checks, oks int
+		for i := 0; i < historyDays; i++ {
+			day := today.AddDate(0, 0, i-historyDays+1).Format("2006-01-02")
+			c, ok := m.days[dom][day]
+			if !ok || c[0] == 0 {
+				u.Days[i] = -1
+				continue
+			}
+			u.Days[i] = float64(int(float64(c[1])/float64(c[0])*10000)) / 100
+			checks += c[0]
+			oks += c[1]
+		}
+		if checks > 0 {
+			u.Percent = float64(int(float64(oks)/float64(checks)*10000)) / 100
+		}
+		out = append(out, u)
+	}
+	return out
 }
 
 type Event struct {
@@ -422,6 +535,7 @@ func (m *Monitor) Check(ctx context.Context) {
 			resp.Body.Close()
 			detail = "HTTP " + strconv.Itoa(resp.StatusCode)
 		}
+		m.record(t.Domain, ok)
 		m.mu.Lock()
 		if ok {
 			since, wasDown := m.down[t.Domain]

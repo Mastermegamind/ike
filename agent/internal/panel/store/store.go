@@ -307,6 +307,10 @@ type data struct {
 	ExpiryAlerts map[string]int `json:"expiry_alerts"`
 	// CustomerAlerts remembers expiry emails sent to account owners.
 	CustomerAlerts map[string]int `json:"customer_alerts"`
+	// StatusPages: "" for the admin's, or a reseller's username.
+	StatusPages map[string]*StatusPage `json:"status_pages"`
+	// UptimeHistory is the uptime monitor's daily counts, saved now and then.
+	UptimeHistory map[string]map[string][2]int `json:"uptime_history,omitempty"`
 }
 
 type Store struct {
@@ -342,6 +346,9 @@ func (d *data) initMaps() {
 	}
 	if d.CustomerAlerts == nil {
 		d.CustomerAlerts = map[string]int{}
+	}
+	if d.StatusPages == nil {
+		d.StatusPages = map[string]*StatusPage{}
 	}
 }
 

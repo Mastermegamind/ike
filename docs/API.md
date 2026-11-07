@@ -522,6 +522,8 @@ Services, updates, usage, inventory, maintenance, webhooks, specs, migration and
 | Route | Description |
 |---|---|
 | `GET /alerts/events` *(panel)* | Alerts sent recently |
+| `GET /status-page` *(panel)* | Your public status page (admins and resellers), its address and the websites you may list |
+| `PUT /status-page` *(panel)* | Change it: body `{"enabled","slug","title","intro","entries":[{"domain","name"}]}`. The page is public at `/status/{slug}` (and `/status/{slug}.json`), in your branding, with 90 days of uptime |
 | `GET /alerts/settings` *(panel)* | Where serious events are sent (Telegram, WhatsApp, email) |
 | `PUT /alerts/settings` *(panel)* | Change alert channels |
 | `POST /alerts/test` *(panel)* | Send a test alert |

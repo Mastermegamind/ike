@@ -142,6 +142,9 @@ func (s *Server) Handler(l Listener) http.Handler {
 	mux.HandleFunc("POST /api/v1/clusters", s.authed(s.adminOnly(s.createCluster)))
 	mux.HandleFunc("POST /api/v1/clusters/{id}/promote", s.authed(s.adminOnly(s.promoteCluster)))
 	mux.HandleFunc("DELETE /api/v1/clusters/{id}", s.authed(s.adminOnly(s.deleteCluster)))
+	mux.HandleFunc("GET /status/{slug}", s.statusPage) // public
+	mux.HandleFunc("GET /api/v1/status-page", s.authed(s.getStatusPage))
+	mux.HandleFunc("PUT /api/v1/status-page", s.authed(s.putStatusPage))
 	mux.HandleFunc("GET /s/{token}", s.shareLink)
 	mux.HandleFunc("POST /s/{token}", s.shareLink)
 	mux.HandleFunc("GET /api/v1/tokens", s.authed(s.listTokens))

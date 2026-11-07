@@ -155,6 +155,8 @@ func run(cfgPath string) error {
 		return out, err
 	}}
 
+	st.View(func(d *store.Data) { srv.Monitor.Restore(d.UptimeHistory) })
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	go background(ctx, srv, st, agent)
@@ -198,7 +200,7 @@ func background(ctx context.Context, srv *panel.Server, st *store.Store, agent *
 	tick := time.NewTicker(time.Minute)
 	defer overdue.Stop()
 	defer tick.Stop()
-	var lastUptime, lastDaily, lastBandwidth time.Time
+	var lastUptime, lastDaily, lastBandwidth, lastUptimeSave time.Time
 	// start from the newest event so a restart doesn't re-send old alerts
 	lastEventID := srv.LatestEventID(ctx)
 	lastEvent := time.Now()
@@ -216,6 +218,11 @@ func background(ctx context.Context, srv *panel.Server, st *store.Store, agent *
 			if every > 0 && now.Sub(lastUptime) >= time.Duration(every)*time.Minute {
 				lastUptime = now
 				srv.Monitor.Check(ctx)
+			}
+			if now.Sub(lastUptimeSave) >= 30*time.Minute {
+				lastUptimeSave = now
+				hist := srv.Monitor.Snapshot()
+				_ = st.Update(func(d *store.Data) error { d.UptimeHistory = hist; return nil })
 			}
 			if now.Sub(lastBandwidth) >= 15*time.Minute {
 				lastBandwidth = now

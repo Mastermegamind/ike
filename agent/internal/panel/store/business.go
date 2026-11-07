@@ -71,6 +71,22 @@ type Subscription struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
+// StatusPage is a public page showing the uptime of chosen websites.
+type StatusPage struct {
+	Enabled   bool          `json:"enabled"`
+	Slug      string        `json:"slug"` // /status/{slug}
+	Title     string        `json:"title,omitempty"`
+	Intro     string        `json:"intro,omitempty"`
+	Entries   []StatusEntry `json:"entries"`
+	UpdatedAt time.Time     `json:"updated_at,omitzero"`
+}
+
+// StatusEntry is one website on a status page, with the name shown.
+type StatusEntry struct {
+	Domain string `json:"domain"`
+	Name   string `json:"name,omitempty"`
+}
+
 // Branding is a white-label look for the admin's or a reseller's customers.
 type Branding struct {
 	ProductName   string   `json:"product_name"`
