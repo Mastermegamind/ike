@@ -3,6 +3,7 @@ import { CircleAlert, ShieldCheck, Smartphone } from "lucide-react";
 import { api } from "../api/client";
 import { Badge, Button, CopyBlock, CopyField, Field } from "../components/ui";
 import { PageHead } from "../components/common";
+import { PasskeysPanel } from "./Passkeys";
 
 /** Sign-in security for the person who is signed in: two-factor setup and recovery codes. */
 export function Profile({ user }: { user: string }) {
@@ -20,7 +21,8 @@ export function Profile({ user }: { user: string }) {
 
   return (
     <div className="stack">
-      <PageHead title="Sign-in security" text={`For ${user}. Two-factor sign-in asks for a code from your phone after your password, so a leaked password alone can't get in.`} />
+      <PageHead title="Sign-in security" text={`For ${user}. A passkey signs you in with your fingerprint, face or security key. Two-factor sign-in asks for a code from your phone after your password, so a leaked password alone can't get in.`} />
+      <PasskeysPanel />
       <section className="panel" style={{ maxWidth: 720 }}>
         <div className="panel-head">
           <div className="row" style={{ gap: 10 }}><Smartphone size={20} aria-hidden /><div><h2>Authenticator app</h2>

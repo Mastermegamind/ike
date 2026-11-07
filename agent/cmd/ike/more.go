@@ -1450,3 +1450,30 @@ func (c *client) done(format string, args ...any) {
 		fmt.Printf(format+"\n", args...)
 	}
 }
+
+// ---------------------------------------------------------------- passkeys
+
+func passkeysCmd(c *client, pos []string) error {
+	if len(pos) != 0 {
+		return fmt.Errorf("passkeys are added, renamed and removed in the panel in a browser (Profile, Passkeys)")
+	}
+	var keys []map[string]any
+	if err := c.do("GET", "/me/passkeys", nil, &keys); err != nil {
+		return err
+	}
+	c.show(keys, func(w *tabwriter.Writer) {
+		fmt.Fprintln(w, "PASSKEY\tKIND\tLAST USED\tNOTE")
+		for _, k := range keys {
+			kind := "one device"
+			if k["synced"] == true {
+				kind = "synced"
+			}
+			note := ""
+			if k["disabled"] == true {
+				note = "turned off: may have been copied"
+			}
+			fmt.Fprintf(w, "%v\t%s\t%s\t%s\n", k["name"], kind, orDefault(text(k["last_used_at"]), "never"), note)
+		}
+	})
+	return nil
+}

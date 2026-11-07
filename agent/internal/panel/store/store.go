@@ -67,6 +67,10 @@ type Person struct {
 	// and who invited them (an account owner; resellers use Reseller).
 	Areas     map[string]string `json:"areas,omitempty"`
 	InvitedBy string            `json:"invited_by,omitempty"`
+	// Passkeys sign in without a password or code. WebAuthnID is the random
+	// user handle the person's authenticators store (base64url).
+	Passkeys   []Passkey `json:"passkeys,omitempty"`
+	WebAuthnID string    `json:"webauthn_id,omitempty"`
 
 	// Set for the length of one request made with a limited API token.
 	Token *APIToken `json:"-"`
@@ -91,6 +95,52 @@ type Public struct {
 	MaxBandwidthGB int               `json:"max_bandwidth_gb,omitempty"`
 	Areas          map[string]string `json:"areas,omitempty"`
 	InvitedBy      string            `json:"invited_by,omitempty"`
+	Passkeys       []PasskeyInfo     `json:"passkeys"`
+}
+
+// Passkey is a WebAuthn credential (the public half; the private key never
+// leaves the person's device or password manager).
+type Passkey struct {
+	ID         string    `json:"id"` // credential id, base64url
+	Name       string    `json:"name"`
+	PublicKey  []byte    `json:"public_key"` // PKIX DER
+	Alg        int64     `json:"alg"`
+	SignCount  uint32    `json:"sign_count"`
+	Synced     bool      `json:"synced"`             // backup eligible: lives in a password manager or phone account
+	Disabled   bool      `json:"disabled,omitempty"` // its counter went backwards (possibly copied)
+	CreatedAt  time.Time `json:"created_at"`
+	LastUsedAt time.Time `json:"last_used_at,omitzero"`
+}
+
+// PasskeyInfo is what the panel shows about a passkey.
+type PasskeyInfo struct {
+	ID         string    `json:"id"`
+	Name       string    `json:"name"`
+	Synced     bool      `json:"synced"`
+	Disabled   bool      `json:"disabled,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+	LastUsedAt time.Time `json:"last_used_at,omitzero"`
+}
+
+// PasskeyInfos lists the person's passkeys without key material.
+func (p *Person) PasskeyInfos() []PasskeyInfo {
+	out := []PasskeyInfo{}
+	for _, k := range p.Passkeys {
+		out = append(out, PasskeyInfo{k.ID, k.Name, k.Synced, k.Disabled, k.CreatedAt, k.LastUsedAt})
+	}
+	return out
+}
+
+// PersonByPasskey finds who registered a credential id.
+func (d *Data) PersonByPasskey(id string) (*Person, int) {
+	for _, p := range d.People {
+		for i, k := range p.Passkeys {
+			if k.ID == id {
+				return p, i
+			}
+		}
+	}
+	return nil, -1
 }
 
 func (p *Person) Public() Public {
@@ -99,7 +149,7 @@ func (p *Person) Public() Public {
 		acc = []string{}
 	}
 	return Public{p.Username, p.Email, p.Name, p.Role, p.TOTPEnabled, p.Reseller, acc, p.MaxAccounts, p.Disabled, p.CreatedAt, p.LastLoginAt,
-		p.MaxSites, p.MaxDomains, p.MaxDiskMB, p.MaxBandwidthGB, p.Areas, p.InvitedBy}
+		p.MaxSites, p.MaxDomains, p.MaxDiskMB, p.MaxBandwidthGB, p.Areas, p.InvitedBy, p.PasskeyInfos()}
 }
 
 // CheckDeveloperAreas validates a developer's areas.

@@ -679,6 +679,11 @@ func (s *Server) tools5() []tool {
 				return out, s.Agent.Do(ctx, "POST", "/v1/clusters/"+esc(argStr(a, "cluster"))+"/promote", pick("server")(a), &out)
 			}},
 
+		// ---------------------------------------------------- panel: passkeys
+		{Name: "list_my_passkeys", Title: "My passkeys", panel: true, Annotations: readOnly(), InputSchema: none,
+			Description: "The passkeys the token's owner can sign in with (name, synced or one device, last used). Passkeys are added and removed in the panel in a browser, never through a token.",
+			handler: s.get(fixed("/v1/me/passkeys"))},
+
 		// ---------------------------------------------------- panel: developers
 		{Name: "list_developers", Title: "Developers", area: "accounts", panel: true, Annotations: readOnly(), InputSchema: none,
 			Description: "People invited to work inside some hosting accounts, with the areas they may look at or change.",

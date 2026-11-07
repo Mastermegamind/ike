@@ -8,6 +8,7 @@ import type {
 
 import { DemoApi } from "./demo";
 import { TwoFactorRequired } from "./errors";
+import { createPasskey, getPasskey } from "./passkey";
 export { TwoFactorRequired };
 
 const e = encodeURIComponent;
@@ -71,6 +72,15 @@ class HttpApi implements Api {
   async login(username: string, password: string, code?: string) {
     const p = await this.req<{ username: string; role: Role }>("POST", "/session", { username, password, code });
     return { name: p.username, role: p.role };
+  }
+  async passkeyLogin() {
+    const opts = await this.req<{ publicKey: Record<string, unknown> }>("POST", "/session/passkey/options", {});
+    const p = await this.req<{ username: string; role: Role }>("POST", "/session/passkey", await getPasskey(opts));
+    return { name: p.username, role: p.role };
+  }
+  async addPasskey(name: string, password: string) {
+    const opts = await this.req<{ publicKey: Record<string, unknown> }>("POST", "/me/passkeys/options");
+    return this.req("POST", "/me/passkeys", { ...(await createPasskey(opts)), name, password });
   }
   async logout() { await this.req("DELETE", "/session"); }
   setup2fa() { return this.req<{ secret: string; otpauth_url: string }>("POST", "/me/2fa/setup"); }

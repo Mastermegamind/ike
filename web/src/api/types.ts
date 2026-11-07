@@ -258,6 +258,10 @@ export interface Api {
   /** WebSocket address for terminals. Null in the preview. */
   socketUrl(path: string): string | null;
   login(username: string, password: string, code?: string): Promise<{ name: string; role: Role }>;
+  /** Signs in with a passkey (WebAuthn): the browser asks for a fingerprint, face, PIN or security key. */
+  passkeyLogin(): Promise<{ name: string; role: Role }>;
+  /** Adds a passkey for the signed-in person; needs their password. */
+  addPasskey(name: string, password: string): Promise<unknown>;
   logout(): Promise<void>;
   setup2fa(): Promise<{ secret: string; otpauth_url: string }>;
   enable2fa(code: string): Promise<{ recovery_codes: string[] }>;

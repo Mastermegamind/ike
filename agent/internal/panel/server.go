@@ -57,8 +57,9 @@ type Server struct {
 
 	throttle       *auth.Throttle
 	mu             sync.Mutex
-	sessions       map[string]*session // key: hash of token
-	siteAcct       sync.Map            // domain -> account (cache)
+	sessions       map[string]*session        // key: hash of token
+	ceremonies     map[string]pendingCeremony // passkey challenges, single use
+	siteAcct       sync.Map                   // domain -> account (cache)
 	webhookLimiter rateLimiter
 
 	// Multi-server: the cluster authority lives in ClusterDir; joining
@@ -100,6 +101,13 @@ func (s *Server) Handler(l Listener) http.Handler {
 	mux.HandleFunc("POST /api/v1/me/2fa/setup", s.authed(s.totpSetup))
 	mux.HandleFunc("POST /api/v1/me/2fa/enable", s.authed(s.totpEnable))
 	mux.HandleFunc("POST /api/v1/me/2fa/disable", s.authed(s.totpDisable))
+	mux.HandleFunc("POST /api/v1/me/passkeys/options", s.authed(s.passkeyOptions))
+	mux.HandleFunc("POST /api/v1/me/passkeys", s.authed(s.addPasskey))
+	mux.HandleFunc("GET /api/v1/me/passkeys", s.authed(s.listPasskeys))
+	mux.HandleFunc("PATCH /api/v1/me/passkeys/{id}", s.authed(s.updatePasskey))
+	mux.HandleFunc("DELETE /api/v1/me/passkeys/{id}", s.authed(s.deletePasskey))
+	mux.HandleFunc("POST /api/v1/session/passkey/options", s.passkeyLoginOptions)
+	mux.HandleFunc("POST /api/v1/session/passkey", s.passkeyLogin)
 
 	mux.HandleFunc("GET /api/v1/people", s.authed(s.listPeople))
 	mux.HandleFunc("POST /api/v1/people", s.authed(s.createPerson))

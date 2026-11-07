@@ -1,6 +1,7 @@
 // The preview's answers for the 0.5 screens (DNS, email, security, databases,
 // files, backups, infrastructure, packages, branding, tokens). Everything
 // lives in memory and resets when the page reloads.
+import type { PasskeyInfo } from "./passkey";
 import type { Job, SSHKey } from "./types";
 import type {
   APIToken, BackupPlan, Branding, DBCluster, DnsRecord, DnsZone, FileEntry, HostingPackage, MailDomainV5, MaintenanceWindow,
@@ -62,6 +63,10 @@ export class Demo5 {
   private tokens: APIToken[];
   private events: ServerEvent[];
   private readUpTo = 0;
+  private passkeys: PasskeyInfo[] = [
+    { id: "pk1", name: "MacBook (iCloud Keychain)", synced: true, created_at: ago(40 * 1440), last_used_at: ago(2) },
+    { id: "pk2", name: "YubiKey 5C", synced: false, created_at: ago(120 * 1440), last_used_at: ago(9 * 1440) },
+  ];
   private sftp: { name: string; domain: string; folder: string; read_only?: boolean; password: boolean; keys: SSHKey[]; expires?: string; created: string }[] = [
     { name: "naijabites_designer", domain: "naijabites.ng", folder: "public_html/wp-content/themes", password: true, keys: [], expires: ago(-45 * day).slice(0, 10), created: ago(9 * day) },
     { name: "naijabites_auditor", domain: "naijabites.ng", folder: "", read_only: true, password: false, created: ago(2 * day),
@@ -226,6 +231,21 @@ export class Demo5 {
 
     // ---- the preview's "developer" view
     if (is("GET", "/session")) return { username: "emeka.dev", role: "developer", areas: { sites: "write", files: "write", databases: "read" } };
+
+    // ---- passkeys (the preview has no real authenticator; adding one is simulated)
+    if (is("GET", "/me/passkeys")) return this.passkeys;
+    if (is("POST", "/me/passkeys")) {
+      const k = { id: "pk" + (this.passkeys.length + 1) + Date.now().toString(36), name: String(b.name || "Passkey"), synced: true, created_at: now() };
+      this.passkeys.push(k);
+      return k;
+    }
+    if ((p = is("PATCH", "/me/passkeys/:id"))) {
+      const k = this.passkeys.find((x) => x.id === p!.id);
+      if (!k) throw new Error("passkey not found");
+      k.name = String(b.name || k.name);
+      return k;
+    }
+    if ((p = is("DELETE", "/me/passkeys/:id"))) { this.passkeys = this.passkeys.filter((x) => x.id !== p!.id); return { removed: true }; }
 
     // ---- website SFTP users
     if ((p = is("GET", "/accounts/:a/sftp-users"))) return this.sftp.filter((u) => u.name.startsWith(p!.a + "_"));

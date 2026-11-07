@@ -192,6 +192,12 @@ export class DemoApi implements Api {
     }
     return { name: username, role: "admin" as Role };
   }
+  async passkeyLogin() { await wait(900); return { name: "andre", role: "admin" as Role }; }
+  async addPasskey(name: string, password: string) {
+    await wait(700);
+    if (!password) throw new Error("Enter your password to add a passkey.");
+    return this.call("POST", "/me/passkeys", { name });
+  }
   async logout() { await wait(100); }
   async setup2fa() {
     await wait(300);

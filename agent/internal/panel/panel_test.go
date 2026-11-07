@@ -78,6 +78,7 @@ type browser struct {
 	t    *testing.T
 	base string
 	c    *http.Client
+	host string // sent as the Host header when set (passkeys need a name, not an IP)
 }
 
 func (e *env) browser(srv *httptest.Server) *browser {
@@ -94,6 +95,9 @@ func (b *browser) do(method, path string, body any, out any) int {
 	}
 	req, _ := http.NewRequest(method, b.base+path, rd)
 	req.Header.Set("X-Requested-With", "ike")
+	if b.host != "" {
+		req.Host = b.host
+	}
 	resp, err := b.c.Do(req)
 	if err != nil {
 		b.t.Fatal(err)
