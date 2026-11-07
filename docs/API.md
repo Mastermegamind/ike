@@ -298,6 +298,9 @@ Token area: `databases`.
 | `GET /accounts/{a}/redis` | List redis |
 | `PUT /accounts/{a}/redis` | Start or change the account's cache: body `{"engine":"redis\|valkey\|dragonfly","memory_mb","policy","persist","new_password"}` (a new engine starts empty; the password carries over) |
 | `DELETE /accounts/{a}/redis` | Delete redis |
+| `GET /accounts/{a}/search` | The account's Meilisearch: running, version, indexes, documents, size, port |
+| `PUT /accounts/{a}/search` | Start or change it: body `{"memory_mb","new_key"}` → the master key and URL when made or reset (for Laravel Scout: `MEILISEARCH_HOST`, `MEILISEARCH_KEY`) |
+| `DELETE /accounts/{a}/search` | Stop it and delete its indexes |
 | `POST /accounts/{a}/redis/flush` | Delete every key in the account's Redis |
 | `GET /accounts/{name}/databases` | The account's MariaDB databases |
 | `POST /accounts/{name}/databases` | Create a database: body `{"name","note"}` → password shown once |
@@ -322,6 +325,13 @@ Token area: `files`.
 
 | Route | Description |
 |---|---|
+| `GET /objects` | S3 storage (Garage): installed, where the endpoint is served (admin) |
+| `PUT /objects` | Serve the S3 endpoint on a website of yours: body `{"domain":"s3.example.com","account"}` (admin) |
+| `GET /accounts/{a}/objects` | The account's S3 storage: endpoint, region, access key id and buckets with their size and object count |
+| `POST /accounts/{a}/objects/buckets` | Add a bucket named `<account>-<name>`: body `{"name","quota_mb"}`; the first bucket also returns the access key and secret, once |
+| `PATCH /accounts/{a}/objects/buckets/{b}` | Change a bucket's quota: body `{"quota_mb"}` (0 = none) |
+| `DELETE /accounts/{a}/objects/buckets/{b}` | Delete an empty bucket |
+| `POST /accounts/{a}/objects/key` | Replace the account's access key (new secret, once); the old key stops working |
 | `GET /accounts/{a}/files` | Folder listing |
 | `GET /accounts/{a}/files/content` | Content: body `{"content"}` for the editor (≤ 2 MB text) |
 | `PUT /accounts/{a}/files/content` | Set the content: body `{"content","overwrite"}` |

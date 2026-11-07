@@ -47,6 +47,9 @@ REDIS_KIND=""               # redis | valkey: the server-wide engine (the first 
 CACHE_ENGINES=""            # per-account cache engines: any of redis valkey dragonfly
 INSTALL_TURN=0              # TURN server (coturn) for WebRTC calls
 INSTALL_LIVEKIT=0           # LiveKit WebRTC media server
+INSTALL_MEILI=0             # Meilisearch per account
+INSTALL_GARAGE=0            # Garage S3 storage
+GARAGE_VERSION="v2.1.0"     # Garage release (garagehq.deuxfleurs.fr)
 ADD_ONLY=""                 # --add: install only these on a server that already runs Ike
 MONGODB_VERSION=""          # e.g. 8.0
 JOIN_URL=""                 # join another server's panel instead of being managed here
@@ -180,8 +183,15 @@ Databases
 
 Adding to a server that already runs Ike
   --add LIST                  Install only these, keep everything else as it is, and tell the agent:
-                              any of redis, valkey, dragonfly, turn, livekit (comma-separated).
+                              any of redis, valkey, dragonfly, turn, livekit, meilisearch, garage
+                              (comma-separated).
                               Example: install.sh --add dragonfly,turn,livekit
+
+Search and S3 storage
+  --meilisearch               Meilisearch: a private search engine per account (Laravel Scout and others)
+  --garage                    Garage: S3-compatible storage; each account gets buckets and its own key.
+                              Served through a website you choose in the panel.
+  --garage-version VERSION    Garage release to install (default: v2.1.0)
 
 Real-time media
   --turn                      TURN server (coturn): lets WebRTC calls connect through strict firewalls and
@@ -249,11 +259,16 @@ while [ $# -gt 0 ]; do
 					redis|valkey|dragonfly) add_cache "$e" ;;
 					turn) INSTALL_TURN=1 ;;
 					livekit) INSTALL_LIVEKIT=1 ;;
-					*) die "--add takes redis, valkey, dragonfly, turn or livekit (got: $e)" ;;
+					meilisearch) INSTALL_MEILI=1 ;;
+					garage) INSTALL_GARAGE=1 ;;
+					*) die "--add takes redis, valkey, dragonfly, turn, livekit, meilisearch or garage (got: $e)" ;;
 				esac
 			done
 			shift 2 ;;
 		--livekit) INSTALL_LIVEKIT=1; shift ;;
+		--meilisearch) INSTALL_MEILI=1; shift ;;
+		--garage) INSTALL_GARAGE=1; shift ;;
+		--garage-version) GARAGE_VERSION="${2:?}"; shift 2 ;;
 		--mongodb) if [[ "${2:-}" =~ ^[5-9]\.[0-9]$ ]]; then MONGODB_VERSION="$2"; shift 2; else MONGODB_VERSION="8.0"; shift; fi ;;
 		--clamav) INSTALL_SCANNER=1; shift ;;
 		--mail) INSTALL_MAIL=1; shift ;;
@@ -345,6 +360,10 @@ run_wizard() {
 	[ "$REPLY" = "yes" ] && INSTALL_TURN=1
 	ask "LiveKit media server for video rooms (yes/no)" "no"
 	[ "$REPLY" = "yes" ] && INSTALL_LIVEKIT=1
+	ask "Meilisearch, a search engine per account (yes/no)" "no"
+	[ "$REPLY" = "yes" ] && INSTALL_MEILI=1
+	ask "Garage S3 storage for accounts (yes/no)" "no"
+	[ "$REPLY" = "yes" ] && INSTALL_GARAGE=1
 	ask "MongoDB (no, yes, or a version like 8.0)" "no"
 	case "$REPLY" in yes) MONGODB_VERSION="8.0" ;; [5-9].[0-9]) MONGODB_VERSION="$REPLY" ;; esac
 	ask "First panel admin username" "$ADMIN_USER"; ADMIN_USER="$REPLY"
@@ -1195,6 +1214,152 @@ install_redis() {
 		cache_unit ike-dragonfly "Dragonfly" "/usr/bin/dragonfly --flagfile=/etc/ike/redis/%i.dragonfly.flags" simple
 	fi
 	systemctl daemon-reload
+}
+
+# ------------------------------------------------- search and S3 storage ----
+
+# install_meilisearch installs Meilisearch from its GitHub release and a
+# per-account service template; the agent starts an instance per account.
+install_meilisearch() {
+	[ "$INSTALL_MEILI" -eq 1 ] || return 0
+	info "Installing Meilisearch (a private search engine per account)"
+	local file tmp sum
+	file="meilisearch-linux-amd64"
+	[ "$ARCH" = "arm64" ] && file="meilisearch-linux-aarch64"
+	tmp=$(mktemp -d)
+	sum=""
+	if download "https://github.com/meilisearch/meilisearch/releases/latest/download/${file}.sha256" "${tmp}/sum"; then
+		sum=$(cut -d' ' -f1 "${tmp}/sum")
+	else
+		warn "Meilisearch publishes no checksum for ${file}; relying on HTTPS from GitHub."
+	fi
+	if ! download "https://github.com/meilisearch/meilisearch/releases/latest/download/${file}" "${tmp}/meilisearch" "$sum"; then
+		warn "Meilisearch download failed; skipping it."
+		rm -rf "$tmp"
+		return 0
+	fi
+	install -m 0755 "${tmp}/meilisearch" /usr/local/bin/meilisearch
+	rm -rf "$tmp"
+	install -d -m 0700 -o root -g root /etc/ike/meilisearch
+	cat >/etc/systemd/system/ike-meilisearch@.service <<'EOF'
+[Unit]
+Description=Meilisearch for hosting account %i
+After=network.target
+
+[Service]
+Type=simple
+User=%i
+Group=%i
+EnvironmentFile=/etc/ike/meilisearch/%i.env
+ExecStart=/usr/local/bin/meilisearch
+Slice=ike-acct-%i.slice
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/home/%i/.meilisearch
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+LimitNOFILE=65536
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+	systemctl daemon-reload
+	MEILI_INSTALLED=$(/usr/local/bin/meilisearch --version 2>/dev/null | awk '{print $2; exit}')
+}
+
+# install_garage installs Garage as one server-wide S3 service on localhost
+# (the agent serves it through a website and gives each account its own key).
+install_garage() {
+	[ "$INSTALL_GARAGE" -eq 1 ] || return 0
+	info "Installing Garage ${GARAGE_VERSION} (S3-compatible storage)"
+	local triple tmp node free cap
+	triple="x86_64-unknown-linux-musl"
+	[ "$ARCH" = "arm64" ] && triple="aarch64-unknown-linux-musl"
+	tmp=$(mktemp -d)
+	if ! download "https://garagehq.deuxfleurs.fr/_releases/${GARAGE_VERSION}/${triple}/garage" "${tmp}/garage"; then
+		warn "Garage download failed; skipping it. Try another version with --garage-version."
+		rm -rf "$tmp"
+		return 0
+	fi
+	warn "Garage publishes no checksum file; it was fetched over HTTPS from garagehq.deuxfleurs.fr."
+	install -m 0755 "${tmp}/garage" /usr/local/bin/garage
+	rm -rf "$tmp"
+	id garage >/dev/null 2>&1 || useradd --system --no-create-home --home-dir /var/lib/garage --shell /usr/sbin/nologin garage
+	install -d -m 0750 -o garage -g garage /var/lib/garage /var/lib/garage/meta /var/lib/garage/data
+	install -d -m 0700 -o root -g root /etc/ike/garage
+	if [ ! -s /etc/ike/garage/admin.token ]; then
+		openssl rand -hex 32 >/etc/ike/garage/admin.token
+		chmod 0600 /etc/ike/garage/admin.token
+	fi
+	if [ ! -s /etc/garage.toml ]; then
+		cat >/etc/garage.toml <<EOF
+# Written by Ike. Garage listens on localhost only; the panel serves S3 through a website.
+metadata_dir = "/var/lib/garage/meta"
+data_dir = "/var/lib/garage/data"
+db_engine = "lmdb"
+replication_factor = 1
+rpc_bind_addr = "127.0.0.1:3901"
+rpc_public_addr = "127.0.0.1:3901"
+rpc_secret = "$(openssl rand -hex 32)"
+
+[s3_api]
+s3_region = "garage"
+api_bind_addr = "127.0.0.1:3900"
+
+[admin]
+api_bind_addr = "127.0.0.1:3903"
+admin_token = "$(cat /etc/ike/garage/admin.token)"
+EOF
+		chown root:garage /etc/garage.toml
+		chmod 0640 /etc/garage.toml
+	fi
+	cat >/etc/systemd/system/garage.service <<'EOF'
+[Unit]
+Description=Garage S3 storage, managed by Ike
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=garage
+Group=garage
+ExecStart=/usr/local/bin/garage -c /etc/garage.toml server
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/garage
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+LimitNOFILE=65536
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+	systemctl daemon-reload
+	systemctl enable --now garage >>"$LOG_FILE" 2>&1 || { warn "Garage didn't start; check: journalctl -u garage"; return 0; }
+	sleep 3
+	# One node: give it most of the free disk and apply the layout once.
+	if ! garage -c /etc/garage.toml layout show 2>/dev/null | grep -q "dc1"; then
+		node=$(garage -c /etc/garage.toml node id -q 2>>"$LOG_FILE" | cut -d@ -f1)
+		free=$(df -BG --output=avail /var/lib/garage | tail -1 | tr -dc '0-9')
+		cap=$(( free * 8 / 10 ))
+		[ "$cap" -ge 1 ] || cap=1
+		if [ -n "$node" ] && garage -c /etc/garage.toml layout assign -z dc1 -c "${cap}G" "$node" >>"$LOG_FILE" 2>&1 \
+			&& garage -c /etc/garage.toml layout apply --version 1 >>"$LOG_FILE" 2>&1; then
+			info "Garage storage layout: ${cap} GB on this server"
+		else
+			warn "Garage's storage layout wasn't applied; run: garage -c /etc/garage.toml status"
+		fi
+	fi
+	GARAGE_INSTALLED="$GARAGE_VERSION"
 }
 
 # ------------------------------------------------------- real-time media ----
@@ -2523,6 +2688,8 @@ ${C_BLD}${C_GRN}${PANEL_NAME} installed successfully${C_RST}
   Caches        ${CACHE_ENGINES:-none}$( [ -n "${DRAGONFLY_INSTALLED:-}" ] && echo " (Dragonfly ${DRAGONFLY_INSTALLED})" )
   TURN          $( [ -n "${TURN_INSTALLED:-}" ] && echo "coturn ${TURN_INSTALLED}, switch it on under Real-time media" || echo "not installed" )
   LiveKit       $( [ -n "${LIVEKIT_INSTALLED:-}" ] && echo "${LIVEKIT_INSTALLED}, switch it on under Real-time media" || echo "not installed" )
+  Meilisearch   ${MEILI_INSTALLED:-not installed}
+  Garage        $( [ -n "${GARAGE_INSTALLED:-}" ] && echo "${GARAGE_INSTALLED}, set its S3 address under Server, S3 storage" || echo "not installed" )
   Server IP     ${ip}
   Firewall      ${FIREWALL}
   Package tools${PKG_TOOLS_INSTALLED:- none}
@@ -2655,6 +2822,8 @@ PY
 	fi
 	install_turn
 	install_livekit
+	install_meilisearch
+	install_garage
 	systemctl restart "${AGENT_NAME}" >>"$LOG_FILE" 2>&1 || warn "Restart ${AGENT_NAME} yourself: systemctl restart ${AGENT_NAME}"
 	cat <<EOF
 
@@ -2663,6 +2832,8 @@ ${C_BLD}${C_GRN}Added${C_RST}
   Caches        ${CACHE_ENGINES:-unchanged}$( [ -n "${DRAGONFLY_INSTALLED:-}" ] && echo " (Dragonfly ${DRAGONFLY_INSTALLED})" )
   TURN          $( [ -n "${TURN_INSTALLED:-}" ] && echo "coturn ${TURN_INSTALLED}" || echo "not added" )
   LiveKit       $( [ -n "${LIVEKIT_INSTALLED:-}" ] && echo "${LIVEKIT_INSTALLED}" || echo "not added" )
+  Meilisearch   $( [ -n "${MEILI_INSTALLED:-}" ] && echo "${MEILI_INSTALLED}" || echo "not added" )
+  Garage        $( [ -n "${GARAGE_INSTALLED:-}" ] && echo "${GARAGE_INSTALLED}, set its S3 address under Server, S3 storage" || echo "not added" )
   Install log   ${LOG_FILE}
 
 Switch TURN and LiveKit on in the panel under Server, Real-time media. Account owners pick their cache engine under Databases, Cache.
@@ -2699,6 +2870,8 @@ main() {
 	install_redis
 	install_turn
 	install_livekit
+	install_meilisearch
+	install_garage
 	install_mongodb
 	install_phpmyadmin
 	configure_ssh

@@ -148,6 +148,23 @@ func (s *Server) dbRoutes(h func(string, handler)) {
 	h("DELETE /v1/accounts/{a}/redis", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
 		return ok(map[string]string{"removed": "redis"}, d.RemoveRedis(r.Context(), pathAcct(r)))
 	})
+	h("GET /v1/accounts/{a}/search", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		return ok(d.SearchStatus(r.Context(), pathAcct(r)))
+	})
+	h("PUT /v1/accounts/{a}/search", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		var body struct {
+			databases.SearchRequest
+			NewKey bool `json:"new_key"`
+		}
+		if !decode(w, r, &body) {
+			return 0, nil, nil
+		}
+		cred, inst, err := d.SetSearch(r.Context(), pathAcct(r), body.SearchRequest, body.NewKey)
+		return ok(map[string]any{"credentials": cred, "search": inst}, err)
+	})
+	h("DELETE /v1/accounts/{a}/search", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		return ok(map[string]string{"removed": "search"}, d.RemoveSearch(r.Context(), pathAcct(r)))
+	})
 	h("POST /v1/accounts/{a}/redis/flush", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
 		return ok(map[string]string{"flushed": "redis"}, d.FlushRedis(r.Context(), pathAcct(r)))
 	})

@@ -59,9 +59,10 @@ type RedisInstance struct {
 
 // AccountDBs is what one account has beyond MariaDB.
 type AccountDBs struct {
-	Account string         `json:"account"`
-	DBs     []DB           `json:"databases"`
-	Redis   *RedisInstance `json:"redis,omitempty"`
+	Account string          `json:"account"`
+	DBs     []DB            `json:"databases"`
+	Redis   *RedisInstance  `json:"redis,omitempty"`
+	Search  *SearchInstance `json:"search,omitempty"`
 }
 
 // Credentials are shown once.
@@ -133,11 +134,12 @@ type Engines struct {
 	// Caches are the engines an account can pick for its private instance.
 	Caches  []string `json:"caches"`
 	MongoDB bool     `json:"mongodb"`
+	Search  bool     `json:"search"` // Meilisearch
 }
 
 func (m *Manager) Engines() Engines {
 	return Engines{MariaDB: m.MariaDBOf != nil, Postgres: m.env.Cfg.Postgres, Redis: m.env.Cfg.Redis,
-		Caches: m.env.Cfg.Caches(), MongoDB: m.env.Cfg.MongoDB}
+		Caches: m.env.Cfg.Caches(), MongoDB: m.env.Cfg.MongoDB, Search: m.SearchInstalled()}
 }
 
 // List returns an account's databases of every engine.
@@ -150,7 +152,7 @@ func (m *Manager) List(account string) (map[string]any, error) {
 	if m.MariaDBOf != nil {
 		maria = m.MariaDBOf(account)
 	}
-	return map[string]any{"engines": m.Engines(), "mariadb": maria, "databases": a.DBs, "redis": a.Redis}, nil
+	return map[string]any{"engines": m.Engines(), "mariadb": maria, "databases": a.DBs, "redis": a.Redis, "search": a.Search}, nil
 }
 
 var suffixRe = regexp.MustCompile(`^[a-z0-9]{1,16}$`)
@@ -392,6 +394,9 @@ func (m *Manager) DeleteAccount(ctx context.Context, account string) error {
 	}
 	if a.Redis != nil {
 		_ = m.RemoveRedis(ctx, account)
+	}
+	if a.Search != nil {
+		_ = m.RemoveSearch(ctx, account)
 	}
 	return nil
 }

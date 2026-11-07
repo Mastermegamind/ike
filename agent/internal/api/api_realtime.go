@@ -28,6 +28,7 @@ import (
 	"github.com/Mastermegamind/ike/agent/internal/datasaver"
 	"github.com/Mastermegamind/ike/agent/internal/dns"
 	"github.com/Mastermegamind/ike/agent/internal/kit"
+	"github.com/Mastermegamind/ike/agent/internal/objects"
 	"github.com/Mastermegamind/ike/agent/internal/realtime"
 	"github.com/Mastermegamind/ike/agent/internal/sites"
 )
@@ -230,5 +231,68 @@ func (s *Server) realtimeRoutes(h func(string, handler)) {
 			return 0, nil, err
 		}
 		return ok(rt.JoinToken(b, pathAcct(r), false))
+	})
+}
+
+// objectRoutes: S3 storage (Garage).
+//
+//	GET    /v1/objects, PUT {"domain","account"}           where the S3 endpoint is served (admin)
+//	GET    /v1/accounts/{a}/objects                        endpoint, access key id, buckets with usage
+//	POST   /v1/accounts/{a}/objects/buckets                {"name","quota_mb"} → bucket (+ credentials the first time)
+//	PATCH  /v1/accounts/{a}/objects/buckets/{b}            {"quota_mb"}
+//	DELETE /v1/accounts/{a}/objects/buckets/{b}            (empty buckets)
+//	POST   /v1/accounts/{a}/objects/key                    new access key → credentials once
+func (s *Server) objectRoutes(h func(string, handler)) {
+	o := s.F.Objects
+	ok := func(v any, err error) (int, any, error) { return http.StatusOK, v, err }
+	admin := func(fn handler) handler {
+		return func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+			if !isAdmin(r) {
+				return 0, nil, kit.ErrForbidden
+			}
+			return fn(w, r)
+		}
+	}
+	h("GET /v1/objects", admin(func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		return ok(map[string]any{"installed": o.Installed(), "settings": o.GetSettings(), "endpoint": o.Endpoint()}, nil)
+	}))
+	h("PUT /v1/objects", admin(func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		var b objects.Settings
+		if !decode(w, r, &b) {
+			return 0, nil, nil
+		}
+		ctx, cancel := long(r)
+		defer cancel()
+		set, note, err := o.SetSettings(ctx, b)
+		return ok(map[string]any{"settings": set, "note": note, "endpoint": o.Endpoint()}, err)
+	}))
+	h("GET /v1/accounts/{a}/objects", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		return ok(o.Get(r.Context(), pathAcct(r)))
+	})
+	h("POST /v1/accounts/{a}/objects/buckets", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		var b struct {
+			Name    string `json:"name"`
+			QuotaMB int    `json:"quota_mb"`
+		}
+		if !decode(w, r, &b) {
+			return 0, nil, nil
+		}
+		bucket, cred, err := o.CreateBucket(r.Context(), pathAcct(r), b.Name, b.QuotaMB)
+		return http.StatusCreated, map[string]any{"bucket": bucket, "credentials": cred}, err
+	})
+	h("PATCH /v1/accounts/{a}/objects/buckets/{b}", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		var b struct {
+			QuotaMB int `json:"quota_mb"`
+		}
+		if !decode(w, r, &b) {
+			return 0, nil, nil
+		}
+		return ok(o.SetQuota(r.Context(), pathAcct(r), r.PathValue("b"), b.QuotaMB))
+	})
+	h("DELETE /v1/accounts/{a}/objects/buckets/{b}", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		return ok(map[string]string{"deleted": r.PathValue("b")}, o.DeleteBucket(r.Context(), pathAcct(r), r.PathValue("b")))
+	})
+	h("POST /v1/accounts/{a}/objects/key", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		return ok(o.NewKey(r.Context(), pathAcct(r)))
 	})
 }
