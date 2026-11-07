@@ -582,6 +582,16 @@ func (s *Server) Handler() http.Handler {
 		}
 		return ok(s.Sites.SetHealthCheck(r.PathValue("domain"), hc))
 	})
+	h("PUT /v1/sites/{domain}/laravel", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		var l *sites.Laravel
+		if !decode(w, r, &l) {
+			return 0, nil, nil
+		}
+		ctx, cancel := long(r)
+		defer cancel()
+		site, note, err := s.Sites.SetLaravel(ctx, r.PathValue("domain"), l)
+		return ok(map[string]any{"site": site, "note": note}, err)
+	})
 	h("GET /v1/health/events", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
 		return ok(s.Sites.HealthEvents(), nil)
 	})

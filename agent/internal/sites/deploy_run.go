@@ -310,7 +310,11 @@ func (m *Manager) deploy(ctx context.Context, d *Deployment, req DeployRequest, 
 	if req.rollback != "" {
 		d.Release = req.rollback
 		log("Rolling back to release %s", req.rollback)
-		return m.switchRelease(ctx, d, log)
+		if err := m.switchRelease(ctx, d, log); err != nil {
+			return err
+		}
+		m.afterSwitch(ctx, d.Domain, log)
+		return nil
 	}
 
 	var commit string
@@ -367,8 +371,17 @@ func (m *Manager) deploy(ctx context.Context, d *Deployment, req DeployRequest, 
 	if err := m.switchRelease(ctx, d, log); err != nil {
 		return err
 	}
+	m.afterSwitch(ctx, d.Domain, log)
 	m.pruneReleases(ctx, d.Domain, log)
 	return nil
+}
+
+// afterSwitch restarts what keeps the old code loaded once a release is live.
+func (m *Manager) afterSwitch(ctx context.Context, domain string, log func(string, ...any)) {
+	if site, err := m.Get(domain); err == nil && site.Laravel != nil {
+		log("Restarting Laravel workers and Reverb")
+		m.laravelRestart(ctx, site)
+	}
 }
 
 func short(sha string) string {

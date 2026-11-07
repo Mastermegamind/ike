@@ -189,6 +189,7 @@ Token area: `sites`.
 | `GET /sites/{domain}/env` | Env .env variables |
 | `PUT /sites/{domain}/env` | Set the env: body `[{"key","value"}]` |
 | `PUT /sites/{domain}/healthcheck` | Set the healthcheck: body `{"path","interval_sec","fail_threshold","action"}` or null |
+| `PUT /sites/{domain}/laravel` | Laravel on a PHP website: body `{"workers":0-8,"queues","connection","tries","timeout","scheduler","reverb","reverb_domain","path"}` (null switches all off). Queue workers and Reverb run as systemd services, the scheduler every minute; Reverb gets a website of its own (default `ws.<domain>`) that forwards WebSockets to it. Workers and Reverb restart after each deploy |
 | `GET /sites/{domain}/logs/{kind}` | Access \| error \| php \| apache-access \| apache-error \| app |
 | `POST /sites/{domain}/permissions` | Reset ownership and modes |
 | `PUT /sites/{domain}/php` | Pool and php.ini settings |

@@ -182,6 +182,9 @@ func (m *Manager) nextPort() int {
 				used[s.Deploy.AltPort] = true
 			}
 		}
+		if s.Laravel != nil && s.Laravel.ReverbPort != 0 {
+			used[s.Laravel.ReverbPort] = true
+		}
 	}
 	for p := m.cfg.AppPortStart; p < m.cfg.AppPortStart+5000; p++ {
 		if !used[p] {
