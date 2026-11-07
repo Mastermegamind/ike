@@ -185,9 +185,6 @@ func (s *Server) hostingExpiries(acc access) []ExpiryItem {
 				}
 			}
 			it.SuspendsOn = grace(it.Expires)
-			if !it.SuspendsOn.IsZero() {
-				it.Detail += fmt.Sprintf("; suspends on %s if unpaid", it.SuspendsOn.Format("2 Jan 2006"))
-			}
 			out = append(out, it)
 		}
 		for a, until := range d.HostingExpiry {
@@ -399,6 +396,9 @@ func expiryBody(it ExpiryItem) string {
 	b += "."
 	if it.Detail != "" {
 		b += " " + it.Detail + "."
+	}
+	if !it.SuspendsOn.IsZero() {
+		b += " Suspended on " + it.SuspendsOn.Format("2 Jan 2006") + " if unpaid."
 	}
 	switch it.Kind {
 	case "domain":

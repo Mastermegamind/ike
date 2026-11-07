@@ -6,7 +6,7 @@ import { Activity, Database, KeyRound, Plus, RefreshCw, Stethoscope, Trash2, Use
 import { api } from "../api/client";
 import type { Job, Role } from "../api/types";
 import type { CacheEngine, DBCredentials, DBProcess, EngineDB, Engines, Replication, RedisInstance, SlowQuery } from "../api/types5";
-import { Badge, Button, CopyField, Empty, Field, Modal, Skeleton, Tabs, useAsync, useToast } from "../components/ui";
+import { Badge, Button, CopyBlock, CopyField, Empty, Field, Modal, Skeleton, Tabs, useAsync, useToast } from "../components/ui";
 import { ConfirmDelete, PageHead, Toggle } from "../components/common";
 import { JobModal, useJob } from "../components/job";
 import { DownloadLink, enc, ErrorNote, FormModal, NumberField, OnceModal, SelectField, TextField, UploadButton, useAction, useGet } from "../components/kit5";
@@ -30,14 +30,14 @@ interface DBList { engines: Engines; mariadb: string[] | null; databases: Engine
 
 export function DatabasesPage({ route, role }: { route: string; role: Role }) {
   const { account, picker } = useAccountParam(route);
-  const [tab, setTab] = useState<"dbs" | "redis" | "activity" | "replication">("dbs");
+  const [tab, setTab] = useState<"dbs" | "redis" | "search" | "activity" | "replication">("dbs");
   return (
     <div className="stack">
       <PageHead title="Databases" text="MariaDB, PostgreSQL and MongoDB databases, and a private cache (Redis, Valkey or Dragonfly) for each account. Names start with the account name so accounts never clash."
         actions={picker} />
-      <Tabs value={tab} onChange={setTab} tabs={[{ value: "dbs", label: "Databases" }, { value: "redis", label: "Cache" }, { value: "activity", label: "Running queries" },
+      <Tabs value={tab} onChange={setTab} tabs={[{ value: "dbs", label: "Databases" }, { value: "redis", label: "Cache" }, { value: "search", label: "Search" }, { value: "activity", label: "Running queries" },
         ...(role === "admin" ? [{ value: "replication" as const, label: "Replication" }] : [])]} />
-      {!account && tab !== "replication" ? <Skeleton h={120} /> : tab === "dbs" ? <DbList account={account} /> : tab === "redis" ? <RedisPanel account={account} />
+      {!account && tab !== "replication" ? <Skeleton h={120} /> : tab === "dbs" ? <DbList account={account} /> : tab === "redis" ? <RedisPanel account={account} /> : tab === "search" ? <SearchPanel account={account} />
         : tab === "activity" ? <ActivityPanel base={`/accounts/${enc(account)}/dbs`} /> : <ReplicationPanel />}
     </div>
   );
@@ -221,6 +221,55 @@ function RedisPanel({ account }: { account: string }) {
         description={`${cacheName[current]} stops and its keys are deleted from memory. Apps reconnect to ${label} on the same socket with the same password.`}
         onSubmit={async () => { await save(false); }}><span /></FormModal>
       <ConfirmDelete open={del} onClose={() => setDel(false)} title={`Remove this ${cacheName[current]}?`} name="redis" confirmLabel="Remove" description="It stops and its data is deleted."
+        onConfirm={async () => { await api.call("DELETE", base); list.reload(); }} />
+    </div>
+  );
+}
+
+interface SearchStatus { running: boolean; version?: string; indexes: number; documents: number; size_mb: number; port: number }
+
+/** The account's Meilisearch, for Laravel Scout and other apps. */
+function SearchPanel({ account }: { account: string }) {
+  const base = `/accounts/${enc(account)}/search`;
+  const list = useGet<DBList & { search?: { port: number; memory_mb: number } | null; engines: Engines & { search?: boolean } }>(`/accounts/${enc(account)}/dbs`);
+  const st = useAsync(() => api.call<SearchStatus>("GET", base).catch(() => null), [base]);
+  const inst = list.data?.search ?? null;
+  const [mem, setMem] = useState<number | null>(null);
+  const [cred, setCred] = useState<DBCredentials | null>(null);
+  const [del, setDel] = useState(false);
+  const { busy, run } = useAction();
+  if (list.data && !list.data.engines.search) return <section className="panel"><Empty icon={<Zap size={22} />} title="Meilisearch isn't installed" text="Ask your hosting provider. The admin adds it with the installer's --add meilisearch." /></section>;
+  const memory = mem ?? inst?.memory_mb ?? 256;
+  const save = (newKey: boolean) => run("save", () => api.call<{ credentials?: DBCredentials }>("PUT", base, { memory_mb: memory, new_key: newKey }), inst ? "Search settings saved" : "Meilisearch is running")
+    .then((r) => { if (r) { if (r.credentials?.password) setCred(r.credentials); setMem(null); list.reload(); st.reload(); } });
+  return (
+    <div className="grid-2">
+      <section className="panel">
+        <div className="panel-head"><div><h2>{inst ? "Your Meilisearch" : "Start a search engine"}</h2><p className="small muted">Fast, typo-tolerant search for your apps. Laravel Scout supports it out of the box.</p></div></div>
+        <div className="panel-body form-grid">
+          <NumberField label="Indexing memory (MB)" value={memory} onChange={setMem} min={64} />
+          <div className="row">
+            <Button variant="primary" loading={busy === "save"} onClick={() => save(false)}>{inst ? "Save" : "Start Meilisearch"}</Button>
+            {inst ? <><Button onClick={() => save(true)}><KeyRound size={16} />New master key</Button>
+              <Button variant="ghost" onClick={() => setDel(true)}><Trash2 size={16} />Remove</Button></> : null}
+          </div>
+          {inst ? <Field label="Laravel .env">{() => <CopyBlock value={`SCOUT_DRIVER=meilisearch\nMEILISEARCH_HOST=http://127.0.0.1:${inst.port}\nMEILISEARCH_KEY=(the master key)`} />}</Field> : null}
+        </div>
+      </section>
+      {inst ? (
+        <section className="panel">
+          <div className="panel-head"><h2>Status</h2><Button size="sm" onClick={st.reload} loading={st.loading} aria-label="Refresh"><RefreshCw size={15} /></Button></div>
+          <div className="panel-body">{!st.data ? <Skeleton /> : (
+            <dl className="kv"><dt>State</dt><dd>{st.data.running ? <Badge tone="ok">Running</Badge> : <Badge tone="bad">Stopped</Badge>}</dd>
+              <dt>Indexes</dt><dd>{st.data.indexes}</dd><dt>Documents</dt><dd>{st.data.documents}</dd><dt>Size</dt><dd>{st.data.size_mb} MB</dd>
+              <dt>Address</dt><dd className="mono">127.0.0.1:{st.data.port}</dd><dt>Version</dt><dd>{st.data.version ?? "—"}</dd></dl>
+          )}</div>
+        </section>
+      ) : null}
+      <OnceModal open={!!cred} onClose={() => setCred(null)} title="Meilisearch master key">
+        {cred ? <><CopyField value={cred.password} label="Master key (MEILISEARCH_KEY)" /><Field label="Address (MEILISEARCH_HOST)">{() => <CopyField value={cred.url} label="Address" />}</Field></> : null}
+      </OnceModal>
+      <ConfirmDelete open={del} onClose={() => setDel(false)} title="Remove Meilisearch?" name="search" confirmLabel="Remove" description="It stops and its indexes are deleted. Your app can rebuild them with scout:import."
         onConfirm={async () => { await api.call("DELETE", base); list.reload(); }} />
     </div>
   );

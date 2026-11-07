@@ -791,6 +791,8 @@ export class DemoApi implements Api {
     telegram: { enabled: true, bot_token: "••••••••", chat_id: "-1002233445566" },
     whatsapp: { enabled: false, phone_number_id: "", to: "" },
     email: { enabled: true, host: "smtp-relay.brevo.com", port: 587, username: "alerts@megamind.ng", password: "••••••••", from: "alerts@megamind.ng", to: "marvellous@megamind.ng" },
+    sms: { enabled: true, provider: "termii", api_key: "••••••••", sender_id: "Megamind", channel: "dnd", to: "08031234567" },
+    customers: { enabled: true, days: [30, 14, 7, 1] },
     uptime_interval_min: 5,
   };
   async alertSettings() { await wait(200); return JSON.parse(JSON.stringify(this.alerts)); }

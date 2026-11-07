@@ -56,7 +56,7 @@ func TestExpiryView(t *testing.T) {
 	}
 	shop := by["shop"]
 	// the overdue invoice decides, not the next renewal
-	if shop.State != "expired" || !strings.Contains(shop.Detail, "INV-0007") || !strings.Contains(shop.Detail, "suspends on") || shop.InvoiceID != "INV-0007" || shop.SuspendsOn.Sub(shop.Expires) != 7*24*time.Hour || !strings.Contains(shop.Detail, "₦15,000.00") {
+	if shop.State != "expired" || !strings.Contains(shop.Detail, "INV-0007") || shop.InvoiceID != "INV-0007" || shop.SuspendsOn.Sub(shop.Expires) != 7*24*time.Hour || !strings.Contains(shop.Detail, "₦15,000.00") {
 		t.Fatalf("%+v", shop)
 	}
 	if b := by["blog"]; b.State != "urgent" || b.Source != "subscription" || !b.AutoRenews || b.SuspendsOn.IsZero() {

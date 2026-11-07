@@ -32,6 +32,8 @@ import type { Role } from "./api/types";
 import { DevelopersPage } from "./pages/Developers";
 import { ExpiryPage } from "./pages/Expiry";
 import { RealtimePage } from "./pages/Realtime";
+import { StatusPageSettings } from "./pages/StatusPageSettings";
+import { StoragePage } from "./pages/Storage";
 import { setDeveloperAreas, setSignedInRole } from "./layouts/nav";
 
 const soonText: Record<string, [string, string]> = {
@@ -144,6 +146,8 @@ export function App() {
   else if (path === "/ssl") page = <Certificates />;
   else if (path === "/expiry") page = <ExpiryPage role={role} />;
   else if (path === "/realtime") page = <RealtimePage route={route} role={role} />;
+  else if (path === "/s3") page = <StoragePage route={route} role={role} />;
+  else if (path === "/status-page") page = <StatusPageSettings />;
   else if (path === "/docker") page = <DockerHost />;
   else if (path === "/kubernetes") page = <Kubernetes />;
   else if (path === "/php-extensions") page = <PHPExtensions />;

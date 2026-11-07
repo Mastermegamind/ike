@@ -13,9 +13,10 @@ import { DeployTab } from "./Deploy";
 import { WafPanel } from "./Malware";
 import { ProtectionTab } from "./Protection";
 import { SFTPUsersTab } from "./SFTPUsers";
+import { LaravelTab } from "./Laravel";
 import { isApp as isAppRt, versioned } from "../api/runtime";
 
-type Tab = "overview" | "health" | "deploy" | "domains" | "redirects" | "php" | "runtime" | "env" | "passwords" | "sftp" | "firewall" | "status" | "logs" | "tools";
+type Tab = "overview" | "health" | "deploy" | "domains" | "redirects" | "php" | "laravel" | "runtime" | "env" | "passwords" | "sftp" | "firewall" | "status" | "logs" | "tools";
 
 export function SiteDetail({ domain }: { domain: string }) {
   const toast = useToast();
@@ -43,7 +44,7 @@ export function SiteDetail({ domain }: { domain: string }) {
       <Tabs<Tab> value={tab} onChange={setTab} tabs={[
         { value: "overview", label: "Overview" }, { value: "health", label: "Health" }, { value: "deploy", label: "Deploy" },
         { value: "domains", label: "Domains & HTTPS" }, { value: "redirects", label: "Redirects" },
-        ...(site.runtime === "php" ? [{ value: "php" as Tab, label: "PHP" }] : []),
+        ...(site.runtime === "php" ? [{ value: "php" as Tab, label: "PHP" }, { value: "laravel" as Tab, label: "Laravel" }] : []),
         ...(site.runtime !== "proxy" ? [{ value: "runtime" as Tab, label: isApp ? "App" : "Runtime" }] : []),
         ...(site.runtime !== "static" && site.runtime !== "proxy" ? [{ value: "env" as Tab, label: "Env vars" }] : []), { value: "passwords", label: "Passwords" }, { value: "sftp", label: "SFTP" }, { value: "firewall", label: "Firewall" }, { value: "status", label: "Status" }, { value: "logs", label: "Logs" }, { value: "tools", label: "Tools" },
       ]} />
@@ -86,6 +87,7 @@ export function SiteDetail({ domain }: { domain: string }) {
       {tab === "domains" && <DomainsTab site={site} onChange={update} />}
       {tab === "redirects" && <RedirectsTab site={site} onChange={update} />}
       {tab === "php" && <PHPTab site={site} onChange={update} />}
+      {tab === "laravel" && <LaravelTab site={site} onChange={update} />}
       {tab === "runtime" && rt.data && <RuntimeTab site={site} rt={rt.data} onChange={update} />}
       {tab === "runtime" && isAppRt(site.runtime) && <HealthCheckPanel site={site} onChange={update} />}
       {tab === "env" && <EnvTab site={site} />}

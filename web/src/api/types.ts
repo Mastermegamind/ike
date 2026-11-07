@@ -168,13 +168,17 @@ export type PaymentProvider = "bachs" | "paystack" | "flutterwave";
 export interface Invoice {
   id: string; account: string; description: string; currency: string; amount: number; status: "unpaid" | "paid" | "void";
   due_at: string; created_at: string; paid_at?: string; provider?: PaymentProvider;
+  transfer?: BankTransfer | null;
 }
+export interface BankTransfer { provider: PaymentProvider; bank: string; account_number: string; account_name: string; amount: number; currency: string; expires: string; note?: string }
 export interface ProviderSettings { enabled: boolean; secret_key?: string; webhook_secret?: string; sandbox?: boolean }
 export interface BillingSettings { currency: string; grace_days: number; auto_suspend: boolean; providers: Partial<Record<PaymentProvider, ProviderSettings>> }
 export interface AlertSettings {
   telegram: { enabled: boolean; bot_token?: string; chat_id: string };
   whatsapp: { enabled: boolean; token?: string; phone_number_id: string; to: string; template?: string };
   email: { enabled: boolean; host: string; port: number; username: string; password?: string; from: string; to: string };
+  sms?: { enabled: boolean; provider: "termii" | "africastalking" | ""; api_key?: string; username?: string; sender_id?: string; channel?: "dnd" | "generic" | ""; base_url?: string; to: string };
+  customers?: { enabled: boolean; days?: number[] | null };
   uptime_interval_min: number;
 }
 export interface AlertEvent { time: string; domain: string; kind: "down" | "up"; detail: string }
