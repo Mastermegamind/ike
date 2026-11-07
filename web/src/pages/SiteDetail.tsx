@@ -57,7 +57,7 @@ export function SiteDetail({ domain }: { domain: string }) {
                 <dt>Files</dt><dd><code>{site.doc_root}</code></dd>
                 <dt>Error pages</dt><dd><code>{site.doc_root.replace(/\/(public_html|app)$/, "/errors")}</code></dd>
                 <dt>Runtime</dt><dd>{runtimeName(site.runtime)} {site.version}</dd>
-                <dt>Web server</dt><dd>{webServerLabel[site.web_server]}{site.web_server === "nginx+apache" ? " (.htaccess on)" : ""}</dd>
+                <dt>Web server</dt><dd>{webServerLabel[site.web_server]}{site.web_server === "nginx+apache" ? " (.htaccess on)" : site.web_server === "openlitespeed" ? " (.htaccess rewrites on)" : ""}</dd>
                 {isApp || site.runtime === "proxy" ? <><dt>Local port</dt><dd><code>127.0.0.1:{site.port}</code></dd></> : null}
                 <dt>Created</dt><dd>{timeAgo(site.created_at)}</dd>
               </dl>

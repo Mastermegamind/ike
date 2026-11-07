@@ -24,7 +24,7 @@ var reservedUsers = map[string]bool{
 	"nginx": true, "apache": true, "mysql": true, "mariadb": true, "postgres": true,
 	"postfix": true, "dovecot": true, "www": true, "wwwdata": true, "ftp": true,
 	"ike": true, "docker": true, "redis": true, "named": true, "bind": true,
-	"pdns": true, "lxd": true, "polkitd": true, "tss": true, "uuidd": true, "tcpdump": true,
+	"pdns": true, "caddy": true, "lsadm": true, "lsws": true, "lxd": true, "polkitd": true, "tss": true, "uuidd": true, "tcpdump": true,
 }
 
 // Domain accepts lowercase hostnames like "example.com" or "shop.example.com.ng".

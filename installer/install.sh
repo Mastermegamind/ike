@@ -17,7 +17,7 @@ SUPPORTED_UBUNTU="22.04 24.04 26.04"
 ALL_PHP="5.6 7.0 7.1 7.2 7.3 7.4 8.0 8.1 8.2 8.3 8.4 8.5"
 
 # ---- admin choices (defaults) ----
-WEB_STACK="nginx"           # nginx | apache | hybrid
+WEB_STACK="nginx"           # nginx | apache | hybrid | caddy | openlitespeed
 DEFAULT_WEB_SERVER=""       # hybrid only: nginx | nginx+apache
 PHP_VERSIONS="8.2 8.3 8.4 8.5"
 DEFAULT_PHP=""
@@ -70,6 +70,8 @@ OPT_DIR="/opt/${PANEL_NAME}"
 RUNTIMES_DIR="${OPT_DIR}/runtimes"
 NGINX_SITES_DIR="/etc/nginx/${PANEL_NAME}/sites"
 APACHE_SITES_DIR="/etc/apache2/${PANEL_NAME}/sites"
+CADDY_SITES_DIR="/etc/caddy/${PANEL_NAME}"
+OLS_SITES_DIR="/usr/local/lsws/conf/${PANEL_NAME}"
 SSH_KEYS_DIR="/etc/ssh/${PANEL_NAME}/keys"
 PMA_DIR="/usr/share/${PANEL_NAME}/phpmyadmin"
 PMA_PORT=8090
@@ -111,9 +113,13 @@ usage() {
 Usage: install.sh [options]
 
 Web server
-  --web nginx|apache|hybrid   nginx: Nginx only (default)
+  --web nginx|apache|hybrid|caddy|openlitespeed
+                              nginx: Nginx only (default)
                               apache: Apache only
                               hybrid: Nginx in front; each website picks Nginx or Nginx+Apache (.htaccess)
+                              caddy: Caddy only (Ike still issues the certificates; no ModSecurity)
+                              openlitespeed: OpenLiteSpeed from LiteSpeed's repository, PHP through
+                              Ike's PHP-FPM pools, .htaccess rewrites (no ModSecurity)
   --default-web-server X      hybrid only: "nginx" or "nginx+apache" for new websites
 
 Languages
@@ -234,7 +240,8 @@ ask() { # ask "Question" default  ->  sets REPLY
 
 run_wizard() {
 	printf '\n%sIke guided install%s\nPress Enter to accept the suggestion in [brackets].\n\n' "$C_BLD" "$C_RST" >&2
-	echo "Web server: nginx (fastest), apache (Apache only), hybrid (Nginx in front, Apache per website for .htaccess)" >&2
+	echo "Web server: nginx (fastest), apache (Apache only), hybrid (Nginx in front, Apache per website for .htaccess)," >&2
+	echo "            caddy (Caddy only) or openlitespeed (OpenLiteSpeed, reads .htaccess rewrites)" >&2
 	ask "Web server" "$WEB_STACK"; WEB_STACK="$REPLY"
 	if [ "$WEB_STACK" = "hybrid" ]; then
 		ask "New websites use (nginx or nginx+apache)" "nginx+apache"; DEFAULT_WEB_SERVER="$REPLY"
@@ -306,7 +313,10 @@ for v in $JAVA_VERSIONS; do case "$v" in 8|1[1-9]|2[0-9]) ;; *) die "--java take
 for v in $GO_VERSIONS; do case "$v" in 1.[2-9][0-9]) ;; *) die "--go takes versions like 1.24" ;; esac; done
 for v in $DART_VERSIONS; do case "$v" in latest|[3-9].[0-9]*.[0-9]*) ;; *) die "--dart takes latest or a version like 3.9.4" ;; esac; done
 
-case "$WEB_STACK" in nginx|apache|hybrid) ;; *) die "--web must be nginx, apache or hybrid" ;; esac
+case "$WEB_STACK" in nginx|apache|hybrid|caddy|openlitespeed) ;; *) die "--web must be nginx, apache, hybrid, caddy or openlitespeed" ;; esac
+if [ "$INSTALL_MODSEC" -eq 1 ] && { [ "$WEB_STACK" = "caddy" ] || [ "$WEB_STACK" = "openlitespeed" ]; }; then
+	die "--modsecurity needs --web nginx, apache or hybrid"
+fi
 case "$FIREWALL" in ufw|nftables|firewalld) ;; *) die "--firewall must be ufw, nftables or firewalld" ;; esac
 case "$DEFAULT_WEB_SERVER" in
 	"") [ "$WEB_STACK" = "hybrid" ] && DEFAULT_WEB_SERVER="nginx+apache" ;;
@@ -404,7 +414,7 @@ install_base() {
 # Prefer nginx.org's stable repo; fall back to Ubuntu's nginx if it doesn't
 # support this release yet.
 install_nginx() {
-	[ "$WEB_STACK" = "apache" ] && return 0
+	uses_nginx || return 0
 	info "Installing Nginx"
 	local key=/usr/share/keyrings/nginx-archive-keyring.gpg url="https://nginx.org/packages/ubuntu"
 	NGINX_SOURCE="ubuntu"
@@ -451,7 +461,7 @@ EOF
 }
 
 install_apache() {
-	[ "$WEB_STACK" = "nginx" ] && return 0
+	uses_apache || return 0
 	info "Installing Apache (${WEB_STACK} mode)"
 	apt_install apache2
 	a2dismod -q php* mpm_prefork >>"$LOG_FILE" 2>&1 || true
@@ -482,9 +492,103 @@ EOF
 	systemctl restart apache2
 }
 
+uses_nginx()  { [ "$WEB_STACK" = "nginx" ] || [ "$WEB_STACK" = "hybrid" ]; }
+uses_apache() { [ "$WEB_STACK" = "apache" ] || [ "$WEB_STACK" = "hybrid" ]; }
+
+# Caddy: Ike writes one file per website into ${CADDY_SITES_DIR} and keeps
+# issuing certificates itself, so Caddy's automatic HTTPS stays off.
+install_caddy() {
+	[ "$WEB_STACK" = "caddy" ] || return 0
+	info "Installing Caddy"
+	apt_install caddy
+	install -d -m 0750 -o root -g caddy "$CADDY_SITES_DIR" "$CADDY_SITES_DIR/certs" "${CADDY_SITES_DIR}-extra"
+	cat >/etc/caddy/Caddyfile <<EOF
+# Managed by ${PANEL_NAME}. Websites live in ${CADDY_SITES_DIR}, one file each.
+{
+	# ${PANEL_NAME} issues and renews certificates (the SSL page in the panel).
+	auto_https off
+	servers {
+		protocols h1 h2 h3
+	}
+}
+
+# Requests for domains not hosted here are closed without a response.
+http:// {
+	abort
+}
+
+import ${CADDY_SITES_DIR}-extra/*.caddy
+import ${CADDY_SITES_DIR}/*.caddy
+EOF
+	# certbot runs this after renewing: Caddy reads a copy of each certificate
+	# that its own user may open.
+	install -d -m 0755 /usr/local/lib/${PANEL_NAME}
+	cat >/usr/local/lib/${PANEL_NAME}/caddy-deploy-hook <<EOF
+#!/bin/sh
+# Written by the ${PANEL_NAME} installer.
+set -e
+name=\$(basename "\${RENEWED_LINEAGE:?}")
+dir=${CADDY_SITES_DIR}/certs/\$name
+[ -d "\$dir" ] || exit 0
+install -m 0640 -o root -g caddy "\$RENEWED_LINEAGE/fullchain.pem" "\$dir/fullchain.pem"
+install -m 0640 -o root -g caddy "\$RENEWED_LINEAGE/privkey.pem" "\$dir/privkey.pem"
+systemctl reload caddy
+EOF
+	chmod 0755 /usr/local/lib/${PANEL_NAME}/caddy-deploy-hook
+	caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile >>"$LOG_FILE" 2>&1 || die "Caddy configuration test failed. See $LOG_FILE"
+	systemctl enable --now caddy >>"$LOG_FILE" 2>&1
+	systemctl reload caddy >>"$LOG_FILE" 2>&1 || systemctl restart caddy
+}
+
+# OpenLiteSpeed from LiteSpeed's repository. PHP runs in Ike's PHP-FPM pools
+# (not lsphp), so PHP versions and limits match the other web servers.
+install_openlitespeed() {
+	[ "$WEB_STACK" = "openlitespeed" ] || return 0
+	info "Installing OpenLiteSpeed"
+	local key=/usr/share/keyrings/litespeed-archive-keyring.gpg
+	curl -fsS --max-time 30 https://rpms.litespeedtech.com/debian/lst_repo.gpg | gpg --dearmor --yes -o "$key" 2>>"$LOG_FILE" \
+		|| die "Could not reach LiteSpeed's package repository (rpms.litespeedtech.com)."
+	echo "deb [signed-by=${key}] http://rpms.litespeedtech.com/debian/ ${OS_CODENAME} main" >/etc/apt/sources.list.d/lst_debian_repo.list
+	apt-get update -q >>"$LOG_FILE" 2>&1
+	apt_install openlitespeed
+	local conf=/usr/local/lsws/conf/httpd_config.conf
+	install -d -m 0750 -o root -g www-data "$OLS_SITES_DIR"
+	# Workers run as www-data, like Nginx and Apache on Ubuntu.
+	sed -i -E 's/^(user[[:space:]]+).*/\1www-data/; s/^(group[[:space:]]+).*/\1www-data/' "$conf"
+	# A default certificate for the HTTPS listener; each website brings its own (SNI).
+	[ -f "$OLS_SITES_DIR/default.key" ] || openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -subj "/CN=$(hostname -f)" \
+		-keyout "$OLS_SITES_DIR/default.key" -out "$OLS_SITES_DIR/default.crt" >>"$LOG_FILE" 2>&1
+	chmod 0640 "$OLS_SITES_DIR/default.key"
+	chgrp www-data "$OLS_SITES_DIR/default.key"
+	[ -f "$OLS_SITES_DIR/sites.conf" ] || cat >"$OLS_SITES_DIR/sites.conf" <<EOF
+# Managed by ${PANEL_NAME}. Rewritten by the agent whenever a website changes.
+listener ike-http {
+  address                 *:80
+  secure                  0
+}
+
+listener ike-https {
+  address                 *:443
+  secure                  1
+  keyFile                 ${OLS_SITES_DIR}/default.key
+  certFile                ${OLS_SITES_DIR}/default.crt
+}
+EOF
+	touch "$OLS_SITES_DIR/extra.conf" "$OLS_SITES_DIR/webmail.conf"
+	chgrp www-data "$OLS_SITES_DIR"/*.conf
+	chmod 0640 "$OLS_SITES_DIR"/*.conf
+	grep -q "include ${OLS_SITES_DIR}/sites.conf" "$conf" || printf '\n# Managed by %s\ninclude %s/extra.conf\ninclude %s/webmail.conf\ninclude %s/sites.conf\n' \
+		"$PANEL_NAME" "$OLS_SITES_DIR" "$OLS_SITES_DIR" "$OLS_SITES_DIR" >>"$conf"
+	/usr/local/lsws/bin/openlitespeed -t >>"$LOG_FILE" 2>&1 || die "OpenLiteSpeed configuration test failed. See $LOG_FILE"
+	systemctl enable --now lsws >>"$LOG_FILE" 2>&1
+	/usr/local/lsws/bin/lswsctrl restart >>"$LOG_FILE" 2>&1
+}
+
 # Which user/group serves files? Nginx decides when it is installed, else Apache.
 detect_web_user() {
-	if [ "$WEB_STACK" = "apache" ]; then
+	if [ "$WEB_STACK" = "caddy" ]; then
+		WEB_USER="caddy"
+	elif [ "$WEB_STACK" = "apache" ] || [ "$WEB_STACK" = "openlitespeed" ]; then
 		WEB_USER="www-data"
 	else
 		WEB_USER=$(awk '/^[[:space:]]*user[[:space:]]/ {gsub(";",""); print $2; exit}' /etc/nginx/nginx.conf)
@@ -1000,7 +1104,7 @@ php_admin_value[session.save_path] = /var/lib/ike/pma-tmp
 EOF
 	systemctl reload "php${pma_php}-fpm"
 
-	if [ "$WEB_STACK" != "apache" ]; then
+	if uses_nginx; then
 		cat >/etc/nginx/conf.d/${PANEL_NAME}-phpmyadmin.conf <<EOF
 # phpMyAdmin on localhost only. Reach it with:  ssh -L ${PMA_PORT}:127.0.0.1:${PMA_PORT} root@this-server
 server {
@@ -1017,6 +1121,63 @@ server {
 }
 EOF
 		nginx -t >>"$LOG_FILE" 2>&1 && systemctl reload nginx
+	elif [ "$WEB_STACK" = "caddy" ]; then
+		cat >"${CADDY_SITES_DIR}-extra/phpmyadmin.caddy" <<EOF
+# phpMyAdmin on localhost only. Reach it with:  ssh -L ${PMA_PORT}:127.0.0.1:${PMA_PORT} root@this-server
+http://127.0.0.1:${PMA_PORT} {
+	bind 127.0.0.1
+	root * ${PMA_DIR}
+	@hidden path /libraries/* /setup/* /templates/* /vendor/*
+	respond @hidden 403
+	php_fastcgi unix//run/php/ike-pma.sock
+	file_server
+}
+EOF
+		caddy validate --adapter caddyfile --config /etc/caddy/Caddyfile >>"$LOG_FILE" 2>&1 && systemctl reload caddy
+	elif [ "$WEB_STACK" = "openlitespeed" ]; then
+		cat >"${OLS_SITES_DIR}/phpmyadmin-vhost.conf" <<EOF
+# phpMyAdmin on localhost only.
+docRoot                   ${PMA_DIR}/
+index  {
+  useServer               0
+  indexFiles              index.php
+}
+extprocessor ike_pma {
+  type                    fcgi
+  address                 uds://run/php/ike-pma.sock
+  maxConns                4
+  initTimeout             60
+  retryTimeout            0
+  persistConn             1
+  autoStart               0
+}
+scripthandler  {
+  add                     fcgi:ike_pma php
+}
+rewrite  {
+  enable                  1
+  rules                   <<<END_rules
+RewriteRule ^/?(libraries|setup|templates|vendor)/ - [F,L]
+  END_rules
+}
+EOF
+		cat >"${OLS_SITES_DIR}/extra.conf" <<EOF
+# Managed by ${PANEL_NAME}.
+virtualhost ike-phpmyadmin {
+  vhRoot                  ${PMA_DIR}/
+  configFile              ${OLS_SITES_DIR}/phpmyadmin-vhost.conf
+  allowSymbolLink         1
+  enableScript            1
+  restrained              1
+}
+listener ike-phpmyadmin {
+  address                 127.0.0.1:${PMA_PORT}
+  secure                  0
+  map                     ike-phpmyadmin *
+}
+EOF
+		chgrp www-data "${OLS_SITES_DIR}"/*.conf && chmod 0640 "${OLS_SITES_DIR}"/*.conf
+		/usr/local/lsws/bin/openlitespeed -t >>"$LOG_FILE" 2>&1 && /usr/local/lsws/bin/lswsctrl restart >>"$LOG_FILE" 2>&1
 	else
 		echo "Listen 127.0.0.1:${PMA_PORT}" >>/etc/apache2/ports.conf
 		cat >/etc/apache2/conf-available/${PANEL_NAME}-phpmyadmin.conf <<EOF
@@ -1255,7 +1416,7 @@ enabled  = true
 maxretry = 5
 findtime = 10m
 bantime  = 1h"
-	if [ "$WEB_STACK" != "apache" ]; then
+	if uses_nginx; then
 		jails="${jails}
 
 [nginx-http-auth]
@@ -1329,7 +1490,7 @@ install_modsecurity() {
 	info "Installing the web application firewall (ModSecurity, OWASP Core Rule Set)"
 	apt_install modsecurity-crs
 	install -d -m 0755 -o root -g root "${CONF_DIR}/modsec"
-	if [ "$WEB_STACK" != "apache" ]; then
+	if uses_nginx; then
 		apt_install libnginx-mod-http-modsecurity
 		cat >"${CONF_DIR}/modsec/main.conf" <<EOF
 # Written by the Ike installer: shared by every website with the firewall on.
@@ -1349,7 +1510,7 @@ EOF
 		nginx -t >>"$LOG_FILE" 2>&1 || die "Nginx rejected the ModSecurity module; see ${LOG_FILE}"
 		systemctl reload nginx
 	fi
-	if [ "$WEB_STACK" != "nginx" ]; then
+	if uses_apache; then
 		apt_install libapache2-mod-security2
 		[ -f /etc/modsecurity/modsecurity.conf ] || cp /etc/modsecurity/modsecurity.conf-recommended /etc/modsecurity/modsecurity.conf
 		# Off for the whole server; each website turns it on in its own vhost.
@@ -1915,6 +2076,8 @@ install_agent() {
   "web_user": "${WEB_USER}",
   "web_group": "${WEB_GROUP}",
   "nginx_sites_dir": "${NGINX_SITES_DIR}",
+  "caddy_sites_dir": "${CADDY_SITES_DIR}",
+  "ols_sites_dir": "${OLS_SITES_DIR}",
   "apache_sites_dir": "${APACHE_SITES_DIR}",
   "apache_listen": "${APACHE_LISTEN:-127.0.0.1:8080}",
   "home_base": "/home",
@@ -2190,6 +2353,8 @@ main() {
 	detect_identity
 	install_nginx
 	install_apache
+	install_caddy
+	install_openlitespeed
 	detect_web_user
 	install_php
 	install_wpcli

@@ -160,9 +160,53 @@ func run(socket, cfgPath, root, group string, dryRun bool) error {
 		}
 	}
 
+	if cfg.WebStack == "caddy" && !dryRun {
+		// Caddy asks here whether a visitor's password opens a protected folder.
+		if err := serveAuthSocket(ctx, cfg.AuthSocket, cfg.WebGroup, mgr.AuthHandler()); err != nil {
+			slog.Error("password checks for Caddy are off", "err", err)
+		}
+	}
+
 	slog.Info("ike-agent listening", "version", api.Version, "socket", socket)
 	if err := hs.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
+	return nil
+}
+
+// serveAuthSocket answers Caddy's forward_auth on a unix socket only the web
+// server's group can reach.
+func serveAuthSocket(ctx context.Context, path, group string, h http.Handler) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		return err
+	}
+	_ = os.Remove(path)
+	ln, err := net.Listen("unix", path)
+	if err != nil {
+		return err
+	}
+	g, err := user.LookupGroup(group)
+	if err != nil {
+		ln.Close()
+		return fmt.Errorf("web server group %q: %w", group, err)
+	}
+	gid, _ := strconv.Atoi(g.Gid)
+	for _, p := range []string{path, filepath.Dir(path)} {
+		if err := os.Chown(p, 0, gid); err != nil {
+			ln.Close()
+			return err
+		}
+	}
+	if err := os.Chmod(path, 0o660); err != nil {
+		ln.Close()
+		return err
+	}
+	srv := &http.Server{Handler: h, ReadHeaderTimeout: 5 * time.Second}
+	go func() { <-ctx.Done(); _ = srv.Close() }()
+	go func() {
+		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			slog.Error("password check socket stopped", "err", err)
+		}
+	}()
 	return nil
 }

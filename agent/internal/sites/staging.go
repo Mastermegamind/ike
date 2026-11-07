@@ -45,10 +45,8 @@ func (m *Manager) CreateStaging(ctx context.Context, domain string, log func(str
 	if err := m.writeJSON(stageL.StateFile, s); err != nil {
 		return nil, err
 	}
-	if stageL.usesNginx() {
-		if err := m.writeNginxVhost(ctx, stageL); err != nil {
-			return nil, err
-		}
+	if err := m.writeWeb(ctx, stageL); err != nil {
+		return nil, err
 	}
 
 	src, dst := liveL.DocRoot, stageL.DocRoot

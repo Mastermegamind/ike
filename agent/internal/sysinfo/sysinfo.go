@@ -175,11 +175,17 @@ func ControlService(ctx context.Context, r runner.Runner, root, webStack, name, 
 // Services reports systemd state of the services the panel manages.
 func Services(ctx context.Context, r runner.Runner, root, webStack string) []ServiceStatus {
 	names := []string{}
-	if webStack != "apache" {
-		names = append(names, "nginx")
-	}
-	if webStack == "apache" || webStack == "hybrid" {
+	switch webStack {
+	case "caddy":
+		names = append(names, "caddy")
+	case "openlitespeed":
+		names = append(names, "lsws")
+	case "apache":
 		names = append(names, "apache2")
+	case "hybrid":
+		names = append(names, "nginx", "apache2")
+	default:
+		names = append(names, "nginx")
 	}
 	names = append(names, "mariadb", "fail2ban", "cron", "ike-agent", "ike-panel")
 	for _, v := range PHPVersions(root) {

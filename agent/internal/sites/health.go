@@ -141,11 +141,11 @@ func (m *Manager) Diagnose(ctx context.Context, domain string) (*Diagnosis, erro
 		add(Finding{Severity: "bad", Title: "The website is suspended", Fix: "Set its status to Active."})
 	}
 
-	if L.usesNginx() && !m.serviceActive(ctx, "nginx") {
-		add(Finding{Severity: "bad", Title: "Nginx isn't running", Fix: "Restart Nginx from Server software, or check the server's error log."})
-	}
-	if L.usesApache() && !m.serviceActive(ctx, "apache2") {
-		add(Finding{Severity: "bad", Title: "Apache isn't running", Fix: "Restart Apache from Server software."})
+	webNames := map[string]string{"nginx": "Nginx", "apache2": "Apache", "caddy": "Caddy", "lsws": "OpenLiteSpeed"}
+	for _, svc := range L.webServices() {
+		if !m.serviceActive(ctx, svc) {
+			add(Finding{Severity: "bad", Title: webNames[svc] + " isn't running", Fix: "Restart " + webNames[svc] + " from Server software, or check the server's error log."})
+		}
 	}
 	switch {
 	case site.Runtime == RuntimePHP:

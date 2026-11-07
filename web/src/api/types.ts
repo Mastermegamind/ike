@@ -2,7 +2,7 @@
 
 export type SSHMode = "none" | "sftp" | "shell";
 export type Runtime = "php" | "node" | "python" | "java" | "go" | "dart" | "static" | "proxy" | "docker";
-export type WebServer = "nginx" | "apache" | "nginx+apache";
+export type WebServer = "nginx" | "apache" | "nginx+apache" | "caddy" | "openlitespeed";
 export type SiteStatus = "active" | "maintenance" | "suspended";
 export type Role = "admin" | "reseller" | "user" | "developer";
 
@@ -87,7 +87,7 @@ export interface Runtimes {
   kubernetes?: boolean;
   web?: WebFeatures;
   default_php: string;
-  web_stack: "nginx" | "apache" | "hybrid";
+  web_stack: "nginx" | "apache" | "hybrid" | "caddy" | "openlitespeed";
   web_servers: WebServer[];
 }
 

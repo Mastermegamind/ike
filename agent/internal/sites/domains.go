@@ -138,25 +138,10 @@ func (m *Manager) applyDomainLayout(s *Site, L *layout) {
 // it. On failure the previous configs are put back.
 func (m *Manager) applyWeb(ctx context.Context, site, old *Site) error {
 	L, oldL := m.layout(site), m.layout(old)
-	restore := func() {
-		if oldL.usesApache() {
-			_ = m.writeApacheVhost(context.Background(), oldL)
-		}
-		if oldL.usesNginx() {
-			_ = m.writeNginxVhost(context.Background(), oldL)
-		}
-	}
-	if L.usesApache() {
-		if err := m.writeApacheVhost(ctx, L); err != nil {
-			restore()
-			return fmt.Errorf("configure Apache: %w", err)
-		}
-	}
-	if L.usesNginx() {
-		if err := m.writeNginxVhost(ctx, L); err != nil {
-			restore()
-			return fmt.Errorf("configure Nginx: %w", err)
-		}
+	restore := func() { _ = m.writeWeb(context.Background(), oldL) }
+	if err := m.writeWeb(ctx, L); err != nil {
+		restore()
+		return err
 	}
 	if site.Runtime == RuntimePHP && L.PoolFile != "" {
 		if err := m.writePool(ctx, L); err != nil {

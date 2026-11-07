@@ -41,10 +41,18 @@ type Config struct {
 	//   "nginx"  - Nginx only
 	//   "apache" - Apache only (listens on port 80)
 	//   "hybrid" - Nginx in front; each website picks "nginx" or "nginx+apache"
+	//   "caddy"  - Caddy only (Ike still issues the certificates)
+	//   "openlitespeed" - OpenLiteSpeed only, PHP through Ike's PHP-FPM pools
 	WebStack         string `json:"web_stack"`
 	DefaultWebServer string `json:"default_web_server"` // for new websites on a hybrid stack
 	ApacheSitesDir   string `json:"apache_sites_dir"`
-	ApacheListen     string `json:"apache_listen"` // "*:80" (apache stack) or "127.0.0.1:8080" (hybrid)
+	ApacheListen     string `json:"apache_listen"`   // "*:80" (apache stack) or "127.0.0.1:8080" (hybrid)
+	CaddySitesDir    string `json:"caddy_sites_dir"` // imported from /etc/caddy/Caddyfile
+	CaddyConfig      string `json:"caddy_config"`    // the main Caddyfile, for caddy validate
+	OLSDir           string `json:"ols_dir"`         // /usr/local/lsws
+	OLSSitesDir      string `json:"ols_sites_dir"`   // per-website configs and the included listener file
+	// AuthSocket answers Caddy's password checks (forward_auth) for protected folders.
+	AuthSocket string `json:"auth_socket"`
 
 	// HTTPS
 	AcmeDir        string `json:"acme_dir"`        // webroot for Let's Encrypt HTTP-01 challenges
@@ -122,6 +130,10 @@ func (c Config) WebServers() []string {
 	switch c.WebStack {
 	case "apache":
 		return []string{"apache"}
+	case "caddy":
+		return []string{"caddy"}
+	case "openlitespeed":
+		return []string{"openlitespeed"}
 	case "hybrid":
 		if c.DefaultWebServer == "nginx" {
 			return []string{"nginx", "nginx+apache"}
@@ -157,6 +169,11 @@ func Default() Config {
 		WebStack:        "nginx",
 		ApacheSitesDir:  "/etc/apache2/ike/sites",
 		ApacheListen:    "127.0.0.1:8080",
+		CaddySitesDir:   "/etc/caddy/ike",
+		CaddyConfig:     "/etc/caddy/Caddyfile",
+		OLSDir:          "/usr/local/lsws",
+		OLSSitesDir:     "/usr/local/lsws/conf/ike",
+		AuthSocket:      "/run/ike-auth/auth.sock",
 		AcmeDir:         "/var/lib/ike/acme",
 		LetsEncryptDir:  "/etc/letsencrypt",
 		SSLDir:          "/etc/ike/ssl",

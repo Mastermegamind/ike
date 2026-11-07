@@ -34,6 +34,8 @@ export const webServerLabel: Record<WebServer, string> = {
   nginx: "Nginx",
   apache: "Apache",
   "nginx+apache": "Nginx + Apache",
+  caddy: "Caddy",
+  openlitespeed: "OpenLiteSpeed",
 };
 
 /** Destructive confirmation that asks the person to type the name. */

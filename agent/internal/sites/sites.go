@@ -120,6 +120,17 @@ type layout struct {
 	Balanced                                   bool
 	NginxUpstream, ApacheBalancer              string
 	UpstreamName, UpstreamScheme, UpstreamHost string
+	// Caddy
+	AuthSocket, CaddyCert, CaddyKey string
+	CaddyRedirects                  []string
+	CaddyAuth                       []caddyAuth
+	CaddyBackends                   []string
+	CaddyPolicy                     string
+	CaddyMaxFails, CaddyFailSeconds int
+	SiteKey                         string // PoolName: account-<site id>, unique per website
+	// OpenLiteSpeed
+	OLSApp, OLSFile      string
+	OLSRules, OLSHeaders []string
 }
 
 // siteID is a short, stable, filename-safe id for a domain.
@@ -174,6 +185,7 @@ func (m *Manager) layout(s *Site) layout {
 	m.applyBalancerLayout(s, &L)
 	m.applyProtectionLayout(s, &L)
 	L.applyPHP(s.PHP, lim)
+	L.SiteKey = L.PoolName
 	if L.RedirectNames != "" && L.WebServer == "apache" {
 		L.ApacheRedirectListens = []string{L.ApacheListen}
 		if L.ApacheTLS {
@@ -217,11 +229,11 @@ func (m *Manager) layout(s *Site) layout {
 		L.AppEnvExtra = m.runtimeEnv(L)
 		L.AppPath = runtimePath(L, L.AppDir)
 	}
+	// Last: these read the PHP socket, status, rules and certificates above.
+	m.applyCaddyLayout(s, &L)
+	m.applyOLSLayout(s, &L)
 	return L
 }
-
-func (L layout) usesNginx() bool  { return L.WebServer != "apache" }
-func (L layout) usesApache() bool { return L.WebServer == "apache" || L.WebServer == "nginx+apache" }
 
 // checkWebServer confirms the admin enabled this web server choice on this server.
 func (m *Manager) checkWebServer(ws, runtime string) error {
@@ -332,7 +344,7 @@ func (m *Manager) Create(ctx context.Context, req CreateRequest) (*Site, error) 
 	if _, err := os.Stat(m.p(L.StateFile)); err == nil {
 		return nil, fmt.Errorf("website %s %w", req.Domain, ErrExists)
 	}
-	for _, f := range []string{L.VhostFile, L.ApacheFile} {
+	for _, f := range []string{L.VhostFile, L.ApacheFile, m.caddyFile(req.Domain), m.olsConf(req.Domain)} {
 		if _, err := os.Stat(m.p(f)); err == nil {
 			return nil, fmt.Errorf("a web server config for %s %w", req.Domain, ErrExists)
 		}
@@ -388,6 +400,15 @@ func (m *Manager) Create(ctx context.Context, req CreateRequest) (*Site, error) 
 		return fail("create log folder", err)
 	}
 	undo.push(func() { _ = os.RemoveAll(m.p(L.LogDir)) })
+	if L.usesCaddy() || L.usesOLS() {
+		// Caddy and OpenLiteSpeed write their logs as the web server user.
+		if err := m.chownWebGroup(L.LogDir); err != nil {
+			return fail("create log folder", err)
+		}
+		if err := os.Chmod(m.p(L.LogDir), 0o770); err != nil {
+			return fail("create log folder", err)
+		}
+	}
 
 	// 3. Runtime.
 	switch {
@@ -406,18 +427,10 @@ func (m *Manager) Create(ctx context.Context, req CreateRequest) (*Site, error) 
 		}
 	}
 
-	// 4. Web servers: Apache first (when used) so Nginx never proxies to a missing vhost.
-	if L.usesApache() {
-		undo.push(func() { m.removeApacheVhost(context.Background(), L) })
-		if err := m.writeApacheVhost(ctx, L); err != nil {
-			return fail("configure Apache", err)
-		}
-	}
-	if L.usesNginx() {
-		undo.push(func() { m.removeNginxVhost(context.Background(), L) })
-		if err := m.writeNginxVhost(ctx, L); err != nil {
-			return fail("configure Nginx", err)
-		}
+	// 4. Web servers.
+	undo.push(func() { m.removeWeb(context.Background(), L, nil) })
+	if err := m.writeWeb(ctx, L); err != nil {
+		return fail("set up the web server", err)
 	}
 
 	// 5. Save.
@@ -492,28 +505,13 @@ func (m *Manager) Update(ctx context.Context, domain string, req UpdateRequest) 
 
 	// Rewrite web server configs for the new shape; on failure restore the old ones.
 	undo.push(func() {
-		if oldL.usesApache() {
-			_ = m.writeApacheVhost(context.Background(), oldL)
-		} else {
-			m.removeApacheVhost(context.Background(), newL)
-		}
-		if oldL.usesNginx() {
-			_ = m.writeNginxVhost(context.Background(), oldL)
-		}
+		m.removeWeb(context.Background(), newL, &oldL)
+		_ = m.writeWeb(context.Background(), oldL)
 	})
-	if newL.usesApache() {
-		if err := m.writeApacheVhost(ctx, newL); err != nil {
-			return fail("configure Apache", err)
-		}
+	if err := m.writeWeb(ctx, newL); err != nil {
+		return fail("set up the web server", err)
 	}
-	if newL.usesNginx() {
-		if err := m.writeNginxVhost(ctx, newL); err != nil {
-			return fail("configure Nginx", err)
-		}
-	}
-	if oldL.usesApache() && !newL.usesApache() {
-		m.removeApacheVhost(ctx, oldL)
-	}
+	m.removeWeb(ctx, oldL, &newL)
 	if site.Runtime == RuntimePHP && site.Version != old.Version {
 		m.removePool(ctx, oldL)
 	}
@@ -544,12 +542,7 @@ func (m *Manager) deleteSite(ctx context.Context, site *Site, removeFiles bool) 
 	L := m.layout(site)
 	// Website SFTP users first: their jails mount this website's folder.
 	m.deleteSFTPUsersFor(ctx, site.Account, site.Domain)
-	if L.usesNginx() {
-		m.removeNginxVhost(ctx, L)
-	}
-	if L.usesApache() {
-		m.removeApacheVhost(ctx, L)
-	}
+	m.removeWeb(ctx, L, nil)
 	switch {
 	case site.Runtime == RuntimePHP:
 		m.removePool(ctx, L)

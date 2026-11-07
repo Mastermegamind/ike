@@ -169,7 +169,7 @@ export function Software() {
   const rt = useAsync(() => api.runtimes());
   if (!rt.data) return <Skeleton h={240} />;
   const r = rt.data;
-  const stack = { nginx: "Nginx only", apache: "Apache only", hybrid: "Nginx in front, Apache per website" }[r.web_stack];
+  const stack = { nginx: "Nginx only", apache: "Apache only", hybrid: "Nginx in front, Apache per website", caddy: "Caddy", openlitespeed: "OpenLiteSpeed" }[r.web_stack];
   return (
     <div className="stack">
       <PageHead title="Server software" text="What the server admin installed. Account owners can only pick from these." />

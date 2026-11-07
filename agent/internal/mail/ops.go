@@ -42,6 +42,12 @@ func (m *Manager) writeWebmailVhost(ctx context.Context, all []Domain) error {
 	le := m.env.Cfg.LetsEncryptDir
 	root := m.env.Cfg.WebmailDir
 	sock := "/run/php/ike-webmail.sock"
+	switch m.env.Cfg.WebStack {
+	case "caddy":
+		return m.writeCaddyWebmail(ctx, names, tlsHosts, set.WebmailPort, set.MaxMessageMB+5, root, sock)
+	case "openlitespeed":
+		return m.writeOLSWebmail(ctx, tlsHosts, set.WebmailPort, root, sock)
+	}
 	if m.env.Cfg.WebStack == "apache" {
 		var b strings.Builder
 		b.WriteString("# Written by Ike: webmail and certificate checks for mail.<domain> names.\n")
@@ -144,9 +150,15 @@ func (m *Manager) IssueTLS(ctx context.Context, account, domain string, dnsValid
 	}
 	reload := "systemctl reload postfix dovecot"
 	if m.env.Cfg.Webmail != "" {
-		if m.env.Cfg.WebStack == "apache" {
+		switch m.env.Cfg.WebStack {
+		case "apache":
 			reload += " apache2"
-		} else {
+		case "caddy":
+			// copies the certificate where Caddy can read it, then reloads Caddy
+			reload += "; /usr/local/lib/ike/caddy-deploy-hook"
+		case "openlitespeed":
+			reload += "; " + filepath.Join(m.env.Cfg.OLSDir, "bin", "lswsctrl") + " restart"
+		default:
 			reload += " nginx"
 		}
 	}

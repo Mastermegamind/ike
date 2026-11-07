@@ -33,7 +33,7 @@ const WAFMain = "/etc/ike/modsec/main.conf"
 func (m *Manager) wafFile(domain string) string { return filepath.Join(WAFDir, domain+".conf") }
 
 func (m *Manager) applyWAFLayout(s *Site, L *layout) {
-	if s.WAF == nil || s.WAF.Mode == "" || s.WAF.Mode == "off" || !m.cfg.ModSecurity {
+	if s.WAF == nil || s.WAF.Mode == "" || s.WAF.Mode == "off" || !m.cfg.ModSecurity || L.usesCaddy() || L.usesOLS() {
 		return
 	}
 	L.WAFBlock = s.WAF.Mode == "block"
@@ -72,6 +72,9 @@ func (m *Manager) SetWAF(ctx context.Context, domain string, w WAFSettings) (*Si
 	}
 	if w.Mode != "off" && !m.cfg.ModSecurity {
 		return nil, fmt.Errorf("the web application firewall isn't installed; run the installer again with --modsecurity")
+	}
+	if w.Mode != "off" && (m.cfg.WebStack == "caddy" || m.cfg.WebStack == "openlitespeed") {
+		return nil, fmt.Errorf("the web application firewall (ModSecurity) needs Nginx or Apache; this server uses %s", webServerName(m.cfg.WebStack))
 	}
 	if w.Profile != "" {
 		okp := false

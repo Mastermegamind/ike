@@ -44,6 +44,12 @@ func (m *Manager) expected() []expectedFile {
 		if L.usesApache() {
 			out = append(out, expectedFile{L.ApacheFile, "apache", s.Domain, renderBytes(apacheTmpl, L), 0o644})
 		}
+		if L.usesCaddy() {
+			out = append(out, expectedFile{m.caddyFile(s.Domain), "caddy", s.Domain, renderBytes(caddyTmpl, L), 0o640})
+		}
+		if L.usesOLS() {
+			out = append(out, expectedFile{L.OLSFile, "openlitespeed", s.Domain, renderBytes(olsVhostTmpl, L), 0o640})
+		}
 		if s.Runtime == RuntimePHP {
 			out = append(out, expectedFile{L.PoolFile, "php-pool", s.Domain, renderBytes(poolTmpl, L), 0o644})
 		}
@@ -120,6 +126,10 @@ func (m *Manager) Reconcile(ctx context.Context, paths []string) ([]Drift, error
 			reload["nginx"] = true
 		case "apache":
 			reload["apache"] = true
+		case "caddy":
+			reload["caddy"] = true
+		case "openlitespeed":
+			reload["openlitespeed"] = true
 		case "php-pool":
 			for _, v := range strings.Split(e.path, "/") {
 				if phpVersionRe.MatchString(v) {
@@ -151,6 +161,18 @@ func (m *Manager) Reconcile(ctx context.Context, paths []string) ([]Drift, error
 			return nil, fmt.Errorf("Apache rejected the restored config, nothing was changed: %w", err)
 		}
 		_, _ = m.run.Run(ctx, "systemctl", "reload", "apache2")
+	}
+	if reload["caddy"] {
+		if err := m.caddyReload(ctx); err != nil {
+			restore()
+			return nil, fmt.Errorf("nothing was changed: %w", err)
+		}
+	}
+	if reload["openlitespeed"] {
+		if err := m.olsReload(ctx); err != nil {
+			restore()
+			return nil, fmt.Errorf("nothing was changed: %w", err)
+		}
 	}
 	for k := range reload {
 		if strings.HasPrefix(k, "php") {

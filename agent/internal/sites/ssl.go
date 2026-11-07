@@ -89,7 +89,8 @@ func (m *Manager) applySSLLayout(s *Site, L *layout) {
 	L.ForceHTTPS, L.HSTS = s.SSL.ForceHTTPS, s.SSL.HSTS && s.SSL.ForceHTTPS
 	L.HTTP2 = s.SSL.HTTP2
 	L.H2Directive = m.web.H2Directive
-	L.HTTP3 = s.SSL.HTTP3 && m.web.HTTP3 && L.usesNginx()
+	// Caddy always offers HTTP/3 with HTTPS; OpenLiteSpeed has QUIC built in.
+	L.HTTP3 = s.SSL.HTTP3 && ((m.web.HTTP3 && L.usesNginx()) || L.usesOLS())
 	L.ApacheTLS = L.WebServer == "apache"
 }
 
@@ -185,10 +186,7 @@ func (m *Manager) IssueCertificate(ctx context.Context, domain string, req Issue
 	if err := os.MkdirAll(m.p(filepath.Join(m.cfg.AcmeDir, ".well-known", "acme-challenge")), 0o755); err != nil {
 		return nil, err
 	}
-	reload := "systemctl reload nginx"
-	if m.cfg.WebStack == "apache" {
-		reload = "systemctl reload apache2"
-	}
+	reload := m.webReloadCommand()
 	args := []string{"certonly", "--webroot", "-w", m.cfg.AcmeDir, "--cert-name", domain,
 		"--non-interactive", "--agree-tos", "--keep-until-expiring", "--expand", "--deploy-hook", reload}
 	if useDNS {
@@ -326,7 +324,7 @@ func (m *Manager) UpdateSSL(ctx context.Context, domain string, o SSLOptions) (*
 	if ssl.HSTS && !ssl.ForceHTTPS {
 		return nil, fmt.Errorf("HSTS needs Force HTTPS: browsers would otherwise refuse the plain HTTP version")
 	}
-	if ssl.HTTP3 && !m.web.HTTP3 {
+	if ssl.HTTP3 && !m.web.HTTP3 && m.cfg.WebStack != "caddy" && m.cfg.WebStack != "openlitespeed" {
 		return nil, fmt.Errorf("this server's Nginx wasn't built with HTTP/3 (QUIC). Install Nginx 1.25+ from nginx.org to use it")
 	}
 	if ssl.HTTP3 && m.cfg.WebStack == "apache" {

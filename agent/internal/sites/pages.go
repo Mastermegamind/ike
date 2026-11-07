@@ -196,13 +196,8 @@ func (m *Manager) setStatus(ctx context.Context, site *Site, status string, allo
 	L := m.layout(site)
 	oldL := m.layout(&old)
 
-	if L.usesNginx() {
-		if err := m.writeNginxVhost(ctx, L); err != nil {
-			_ = m.writeNginxVhost(context.Background(), oldL)
-			return nil, err
-		}
-	} else if err := m.writeApacheVhost(ctx, L); err != nil {
-		_ = m.writeApacheVhost(context.Background(), oldL)
+	if err := m.writeWeb(ctx, L); err != nil {
+		_ = m.writeWeb(context.Background(), oldL)
 		return nil, err
 	}
 	// Suspended apps stop using resources; reactivated ones start again.

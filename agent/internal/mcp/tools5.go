@@ -682,7 +682,7 @@ func (s *Server) tools5() []tool {
 		// ---------------------------------------------------- panel: passkeys
 		{Name: "list_my_passkeys", Title: "My passkeys", panel: true, Annotations: readOnly(), InputSchema: none,
 			Description: "The passkeys the token's owner can sign in with (name, synced or one device, last used). Passkeys are added and removed in the panel in a browser, never through a token.",
-			handler: s.get(fixed("/v1/me/passkeys"))},
+			handler:     s.get(fixed("/v1/me/passkeys"))},
 
 		// ---------------------------------------------------- panel: developers
 		{Name: "list_developers", Title: "Developers", area: "accounts", panel: true, Annotations: readOnly(), InputSchema: none,

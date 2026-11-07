@@ -517,7 +517,7 @@ func (s *Server) tools() []tool {
 				"runtime":       map[string]any{"type": "string", "enum": []string{"php", "node", "python", "java", "go", "dart", "static", "proxy", "docker"}, "description": "Default php. proxy forwards to a local port (give port)."},
 				"port":          map[string]any{"type": "integer", "description": "proxy runtime only: the local port to forward to"},
 				"version":       str("Runtime version, e.g. 8.3, 5.6 (PHP), 22 (Node.js), 3.12 (Python). Optional; see list_runtimes."),
-				"web_server":    map[string]any{"type": "string", "enum": []string{"nginx", "apache", "nginx+apache"}, "description": "Optional; only choices the admin enabled work"},
+				"web_server":    map[string]any{"type": "string", "enum": []string{"nginx", "apache", "nginx+apache", "caddy", "openlitespeed"}, "description": "Optional; only choices the admin enabled work"},
 				"start_command": str("Node.js/Python only, e.g. 'npm start' or 'gunicorn app:app --bind 127.0.0.1:$PORT'"),
 			}, "domain", "account"),
 			handler: s.call("POST", fixed("/v1/sites"), pick("domain", "account", "runtime", "version", "web_server", "start_command", "port"))},
@@ -525,7 +525,7 @@ func (s *Server) tools() []tool {
 			Description: "Switch a website to another installed runtime version (e.g. PHP 7.4 to 8.3), another enabled web server, " +
 				"and/or change a Node.js/Python start command.",
 			InputSchema: obj(map[string]any{"domain": argDomain, "version": str("New version (optional)"),
-				"web_server":    map[string]any{"type": "string", "enum": []string{"nginx", "apache", "nginx+apache"}},
+				"web_server":    map[string]any{"type": "string", "enum": []string{"nginx", "apache", "nginx+apache", "caddy", "openlitespeed"}},
 				"start_command": str("New start command (optional)")}, "domain"),
 			handler: s.call("PATCH", site, pick("version", "web_server", "start_command"))},
 		{Name: "set_site_status", Title: "Maintenance / suspend website", write: true, Annotations: write(false, true),
