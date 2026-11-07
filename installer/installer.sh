@@ -68,7 +68,9 @@ main() {
 		|| die "Could not download the installer's checksum, so it can't be verified."
 	want=$(cut -d' ' -f1 "${tmp}/install.sh.sha256")
 	got=$(sha256sum "${tmp}/install.sh" | cut -d' ' -f1)
-	[ -n "$want" ] && [ "$want" = "$got" ] || die "Checksum mismatch for install.sh (expected ${want:-nothing}, got ${got}). Nothing was installed."
+	if [ -z "$want" ] || [ "$want" != "$got" ]; then
+		die "Checksum mismatch for install.sh (expected ${want:-nothing}, got ${got}). Nothing was installed."
+	fi
 	say "Checksum verified"
 
 	say "Starting the installer"
