@@ -466,6 +466,7 @@ Most of these are panel routes, not on the agent socket.
 | `GET /billing/invoices` *(panel)* | Invoices with amount, status (open, paid, void) and due date |
 | `POST /billing/invoices` *(panel)* | New invoice {"account","items","due"} |
 | `POST /billing/invoices/{id}/checkout` *(panel)* | Payment link (Bachs, Paystack or Flutterwave) |
+| `POST /billing/invoices/{id}/transfer` *(panel)* | Pay by bank transfer: body `{"provider":"paystack\|flutterwave"}` → `{"bank","account_number","account_name","amount","currency","expires"}`; the same account is returned until it expires (Paystack: 8 hours) |
 | `POST /billing/invoices/{id}/mark-paid` *(panel)* | Record a payment made another way |
 | `POST /billing/invoices/{id}/void` *(panel)* | Cancel an invoice |
 | `GET /billing/settings` *(panel)* | Currency, tax, payment providers (keys hidden) |

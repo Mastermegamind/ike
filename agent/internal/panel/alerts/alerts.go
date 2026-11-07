@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/mail"
 	"net/smtp"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -30,6 +31,8 @@ type Notifier struct {
 	// Base URLs, overridable in tests.
 	TelegramBase string // https://api.telegram.org
 	GraphBase    string // https://graph.facebook.com
+	TermiiBase   string // https://api.ng.termii.com (or the account's base URL)
+	ATBase       string // https://api.africastalking.com
 }
 
 func (n *Notifier) client() *http.Client {
@@ -66,6 +69,9 @@ func (n *Notifier) Send(ctx context.Context, title, body string) map[string]stri
 	if s.WhatsApp.Enabled {
 		run("whatsapp", func() error { return n.whatsapp(ctx, s, title, body) })
 	}
+	if s.SMS.Enabled {
+		run("sms", func() error { return n.sms(ctx, s, title, body) })
+	}
 	if s.Email.Enabled {
 		run("email", func() error { return sendEmail(s, title, body) })
 	}
@@ -90,6 +96,137 @@ func (n *Notifier) postJSON(ctx context.Context, url, bearer string, payload any
 		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(msg)))
 	}
 	return nil
+}
+
+// smsText fits an alert into two SMS parts (306 characters).
+func smsText(title, body string) string {
+	t := title
+	if body != "" {
+		t += ": " + body
+	}
+	t = strings.Join(strings.Fields(t), " ")
+	if r := []rune(t); len(r) > 306 {
+		t = string(r[:305]) + "…"
+	}
+	return t
+}
+
+// smsNumbers turns "+234 803 123 4567, 08031234567" into international
+// numbers without the plus (234803...), which both providers accept.
+func smsNumbers(list string) ([]string, error) {
+	var out []string
+	for _, raw := range strings.Split(list, ",") {
+		n := strings.Map(func(r rune) rune {
+			if r >= '0' && r <= '9' {
+				return r
+			}
+			return -1
+		}, raw)
+		if n == "" {
+			continue
+		}
+		if strings.HasPrefix(n, "0") && len(n) == 11 { // Nigerian local format
+			n = "234" + n[1:]
+		}
+		if len(n) < 10 || len(n) > 15 {
+			return nil, fmt.Errorf("%q isn't a phone number", strings.TrimSpace(raw))
+		}
+		out = append(out, n)
+	}
+	if len(out) == 0 {
+		return nil, errors.New("add at least one phone number")
+	}
+	return out, nil
+}
+
+func (n *Notifier) sms(ctx context.Context, s store.AlertSettings, title, body string) error {
+	c := s.SMS
+	if c.APIKey == "" {
+		return errors.New("the SMS API key is required")
+	}
+	to, err := smsNumbers(c.To)
+	if err != nil {
+		return err
+	}
+	text := smsText(title, body)
+	switch c.Provider {
+	case "termii":
+		base := n.TermiiBase
+		if base == "" {
+			base = c.BaseURL
+		}
+		if base == "" {
+			base = "https://api.ng.termii.com"
+		}
+		ch := c.Channel
+		if ch == "" {
+			ch = "dnd"
+		}
+		if c.SenderID == "" {
+			return errors.New("Termii needs a sender ID")
+		}
+		var payload map[string]any
+		if len(to) == 1 {
+			payload = map[string]any{"to": to[0], "from": c.SenderID, "sms": text, "type": "plain", "channel": ch, "api_key": c.APIKey}
+		} else {
+			payload = map[string]any{"to": to, "from": c.SenderID, "sms": text, "type": "plain", "channel": ch, "api_key": c.APIKey}
+		}
+		return n.postJSON(ctx, strings.TrimRight(base, "/")+"/api/sms/send", "", payload)
+	case "africastalking":
+		base := n.ATBase
+		if base == "" {
+			base = "https://api.africastalking.com"
+			if c.Username == "sandbox" {
+				base = "https://api.sandbox.africastalking.com"
+			}
+		}
+		if c.Username == "" {
+			return errors.New("Africa's Talking needs the app username")
+		}
+		plus := make([]string, len(to))
+		for i, x := range to {
+			plus[i] = "+" + x
+		}
+		form := url.Values{"username": {c.Username}, "to": {strings.Join(plus, ",")}, "message": {text}}
+		if c.SenderID != "" {
+			form.Set("from", c.SenderID)
+		}
+		req, _ := http.NewRequestWithContext(ctx, "POST", base+"/version1/messaging", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("apiKey", c.APIKey)
+		resp, err := n.client().Do(req)
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if resp.StatusCode >= 300 {
+			return fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
+		}
+		// A 201 can still carry per-number failures.
+		var res struct {
+			SMSMessageData struct {
+				Recipients []struct {
+					Number string `json:"number"`
+					Status string `json:"status"`
+				} `json:"Recipients"`
+				Message string `json:"Message"`
+			} `json:"SMSMessageData"`
+		}
+		if json.Unmarshal(raw, &res) == nil {
+			if len(res.SMSMessageData.Recipients) == 0 && res.SMSMessageData.Message != "" {
+				return errors.New(res.SMSMessageData.Message)
+			}
+			for _, r := range res.SMSMessageData.Recipients {
+				if r.Status != "Success" {
+					return fmt.Errorf("%s: %s", r.Number, r.Status)
+				}
+			}
+		}
+		return nil
+	}
+	return errors.New("SMS provider must be termii or africastalking")
 }
 
 func (n *Notifier) telegram(ctx context.Context, s store.AlertSettings, title, body string) error {

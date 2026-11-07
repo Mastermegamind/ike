@@ -56,6 +56,25 @@ type Provider interface {
 	ParseWebhook(ctx context.Context, header http.Header, body []byte) (*Payment, error)
 }
 
+// Transfer is a temporary bank account to pay one invoice into. The
+// provider's usual webhook confirms the payment against Ref.
+type Transfer struct {
+	Ref           string
+	Bank          string
+	AccountNumber string
+	AccountName   string
+	Amount        int64 // minor units; the customer sends exactly this
+	Currency      string
+	Expires       time.Time
+	Note          string
+}
+
+// TransferProvider can give an account number for a bank transfer (Paystack
+// "Pay with Transfer", Flutterwave bank transfer).
+type TransferProvider interface {
+	CreateTransfer(ctx context.Context, inv *store.Invoice, c Customer) (*Transfer, error)
+}
+
 var ErrBadSignature = errors.New("webhook signature is invalid")
 
 // Minor-unit exponent per currency (ISO 4217). Default 2.
@@ -314,6 +333,45 @@ func (p Paystack) CreateCheckout(ctx context.Context, inv *store.Invoice, c Cust
 	return &Checkout{URL: out.Data.AuthorizationURL, Ref: out.Data.Reference}, nil
 }
 
+// CreateTransfer asks Paystack for a temporary account (valid 8 hours).
+func (p Paystack) CreateTransfer(ctx context.Context, inv *store.Invoice, c Customer) (*Transfer, error) {
+	ref := inv.ID + "-t" + strconv.FormatInt(time.Now().Unix(), 36)
+	expires := time.Now().Add(8 * time.Hour).UTC()
+	var out struct {
+		Status  bool   `json:"status"`
+		Message string `json:"message"`
+		Data    struct {
+			Reference     string `json:"reference"`
+			Status        string `json:"status"`
+			DisplayText   string `json:"display_text"`
+			AccountName   string `json:"account_name"`
+			AccountNumber string `json:"account_number"`
+			Bank          struct {
+				Name string `json:"name"`
+			} `json:"bank"`
+			ExpiresAt string `json:"account_expires_at"`
+		} `json:"data"`
+	}
+	body := map[string]any{"email": c.Email, "amount": inv.Amount, "currency": inv.Currency, "reference": ref,
+		"bank_transfer": map[string]string{"account_expires_at": expires.Format(time.RFC3339)},
+		"metadata":      map[string]string{"invoice_id": inv.ID, "account": inv.Account}}
+	if err := (httpDoer{p.HTTP}).do(ctx, "POST", p.base()+"/charge", p.SecretKey, body, &out); err != nil {
+		return nil, err
+	}
+	if !out.Status || out.Data.AccountNumber == "" {
+		return nil, fmt.Errorf("Paystack: %s", out.Message)
+	}
+	t := &Transfer{Ref: out.Data.Reference, Bank: out.Data.Bank.Name, AccountNumber: out.Data.AccountNumber, AccountName: out.Data.AccountName,
+		Amount: inv.Amount, Currency: inv.Currency, Expires: expires, Note: out.Data.DisplayText}
+	if t.Ref == "" {
+		t.Ref = ref
+	}
+	if e, err := time.Parse(time.RFC3339, out.Data.ExpiresAt); err == nil {
+		t.Expires = e
+	}
+	return t, nil
+}
+
 func (p Paystack) ParseWebhook(ctx context.Context, h http.Header, body []byte) (*Payment, error) {
 	mac := hmac.New(sha512.New, []byte(p.SecretKey))
 	mac.Write(body)
@@ -398,6 +456,46 @@ func (f Flutterwave) CreateCheckout(ctx context.Context, inv *store.Invoice, c C
 		return nil, fmt.Errorf("Flutterwave: %s", out.Message)
 	}
 	return &Checkout{URL: out.Data.Link, Ref: ref}, nil
+}
+
+// CreateTransfer asks Flutterwave for a one-time account number.
+func (f Flutterwave) CreateTransfer(ctx context.Context, inv *store.Invoice, c Customer) (*Transfer, error) {
+	ref := inv.ID + "-t" + strconv.FormatInt(time.Now().Unix(), 36)
+	amt, _ := strconv.ParseFloat(Decimal(inv.Amount, inv.Currency), 64)
+	body := map[string]any{"tx_ref": ref, "amount": amt, "currency": inv.Currency, "email": c.Email, "fullname": c.Name,
+		"is_permanent": false, "narration": "Hosting invoice " + inv.ID, "meta": map[string]string{"invoice_id": inv.ID, "account": inv.Account}}
+	var out struct {
+		Status  string `json:"status"`
+		Message string `json:"message"`
+		Meta    struct {
+			Authorization struct {
+				Account    string `json:"transfer_account"`
+				Bank       string `json:"transfer_bank"`
+				Expiration string `json:"account_expiration"`
+				Note       string `json:"transfer_note"`
+				Amount     any    `json:"transfer_amount"`
+			} `json:"authorization"`
+		} `json:"meta"`
+	}
+	if err := (httpDoer{f.HTTP}).do(ctx, "POST", f.base()+"/v3/charges?type=bank_transfer", f.SecretKey, body, &out); err != nil {
+		return nil, err
+	}
+	a := out.Meta.Authorization
+	if a.Account == "" {
+		return nil, fmt.Errorf("Flutterwave: %s", out.Message)
+	}
+	t := &Transfer{Ref: ref, Bank: a.Bank, AccountNumber: a.Account, AccountName: "Flutterwave",
+		Amount: inv.Amount, Currency: inv.Currency, Expires: time.Now().Add(time.Hour).UTC(), Note: a.Note}
+	if n, err := ParseDecimal(a.Amount, inv.Currency); err == nil && n > 0 {
+		t.Amount = n // Flutterwave may add its fee
+	}
+	for _, layout := range []string{time.RFC3339, "2006-01-02 15:04:05"} {
+		if e, err := time.Parse(layout, a.Expiration); err == nil {
+			t.Expires = e.UTC()
+			break
+		}
+	}
+	return t, nil
 }
 
 func (f Flutterwave) ParseWebhook(ctx context.Context, h http.Header, body []byte) (*Payment, error) {

@@ -121,6 +121,7 @@ func (s *Server) Handler(l Listener) http.Handler {
 	mux.HandleFunc("GET /api/v1/billing/invoices", s.authed(s.listInvoices))
 	mux.HandleFunc("POST /api/v1/billing/invoices", s.authed(s.createInvoice))
 	mux.HandleFunc("POST /api/v1/billing/invoices/{id}/checkout", s.authed(s.checkout))
+	mux.HandleFunc("POST /api/v1/billing/invoices/{id}/transfer", s.authed(s.transfer))
 	mux.HandleFunc("POST /api/v1/billing/invoices/{id}/void", s.authed(s.voidInvoice))
 	mux.HandleFunc("POST /api/v1/billing/invoices/{id}/mark-paid", s.authed(s.adminOnly(s.markPaid)))
 	mux.HandleFunc("POST /webhooks/{provider}", s.webhook)

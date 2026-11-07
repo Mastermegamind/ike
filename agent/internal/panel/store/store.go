@@ -187,6 +187,34 @@ type Invoice struct {
 	Provider    string     `json:"provider,omitempty"`     // bachs | paystack | flutterwave
 	ProviderRef string     `json:"provider_ref,omitempty"` // checkout id / reference
 	CheckoutURL string     `json:"checkout_url,omitempty"`
+	// OtherRefs are earlier "provider:reference" pairs, so a payment started
+	// before the latest checkout still settles the invoice.
+	OtherRefs []string `json:"other_refs,omitempty"`
+	// Transfer is the account to pay into by bank transfer, while it lasts.
+	Transfer *BankTransfer `json:"transfer,omitempty"`
+}
+
+// BankTransfer is a temporary account number for paying one invoice.
+type BankTransfer struct {
+	Provider      string    `json:"provider"`
+	Bank          string    `json:"bank"`
+	AccountNumber string    `json:"account_number"`
+	AccountName   string    `json:"account_name"`
+	Amount        int64     `json:"amount"` // minor units, exactly this
+	Currency      string    `json:"currency"`
+	Expires       time.Time `json:"expires"`
+	Note          string    `json:"note,omitempty"`
+}
+
+// AddRef records a new provider reference, keeping the earlier one.
+func (inv *Invoice) AddRef(provider, ref string) {
+	if inv.ProviderRef != "" && (inv.Provider != provider || inv.ProviderRef != ref) {
+		inv.OtherRefs = append(inv.OtherRefs, inv.Provider+":"+inv.ProviderRef)
+		if len(inv.OtherRefs) > 20 {
+			inv.OtherRefs = inv.OtherRefs[len(inv.OtherRefs)-20:]
+		}
+	}
+	inv.Provider, inv.ProviderRef = provider, ref
 }
 
 // ProviderSettings holds one gateway's keys.
@@ -234,7 +262,11 @@ type AlertSettings struct {
 		APIKey   string `json:"api_key,omitempty"`
 		Username string `json:"username,omitempty"` // Africa's Talking app username
 		SenderID string `json:"sender_id,omitempty"`
-		To       string `json:"to"` // comma-separated numbers, +234...
+		// Channel is Termii's route: "dnd" (default; reaches numbers on Do Not
+		// Disturb, needs an approved sender ID) or "generic".
+		Channel string `json:"channel,omitempty"`
+		BaseURL string `json:"base_url,omitempty"` // Termii's account base URL, if not api.ng.termii.com
+		To      string `json:"to"`                 // comma-separated numbers, +234...
 	} `json:"sms"`
 	// Customers get expiry reminders by email (through the SMTP server above)
 	// for their own domains, certificates and hosting.
@@ -478,8 +510,16 @@ func (d *Data) Invoice(id string) (*Invoice, error) {
 
 func (d *Data) InvoiceByRef(provider, ref string) (*Invoice, error) {
 	for _, inv := range d.Invoices {
-		if inv.Provider == provider && inv.ProviderRef == ref && ref != "" {
+		if ref == "" {
+			break
+		}
+		if inv.Provider == provider && inv.ProviderRef == ref {
 			return inv, nil
+		}
+		for _, o := range inv.OtherRefs {
+			if o == provider+":"+ref {
+				return inv, nil
+			}
 		}
 	}
 	return nil, fmt.Errorf("invoice for %s reference %s %w", provider, ref, ErrNotFound)
