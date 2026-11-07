@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/YOUR-ORG/ike/agent/internal/kit"
-	"github.com/YOUR-ORG/ike/agent/internal/mail"
+	"github.com/Mastermegamind/ike/agent/internal/kit"
+	"github.com/Mastermegamind/ike/agent/internal/mail"
 )
 
 // Password protection: visitors must sign in (HTTP basic authentication)

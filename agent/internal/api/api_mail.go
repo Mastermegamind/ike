@@ -30,9 +30,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/YOUR-ORG/ike/agent/internal/jobs"
-	"github.com/YOUR-ORG/ike/agent/internal/kit"
-	"github.com/YOUR-ORG/ike/agent/internal/mail"
+	"github.com/Mastermegamind/ike/agent/internal/jobs"
+	"github.com/Mastermegamind/ike/agent/internal/kit"
+	"github.com/Mastermegamind/ike/agent/internal/mail"
 )
 
 func (s *Server) mailRoutes(h func(string, handler)) {

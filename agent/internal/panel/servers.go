@@ -19,10 +19,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/YOUR-ORG/ike/agent/internal/client"
-	"github.com/YOUR-ORG/ike/agent/internal/cluster"
-	"github.com/YOUR-ORG/ike/agent/internal/kit"
-	"github.com/YOUR-ORG/ike/agent/internal/panel/store"
+	"github.com/Mastermegamind/ike/agent/internal/client"
+	"github.com/Mastermegamind/ike/agent/internal/cluster"
+	"github.com/Mastermegamind/ike/agent/internal/kit"
+	"github.com/Mastermegamind/ike/agent/internal/panel/store"
 )
 
 // Servers: other Ike servers joined to this panel over mutual TLS.

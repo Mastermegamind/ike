@@ -21,9 +21,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/YOUR-ORG/ike/agent/internal/jobs"
-	"github.com/YOUR-ORG/ike/agent/internal/kit"
-	"github.com/YOUR-ORG/ike/agent/internal/migrate"
+	"github.com/Mastermegamind/ike/agent/internal/jobs"
+	"github.com/Mastermegamind/ike/agent/internal/kit"
+	"github.com/Mastermegamind/ike/agent/internal/migrate"
 )
 
 var importFileRe = regexp.MustCompile(`^[A-Za-z0-9._-]{1,120}\.tar(\.gz)?$`)

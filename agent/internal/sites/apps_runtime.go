@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/YOUR-ORG/ike/agent/internal/runner"
+	"github.com/Mastermegamind/ike/agent/internal/runner"
 )
 
 type starterFile struct {

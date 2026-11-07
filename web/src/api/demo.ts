@@ -566,7 +566,7 @@ export class DemoApi implements Api {
   async scheduleReboot(minutes: number) { await wait(300); if (minutes < 1) throw new Error("Pick a delay of at least a minute."); this.record("POST", "/v1/server/reboot"); }
   async ikeRelease(): Promise<IkeRelease> {
     await wait(500);
-    return { current: "0.3.0", latest: "0.3.1", update_available: true, url: "https://github.com/YOUR-ORG/ike/releases/tag/v0.3.1",
+    return { current: "0.3.0", latest: "0.3.1", update_available: true, url: "https://github.com/Mastermegamind/ike/releases/tag/v0.3.1",
       notes: "Fixes: PHP 8.5 pools on Ubuntu 26.04, faster usage sampling. New: Paystack split payments." };
   }
   async updateIke() { await wait(300); return this.startJob("ike-update", "Update Ike to 0.3.1", ["Downloading ike-agent 0.3.1", "Checksum verified", "Downloading ike-mcp 0.3.1", "Checksum verified", "Restarting Ike in 3 seconds"]); }

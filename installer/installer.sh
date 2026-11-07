@@ -10,10 +10,10 @@
 # This script is small on purpose. It checks the server, downloads the full
 # installer (install.sh) from an Ike GitHub release, verifies its SHA-256
 # checksum, and runs it. Everything it does is in install.sh, which you can
-# read first: https://github.com/YOUR-ORG/ike/blob/main/installer/install.sh
+# read first: https://github.com/Mastermegamind/ike/blob/main/installer/install.sh
 #
 # Environment:
-#   IKE_REPO     GitHub owner/name to install from   (default YOUR-ORG/ike)
+#   IKE_REPO     GitHub owner/name to install from   (default Mastermegamind/ike)
 #   IKE_VERSION  release tag such as v0.3.0          (default latest)
 #
 # SPDX-License-Identifier: AGPL-3.0-or-later
@@ -22,7 +22,7 @@
 # cut off halfway can never run half a script.
 main() {
 	set -euo pipefail
-	local repo="${IKE_REPO:-YOUR-ORG/ike}" version="${IKE_VERSION:-latest}" base tmp want got
+	local repo="${IKE_REPO:-Mastermegamind/ike}" version="${IKE_VERSION:-latest}" base tmp want got
 
 	say() { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
 	die() { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }

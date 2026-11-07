@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/YOUR-ORG/ike/agent/internal/runner"
+	"github.com/Mastermegamind/ike/agent/internal/runner"
 )
 
 // Optional Kubernetes through k3s, for server admins. Ike reads cluster state

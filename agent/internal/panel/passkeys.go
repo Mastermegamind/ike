@@ -24,9 +24,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/YOUR-ORG/ike/agent/internal/panel/auth"
-	"github.com/YOUR-ORG/ike/agent/internal/panel/store"
-	"github.com/YOUR-ORG/ike/agent/internal/panel/webauthn"
+	"github.com/Mastermegamind/ike/agent/internal/panel/auth"
+	"github.com/Mastermegamind/ike/agent/internal/panel/store"
+	"github.com/Mastermegamind/ike/agent/internal/panel/webauthn"
 )
 
 const (

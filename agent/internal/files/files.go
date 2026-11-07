@@ -18,8 +18,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/YOUR-ORG/ike/agent/internal/kit"
-	"github.com/YOUR-ORG/ike/agent/internal/runner"
+	"github.com/Mastermegamind/ike/agent/internal/kit"
+	"github.com/Mastermegamind/ike/agent/internal/runner"
 )
 
 type Manager struct {

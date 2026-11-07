@@ -14,7 +14,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/YOUR-ORG/ike/agent/internal/validate"
+	"github.com/Mastermegamind/ike/agent/internal/validate"
 )
 
 // SSH access modes for an account's Linux user.

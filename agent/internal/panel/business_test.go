@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/YOUR-ORG/ike/agent/internal/panel/auth"
-	"github.com/YOUR-ORG/ike/agent/internal/panel/store"
+	"github.com/Mastermegamind/ike/agent/internal/panel/auth"
+	"github.com/Mastermegamind/ike/agent/internal/panel/store"
 )
 
 // api calls the panel with an API token instead of a session.

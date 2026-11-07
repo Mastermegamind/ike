@@ -18,10 +18,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/YOUR-ORG/ike/agent/internal/cluster"
-	"github.com/YOUR-ORG/ike/agent/internal/config"
-	"github.com/YOUR-ORG/ike/agent/internal/firewall"
-	"github.com/YOUR-ORG/ike/agent/internal/runner"
+	"github.com/Mastermegamind/ike/agent/internal/cluster"
+	"github.com/Mastermegamind/ike/agent/internal/config"
+	"github.com/Mastermegamind/ike/agent/internal/firewall"
+	"github.com/Mastermegamind/ike/agent/internal/runner"
 )
 
 // join connects this server to a panel on another server.

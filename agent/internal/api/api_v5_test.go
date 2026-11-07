@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/YOUR-ORG/ike/agent/internal/config"
-	"github.com/YOUR-ORG/ike/agent/internal/jobs"
-	"github.com/YOUR-ORG/ike/agent/internal/runner"
-	"github.com/YOUR-ORG/ike/agent/internal/sites"
+	"github.com/Mastermegamind/ike/agent/internal/config"
+	"github.com/Mastermegamind/ike/agent/internal/jobs"
+	"github.com/Mastermegamind/ike/agent/internal/runner"
+	"github.com/Mastermegamind/ike/agent/internal/sites"
 )
 
 type testAPI struct {

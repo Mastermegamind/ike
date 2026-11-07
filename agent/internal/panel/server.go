@@ -20,12 +20,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/YOUR-ORG/ike/agent/internal/client"
-	"github.com/YOUR-ORG/ike/agent/internal/kit"
-	"github.com/YOUR-ORG/ike/agent/internal/panel/alerts"
-	"github.com/YOUR-ORG/ike/agent/internal/panel/auth"
-	"github.com/YOUR-ORG/ike/agent/internal/panel/billing"
-	"github.com/YOUR-ORG/ike/agent/internal/panel/store"
+	"github.com/Mastermegamind/ike/agent/internal/client"
+	"github.com/Mastermegamind/ike/agent/internal/kit"
+	"github.com/Mastermegamind/ike/agent/internal/panel/alerts"
+	"github.com/Mastermegamind/ike/agent/internal/panel/auth"
+	"github.com/Mastermegamind/ike/agent/internal/panel/billing"
+	"github.com/Mastermegamind/ike/agent/internal/panel/store"
 )
 
 const sessionCookie = "ike_session"

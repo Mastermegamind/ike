@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/YOUR-ORG/ike/agent/internal/panel/billing"
-	"github.com/YOUR-ORG/ike/agent/internal/panel/store"
+	"github.com/Mastermegamind/ike/agent/internal/panel/billing"
+	"github.com/Mastermegamind/ike/agent/internal/panel/store"
 )
 
 const overduePrefix = "Overdue invoice "

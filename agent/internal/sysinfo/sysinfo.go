@@ -13,7 +13,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/YOUR-ORG/ike/agent/internal/runner"
+	"github.com/Mastermegamind/ike/agent/internal/runner"
 )
 
 type Info struct {

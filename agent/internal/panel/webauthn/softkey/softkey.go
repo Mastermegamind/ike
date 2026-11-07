@@ -11,7 +11,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 
-	"github.com/YOUR-ORG/ike/agent/internal/panel/webauthn"
+	"github.com/Mastermegamind/ike/agent/internal/panel/webauthn"
 )
 
 // Key is one ES256 passkey.

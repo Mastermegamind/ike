@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/YOUR-ORG/ike/agent/internal/runner"
+	"github.com/Mastermegamind/ike/agent/internal/runner"
 )
 
 func ioPipe() (*io.PipeReader, *io.PipeWriter) { return io.Pipe() }

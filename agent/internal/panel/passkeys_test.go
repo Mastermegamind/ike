@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/YOUR-ORG/ike/agent/internal/panel/webauthn/softkey"
+	"github.com/Mastermegamind/ike/agent/internal/panel/webauthn/softkey"
 )
 
 func named(b *browser) (*browser, string) {

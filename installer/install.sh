@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Ike installer for Ubuntu 22.04, 24.04 and 26.04 LTS.
 # Run on a FRESH KVM VPS as root:
-#   curl -sSL https://raw.githubusercontent.com/YOUR-ORG/ike/main/installer/install.sh | sudo bash
+#   curl -sSL https://raw.githubusercontent.com/Mastermegamind/ike/main/installer/install.sh | sudo bash
 #
 # Every component is the server admin's choice; run with --help for options.
 # Licensed under the GNU AGPL-3.0.
@@ -11,7 +11,7 @@ set -euo pipefail
 PANEL_NAME="ike"
 AGENT_NAME="ike-agent"
 MCP_NAME="ike-mcp"
-REPO="${IKE_REPO:-YOUR-ORG/ike}"          # override with IKE_REPO=owner/name
+REPO="${IKE_REPO:-Mastermegamind/ike}"          # override with IKE_REPO=owner/name
 IKE_VERSION="${IKE_VERSION:-latest}"     # or a tag such as v0.3.0
 SUPPORTED_UBUNTU="22.04 24.04 26.04"
 ALL_PHP="5.6 7.0 7.1 7.2 7.3 7.4 8.0 8.1 8.2 8.3 8.4 8.5"

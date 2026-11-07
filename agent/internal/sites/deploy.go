@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/YOUR-ORG/ike/agent/internal/runner"
-	"github.com/YOUR-ORG/ike/agent/internal/validate"
+	"github.com/Mastermegamind/ike/agent/internal/runner"
+	"github.com/Mastermegamind/ike/agent/internal/validate"
 )
 
 // DeploySetup connects a website to a Git repository or a container image.

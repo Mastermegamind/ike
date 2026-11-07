@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/YOUR-ORG/ike/agent/internal/config"
-	"github.com/YOUR-ORG/ike/agent/internal/runner"
+	"github.com/Mastermegamind/ike/agent/internal/config"
+	"github.com/Mastermegamind/ike/agent/internal/runner"
 )
 
 // TestRealWebServerSyntax renders every kind of website and asks the real

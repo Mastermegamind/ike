@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/YOUR-ORG/ike/agent/internal/panel/store"
+	"github.com/Mastermegamind/ike/agent/internal/panel/store"
 )
 
 // isStream reports whether a proxied request carries a file instead of JSON:

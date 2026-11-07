@@ -27,8 +27,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/YOUR-ORG/ike/agent/internal/jobs"
-	"github.com/YOUR-ORG/ike/agent/internal/runner"
+	"github.com/Mastermegamind/ike/agent/internal/jobs"
+	"github.com/Mastermegamind/ike/agent/internal/runner"
 )
 
 type Manager struct {
@@ -243,7 +243,7 @@ type Release struct {
 
 // CheckIke asks GitHub for the latest release.
 func (m *Manager) CheckIke(ctx context.Context) (*Release, error) {
-	if m.Repo == "" || strings.Contains(m.Repo, "YOUR-ORG") {
+	if m.Repo == "" || strings.Contains(m.Repo, "Mastermegamind") {
 		return nil, fmt.Errorf("the Ike release repository isn't configured yet (set \"repo\" in agent.json)")
 	}
 	req, _ := http.NewRequestWithContext(ctx, "GET", m.APIBase+"/repos/"+m.Repo+"/releases/latest", nil)

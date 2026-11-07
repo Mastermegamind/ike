@@ -37,11 +37,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/YOUR-ORG/ike/agent/internal/files"
-	"github.com/YOUR-ORG/ike/agent/internal/jobs"
-	"github.com/YOUR-ORG/ike/agent/internal/kit"
-	"github.com/YOUR-ORG/ike/agent/internal/storage"
-	"github.com/YOUR-ORG/ike/agent/internal/terminal"
+	"github.com/Mastermegamind/ike/agent/internal/files"
+	"github.com/Mastermegamind/ike/agent/internal/jobs"
+	"github.com/Mastermegamind/ike/agent/internal/kit"
+	"github.com/Mastermegamind/ike/agent/internal/storage"
+	"github.com/Mastermegamind/ike/agent/internal/terminal"
 )
 
 func attachment(w http.ResponseWriter, name string) {

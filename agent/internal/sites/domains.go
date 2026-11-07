@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/YOUR-ORG/ike/agent/internal/validate"
+	"github.com/Mastermegamind/ike/agent/internal/validate"
 )
 
 // ------------------------------------------------------------------ domains

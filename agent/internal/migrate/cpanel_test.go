@@ -13,13 +13,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/YOUR-ORG/ike/agent/internal/config"
-	"github.com/YOUR-ORG/ike/agent/internal/dns"
-	"github.com/YOUR-ORG/ike/agent/internal/kit"
-	"github.com/YOUR-ORG/ike/agent/internal/mail"
-	"github.com/YOUR-ORG/ike/agent/internal/runner"
-	"github.com/YOUR-ORG/ike/agent/internal/secrets"
-	"github.com/YOUR-ORG/ike/agent/internal/sites"
+	"github.com/Mastermegamind/ike/agent/internal/config"
+	"github.com/Mastermegamind/ike/agent/internal/dns"
+	"github.com/Mastermegamind/ike/agent/internal/kit"
+	"github.com/Mastermegamind/ike/agent/internal/mail"
+	"github.com/Mastermegamind/ike/agent/internal/runner"
+	"github.com/Mastermegamind/ike/agent/internal/secrets"
+	"github.com/Mastermegamind/ike/agent/internal/sites"
 )
 
 type entry struct {

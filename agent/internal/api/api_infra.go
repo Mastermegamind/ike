@@ -21,11 +21,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/YOUR-ORG/ike/agent/internal/infra"
-	"github.com/YOUR-ORG/ike/agent/internal/jobs"
-	"github.com/YOUR-ORG/ike/agent/internal/kit"
-	"github.com/YOUR-ORG/ike/agent/internal/sites"
-	"github.com/YOUR-ORG/ike/agent/internal/spec"
+	"github.com/Mastermegamind/ike/agent/internal/infra"
+	"github.com/Mastermegamind/ike/agent/internal/jobs"
+	"github.com/Mastermegamind/ike/agent/internal/kit"
+	"github.com/Mastermegamind/ike/agent/internal/sites"
+	"github.com/Mastermegamind/ike/agent/internal/spec"
 )
 
 func (s *Server) setupInfra(f *Features) {

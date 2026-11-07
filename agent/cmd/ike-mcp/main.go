@@ -23,9 +23,9 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/YOUR-ORG/ike/agent/internal/client"
-	"github.com/YOUR-ORG/ike/agent/internal/mcp"
-	"github.com/YOUR-ORG/ike/agent/internal/version"
+	"github.com/Mastermegamind/ike/agent/internal/client"
+	"github.com/Mastermegamind/ike/agent/internal/mcp"
+	"github.com/Mastermegamind/ike/agent/internal/version"
 )
 
 func main() {

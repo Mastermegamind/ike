@@ -370,7 +370,7 @@ export function HelpDrawer({ open, onClose, route }: { open: boolean; onClose: (
         </div>
         <div className="stack" style={{ gap: 12 }}>{entry[2].map((p, i) => <p key={i}>{p}</p>)}</div>
         <div className="callout" style={{ marginTop: 8 }}><Command size={18} />Ctrl K searches everything. Press ? for shortcuts.</div>
-        <a className="btn" href="https://github.com/YOUR-ORG/ike/tree/main/docs" target="_blank" rel="noreferrer">{t("Read the documentation")}</a>
+        <a className="btn" href="https://github.com/Mastermegamind/ike/tree/main/docs" target="_blank" rel="noreferrer">{t("Read the documentation")}</a>
       </aside>
     </div>
   );

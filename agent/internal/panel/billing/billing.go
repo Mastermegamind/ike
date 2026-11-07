@@ -25,7 +25,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/YOUR-ORG/ike/agent/internal/panel/store"
+	"github.com/Mastermegamind/ike/agent/internal/panel/store"
 )
 
 // Checkout is a hosted payment page for one invoice.

@@ -73,7 +73,7 @@ A guided wizard asks what to install. To skip it, pass options: `... | sudo bash
 Or download the installer and read it first:
 
 ```bash
-wget https://github.com/YOUR-ORG/ike/releases/latest/download/install.sh
+wget https://github.com/Mastermegamind/ike/releases/latest/download/install.sh
 less install.sh
 sudo bash install.sh
 ```
@@ -188,14 +188,6 @@ curl --unix-socket /tmp/ike.sock -X POST http://agent/v1/sites -d '{"domain":"ex
 The web panel: `cd web && npm install && npm run dev` runs it on demo data. `make panel` builds it in live mode and embeds it into `ike-panel`.
 
 Releases: push a tag like `v0.3.0` and GitHub Actions builds `ike-agent`, `ike-mcp` and `ike-panel` for amd64/arm64, and attaches them with `install.sh`, `installer.sh` and SHA-256 checksums.
-
-## Before publishing
-
-Replace `YOUR-ORG` with your GitHub user or organization in: this README, `installer/install.sh` and `installer/installer.sh` (`IKE_REPO` default), `deploy/*.conf`, `agent/go.mod` and the Go import paths, `docs/`, the web panel links, and `SECURITY.md`:
-
-```bash
-grep -rl YOUR-ORG --exclude-dir=node_modules --exclude-dir=.git . | xargs sed -i 's/YOUR-ORG/your-github-name/g'
-```
 
 ## License
 

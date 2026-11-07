@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/YOUR-ORG/ike/agent/internal/kit"
+	"github.com/Mastermegamind/ike/agent/internal/kit"
 )
 
 // sqlRows runs a query as the MariaDB root user and returns tab-separated rows.

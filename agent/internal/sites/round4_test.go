@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/YOUR-ORG/ike/agent/internal/config"
+	"github.com/Mastermegamind/ike/agent/internal/config"
 )
 
 func selfSigned(t *testing.T, names ...string) (certPEM, keyPEM string) {

@@ -24,8 +24,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/YOUR-ORG/ike/agent/internal/panel/auth"
-	"github.com/YOUR-ORG/ike/agent/internal/panel/store"
+	"github.com/Mastermegamind/ike/agent/internal/panel/auth"
+	"github.com/Mastermegamind/ike/agent/internal/panel/store"
 )
 
 // formatMoney shows minor units in their currency: 250000 NGN → ₦2,500.00.

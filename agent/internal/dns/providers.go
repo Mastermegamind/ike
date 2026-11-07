@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/YOUR-ORG/ike/agent/internal/kit"
+	"github.com/Mastermegamind/ike/agent/internal/kit"
 )
 
 func randID() string { return kit.RandomHex(6) }

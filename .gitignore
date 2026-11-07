@@ -12,3 +12,4 @@ dist/
 !agent/internal/panel/ui/dist/
 agent/internal/panel/ui/dist/*
 !agent/internal/panel/ui/dist/.keep
+agent/ike

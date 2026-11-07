@@ -26,9 +26,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/YOUR-ORG/ike/agent/internal/kit"
-	"github.com/YOUR-ORG/ike/agent/internal/secrets"
-	"github.com/YOUR-ORG/ike/agent/internal/validate"
+	"github.com/Mastermegamind/ike/agent/internal/kit"
+	"github.com/Mastermegamind/ike/agent/internal/secrets"
+	"github.com/Mastermegamind/ike/agent/internal/validate"
 )
 
 // Domain is one email domain.

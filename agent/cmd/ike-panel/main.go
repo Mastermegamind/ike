@@ -31,14 +31,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/YOUR-ORG/ike/agent/internal/api"
-	"github.com/YOUR-ORG/ike/agent/internal/client"
-	"github.com/YOUR-ORG/ike/agent/internal/cluster"
-	"github.com/YOUR-ORG/ike/agent/internal/panel"
-	"github.com/YOUR-ORG/ike/agent/internal/panel/alerts"
-	"github.com/YOUR-ORG/ike/agent/internal/panel/auth"
-	"github.com/YOUR-ORG/ike/agent/internal/panel/store"
-	"github.com/YOUR-ORG/ike/agent/internal/panel/ui"
+	"github.com/Mastermegamind/ike/agent/internal/api"
+	"github.com/Mastermegamind/ike/agent/internal/client"
+	"github.com/Mastermegamind/ike/agent/internal/cluster"
+	"github.com/Mastermegamind/ike/agent/internal/panel"
+	"github.com/Mastermegamind/ike/agent/internal/panel/alerts"
+	"github.com/Mastermegamind/ike/agent/internal/panel/auth"
+	"github.com/Mastermegamind/ike/agent/internal/panel/store"
+	"github.com/Mastermegamind/ike/agent/internal/panel/ui"
 )
 
 type Config struct {

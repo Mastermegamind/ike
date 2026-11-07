@@ -11,14 +11,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/YOUR-ORG/ike/agent/internal/api"
-	"github.com/YOUR-ORG/ike/agent/internal/client"
-	"github.com/YOUR-ORG/ike/agent/internal/config"
-	"github.com/YOUR-ORG/ike/agent/internal/firewall"
-	"github.com/YOUR-ORG/ike/agent/internal/jobs"
-	"github.com/YOUR-ORG/ike/agent/internal/runner"
-	"github.com/YOUR-ORG/ike/agent/internal/sites"
-	"github.com/YOUR-ORG/ike/agent/internal/updates"
+	"github.com/Mastermegamind/ike/agent/internal/api"
+	"github.com/Mastermegamind/ike/agent/internal/client"
+	"github.com/Mastermegamind/ike/agent/internal/config"
+	"github.com/Mastermegamind/ike/agent/internal/firewall"
+	"github.com/Mastermegamind/ike/agent/internal/jobs"
+	"github.com/Mastermegamind/ike/agent/internal/runner"
+	"github.com/Mastermegamind/ike/agent/internal/sites"
+	"github.com/Mastermegamind/ike/agent/internal/updates"
 )
 
 // newServer wires an MCP server to a real agent API running in dry-run mode.

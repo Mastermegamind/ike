@@ -3,7 +3,7 @@ package panel
 import (
 	"strings"
 
-	"github.com/YOUR-ORG/ike/agent/internal/panel/store"
+	"github.com/Mastermegamind/ike/agent/internal/panel/store"
 )
 
 // developerAllows applies a developer's areas to one request, the way a

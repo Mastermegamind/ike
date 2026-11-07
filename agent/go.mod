@@ -1,3 +1,3 @@
-module github.com/YOUR-ORG/ike/agent
+module github.com/Mastermegamind/ike/agent
 
 go 1.24.7

@@ -12,7 +12,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/YOUR-ORG/ike/agent/internal/mail"
+	"github.com/Mastermegamind/ike/agent/internal/mail"
 )
 
 // Per-website web server choices.

@@ -9,7 +9,7 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/YOUR-ORG/ike/agent/internal/validate"
+	"github.com/Mastermegamind/ike/agent/internal/validate"
 )
 
 // Database is a MariaDB database owned by an account. Its name and user are

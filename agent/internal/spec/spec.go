@@ -18,12 +18,12 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/YOUR-ORG/ike/agent/internal/databases"
-	"github.com/YOUR-ORG/ike/agent/internal/dns"
-	"github.com/YOUR-ORG/ike/agent/internal/firewall"
-	"github.com/YOUR-ORG/ike/agent/internal/kit"
-	"github.com/YOUR-ORG/ike/agent/internal/mail"
-	"github.com/YOUR-ORG/ike/agent/internal/sites"
+	"github.com/Mastermegamind/ike/agent/internal/databases"
+	"github.com/Mastermegamind/ike/agent/internal/dns"
+	"github.com/Mastermegamind/ike/agent/internal/firewall"
+	"github.com/Mastermegamind/ike/agent/internal/kit"
+	"github.com/Mastermegamind/ike/agent/internal/mail"
+	"github.com/Mastermegamind/ike/agent/internal/sites"
 )
 
 // Spec is the desired state.

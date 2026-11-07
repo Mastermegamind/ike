@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/YOUR-ORG/ike/agent/internal/panel/store"
+	"github.com/Mastermegamind/ike/agent/internal/panel/store"
 )
 
 func TestChannelsAndMonitor(t *testing.T) {

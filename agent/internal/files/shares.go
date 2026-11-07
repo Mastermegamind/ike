@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/YOUR-ORG/ike/agent/internal/kit"
+	"github.com/Mastermegamind/ike/agent/internal/kit"
 )
 
 // Share is a public download link for a file or folder: /s/<token> on the

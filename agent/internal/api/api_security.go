@@ -19,10 +19,10 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/YOUR-ORG/ike/agent/internal/jobs"
-	"github.com/YOUR-ORG/ike/agent/internal/kit"
-	"github.com/YOUR-ORG/ike/agent/internal/malware"
-	"github.com/YOUR-ORG/ike/agent/internal/sites"
+	"github.com/Mastermegamind/ike/agent/internal/jobs"
+	"github.com/Mastermegamind/ike/agent/internal/kit"
+	"github.com/Mastermegamind/ike/agent/internal/malware"
+	"github.com/Mastermegamind/ike/agent/internal/sites"
 )
 
 func (s *Server) securityRoutes(h func(string, handler)) {

@@ -23,7 +23,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/YOUR-ORG/ike/agent/internal/client"
+	"github.com/Mastermegamind/ike/agent/internal/client"
 )
 
 const ServerName = "ike"

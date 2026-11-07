@@ -160,7 +160,7 @@ func Default() Config {
 		PagesDir:        "/etc/ike/pages",
 		ToolsDir:        "/opt/ike/bin",
 		ImportsDir:      "/var/lib/ike/imports",
-		Repo:            "YOUR-ORG/ike",
+		Repo:            "Mastermegamind/ike",
 		CronDir:         "/etc/cron.d",
 		FirewallState:   "/var/lib/ike/firewall.json",
 		Firewall:        "ufw",

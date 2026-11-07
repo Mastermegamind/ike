@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/YOUR-ORG/ike/agent/internal/firewall"
+	"github.com/Mastermegamind/ike/agent/internal/firewall"
 )
 
 // SecurityCheck is one line of the security baseline.

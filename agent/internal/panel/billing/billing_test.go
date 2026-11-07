@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/YOUR-ORG/ike/agent/internal/panel/store"
+	"github.com/Mastermegamind/ike/agent/internal/panel/store"
 )
 
 var inv = &store.Invoice{ID: "INV-000007", Account: "naijabites", Description: "Business plan, October", Currency: "NGN", Amount: 1500000}

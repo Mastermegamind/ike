@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/YOUR-ORG/ike/agent/internal/validate"
+	"github.com/Mastermegamind/ike/agent/internal/validate"
 )
 
 // Site is one website inside an account.

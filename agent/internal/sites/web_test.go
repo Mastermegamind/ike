@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/YOUR-ORG/ike/agent/internal/config"
+	"github.com/Mastermegamind/ike/agent/internal/config"
 )
 
 func TestCaddyAndOLSRendering(t *testing.T) {

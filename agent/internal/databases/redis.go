@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/YOUR-ORG/ike/agent/internal/kit"
+	"github.com/Mastermegamind/ike/agent/internal/kit"
 )
 
 // Each account gets its own Redis (or Valkey) server: a systemd instance

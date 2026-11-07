@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/YOUR-ORG/ike/agent/internal/runner"
+	"github.com/Mastermegamind/ike/agent/internal/runner"
 )
 
 func newFW(t *testing.T) (*Manager, *runner.DryRun) {

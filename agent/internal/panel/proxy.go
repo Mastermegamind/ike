@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/YOUR-ORG/ike/agent/internal/panel/store"
-	"github.com/YOUR-ORG/ike/agent/internal/validate"
+	"github.com/Mastermegamind/ike/agent/internal/panel/store"
+	"github.com/Mastermegamind/ike/agent/internal/validate"
 )
 
 // access describes which hosting accounts a person may manage.

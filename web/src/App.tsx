@@ -42,7 +42,7 @@ function Soon({ id }: { id: string }) {
     <div className="stack">
       <PageHead title={title} />
       <section className="panel"><Empty icon={<Construction size={22} />} title="On the roadmap" text={text}
-        action={<a className="btn" href="https://github.com/YOUR-ORG/ike/blob/main/docs/FEATURES.md" target="_blank" rel="noreferrer">See the feature tracker</a>} /></section>
+        action={<a className="btn" href="https://github.com/Mastermegamind/ike/blob/main/docs/FEATURES.md" target="_blank" rel="noreferrer">See the feature tracker</a>} /></section>
     </div>
   );
 }

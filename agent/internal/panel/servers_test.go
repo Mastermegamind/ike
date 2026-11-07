@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/YOUR-ORG/ike/agent/internal/cluster"
+	"github.com/Mastermegamind/ike/agent/internal/cluster"
 )
 
 func TestJoinAndRemoteProxy(t *testing.T) {

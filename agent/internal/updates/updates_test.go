@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/YOUR-ORG/ike/agent/internal/jobs"
-	"github.com/YOUR-ORG/ike/agent/internal/runner"
+	"github.com/Mastermegamind/ike/agent/internal/jobs"
+	"github.com/Mastermegamind/ike/agent/internal/runner"
 )
 
 func TestParseUpgradable(t *testing.T) {
@@ -142,7 +142,7 @@ func TestSelfUpdate(t *testing.T) {
 		t.Error("binary installed despite bad checksum")
 	}
 
-	m.Repo = "YOUR-ORG/ike"
+	m.Repo = "Mastermegamind/ike"
 	if _, err := m.CheckIke(context.Background()); err == nil {
 		t.Error("placeholder repo should be refused")
 	}

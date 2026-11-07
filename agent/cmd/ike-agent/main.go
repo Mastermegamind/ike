@@ -18,15 +18,15 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/YOUR-ORG/ike/agent/internal/api"
-	"github.com/YOUR-ORG/ike/agent/internal/cluster"
-	"github.com/YOUR-ORG/ike/agent/internal/config"
-	"github.com/YOUR-ORG/ike/agent/internal/firewall"
-	"github.com/YOUR-ORG/ike/agent/internal/jobs"
-	"github.com/YOUR-ORG/ike/agent/internal/runner"
-	"github.com/YOUR-ORG/ike/agent/internal/sites"
-	"github.com/YOUR-ORG/ike/agent/internal/sysinfo"
-	"github.com/YOUR-ORG/ike/agent/internal/updates"
+	"github.com/Mastermegamind/ike/agent/internal/api"
+	"github.com/Mastermegamind/ike/agent/internal/cluster"
+	"github.com/Mastermegamind/ike/agent/internal/config"
+	"github.com/Mastermegamind/ike/agent/internal/firewall"
+	"github.com/Mastermegamind/ike/agent/internal/jobs"
+	"github.com/Mastermegamind/ike/agent/internal/runner"
+	"github.com/Mastermegamind/ike/agent/internal/sites"
+	"github.com/Mastermegamind/ike/agent/internal/sysinfo"
+	"github.com/Mastermegamind/ike/agent/internal/updates"
 )
 
 func main() {

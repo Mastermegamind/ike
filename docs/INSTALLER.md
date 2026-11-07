@@ -28,7 +28,7 @@ The whole script sits inside a function that runs on its last line, so a downloa
 
 | Variable | Default | Use |
 |---|---|---|
-| `IKE_REPO` | `YOUR-ORG/ike` | Install from a fork |
+| `IKE_REPO` | `Mastermegamind/ike` | Install from a fork |
 | `IKE_VERSION` | `latest` | Pin a release, e.g. `v0.3.0` |
 
 ```bash
@@ -136,5 +136,5 @@ On a server already running Ike, you can instead create a static website for `ik
 
 ## Before the first public release
 
-- Replace `YOUR-ORG` with the GitHub owner in `installer/installer.sh`, `installer/install.sh`, `deploy/*.conf` and the Go module path (`agent/go.mod`).
+- Replace `Mastermegamind` with the GitHub owner in `installer/installer.sh`, `installer/install.sh`, `deploy/*.conf` and the Go module path (`agent/go.mod`).
 - Push a tag so a release exists. Until then `releases/latest/download/...` returns 404 and the installer stops with a clear message.
