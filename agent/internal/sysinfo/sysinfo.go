@@ -124,6 +124,7 @@ type ServiceStatus struct {
 var optionalServices = []string{
 	"postfix", "dovecot", "rspamd", "clamav-daemon", "clamav-freshclam", "redis-server", "valkey-server",
 	"postgresql", "mongod", "pdns", "docker", "containerd", "k3s", "memcached", "opendkim",
+	"coturn", "livekit",
 }
 
 // protectedServices are never stopped from the panel: losing them locks the

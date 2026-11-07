@@ -60,7 +60,7 @@ func areaOf(apiPath string) string {
 			return "databases"
 		case "files", "snapshots", "shares", "terminal", "sftp-users":
 			return "files"
-		case "cron": // cron jobs run website tasks
+		case "cron", "realtime": // cron jobs and real-time keys serve websites
 			return "sites"
 		case "backups", "storage":
 			return "backups"

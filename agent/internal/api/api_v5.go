@@ -50,6 +50,7 @@ import (
 	"github.com/Mastermegamind/ike/agent/internal/kit"
 	"github.com/Mastermegamind/ike/agent/internal/mail"
 	"github.com/Mastermegamind/ike/agent/internal/malware"
+	"github.com/Mastermegamind/ike/agent/internal/realtime"
 	"github.com/Mastermegamind/ike/agent/internal/secrets"
 	"github.com/Mastermegamind/ike/agent/internal/sites"
 	"github.com/Mastermegamind/ike/agent/internal/spec"
@@ -70,6 +71,8 @@ type Features struct {
 	Backups *backups.Manager
 	Infra   *infra.Manager
 	Spec    *spec.Manager
+	// Realtime is the TURN server and LiveKit.
+	Realtime *realtime.Manager
 }
 
 // zoneAdapter lets the mail manager publish records through DNS.
@@ -140,8 +143,12 @@ func (s *Server) Setup() error {
 	s.F = f
 	f.Backups = backups.New(env, keys, f.Storage, s.backupSources())
 	s.setupInfra(f)
+	f.Realtime = realtime.New(env, keys)
+	f.Realtime.CertFiles = s.Sites.CertFiles
+	f.Realtime.ProxySite = s.realtimeSite
 	s.Sites.OnAccountDelete = func(ctx context.Context, account string) {
 		_ = f.DB.DeleteAccount(ctx, account)
+		f.Realtime.DeleteAccount(ctx, account)
 		if doms, err := f.Mail.Domains(account); err == nil {
 			for _, d := range doms {
 				_ = f.Mail.RemoveDomain(ctx, account, d.Domain.Domain, true)
@@ -168,6 +175,7 @@ func (s *Server) RunBackground(ctx context.Context) {
 	go s.F.Backups.RunScheduler(ctx)
 	go s.F.Infra.RunMaintenance(ctx)
 	go s.F.Infra.RunWebhooks(ctx)
+	go s.F.Realtime.RunMaintenance(ctx)
 }
 
 func (s *Server) accountNames() []string {
@@ -243,6 +251,7 @@ func (s *Server) v5Routes(h func(string, handler)) {
 	s.fileRoutes(h)
 	s.backupRoutes(h)
 	s.infraRoutes(h)
+	s.realtimeRoutes(h)
 	s.migrateRoutes(h)
 
 	// ---- DNS: admin ----
@@ -473,6 +482,15 @@ var _ = strings.TrimSpace
 
 // fwOpener adapts the firewall manager for features (kit.Opener).
 type fwOpener struct{ m *firewall.Manager }
+
+// Close removes a port opened for everyone; a port that isn't open is fine.
+func (o fwOpener) Close(ctx context.Context, port, proto string) error {
+	err := o.m.ClosePort(ctx, port, proto, "")
+	if errors.Is(err, firewall.ErrNotFound) {
+		return nil
+	}
+	return err
+}
 
 func (o fwOpener) AllowFrom(ctx context.Context, from, port, proto, comment string) error {
 	_, err := o.m.AllowFrom(ctx, from, port, proto, comment)

@@ -295,7 +295,7 @@ Token area: `databases`.
 | `POST /accounts/{a}/dbs/{engine}/{db}/roles` | Create a role: body `{"name","access":"read\|write"}` |
 | `DELETE /accounts/{a}/dbs/{engine}/{db}/roles/{user}` | Remove a database user |
 | `GET /accounts/{a}/redis` | List redis |
-| `PUT /accounts/{a}/redis` | Set the redis: body `{"memory_mb","policy","persist","new_password"}` |
+| `PUT /accounts/{a}/redis` | Start or change the account's cache: body `{"engine":"redis\|valkey\|dragonfly","memory_mb","policy","persist","new_password"}` (a new engine starts empty; the password carries over) |
 | `DELETE /accounts/{a}/redis` | Delete redis |
 | `POST /accounts/{a}/redis/flush` | Delete every key in the account's Redis |
 | `GET /accounts/{name}/databases` | The account's MariaDB databases |
@@ -477,6 +477,27 @@ Most of these are panel routes, not on the agent socket.
 | `POST /packages` *(panel)* | New package {"name","price","currency","interval","limits"}; price in the smallest unit (kobo) |
 | `PUT /packages/{id}` *(panel)* | Change a package; accounts on it get the new limits |
 | `DELETE /packages/{id}` *(panel)* | Delete an unused package |
+
+## Real-time media
+
+TURN (coturn) and LiveKit. Token area: `server` for the admin routes, `sites` for the account routes.
+TURN logins are short-lived and signed with a shared secret (the TURN REST API scheme coturn uses); LiveKit secrets are shown once.
+
+| Route | Description |
+|---|---|
+| `GET /realtime` | Both servers: settings (no secrets), state, URLs and the ports they use |
+| `PUT /realtime/turn` | TURN settings: body `{"enabled","domain","tls","user_quota","total_quota","max_kbps","allow_accounts"}` |
+| `POST /realtime/turn/credentials` | A TURN login: body `{"user","ttl_hours"}` (default 12, at most 168) → `{"uris","username","credential","expires"}` |
+| `POST /realtime/turn/secret` | New TURN secret; logins signed with the old one stop working |
+| `PUT /realtime/livekit` | LiveKit settings: body `{"enabled","domain","account","use_turn","empty_timeout","max_participants","webhook_urls","allow_accounts"}`; the first time also returns `new_key` with its secret |
+| `POST /realtime/livekit/keys` | Add an API key: body `{"name","account"}` → key and secret, once |
+| `DELETE /realtime/livekit/keys/{key}` | Remove an API key (LiveKit restarts) |
+| `POST /realtime/livekit/token` | A join token: body `{"key","room","identity","name","ttl_minutes","can_publish","room_admin"}` → `{"token","url","expires"}` |
+| `GET /accounts/{a}/realtime` | What an account can use: LiveKit URL, its own keys (no secrets), TURN addresses |
+| `POST /accounts/{a}/realtime/turn-credentials` | A TURN login for the account's apps (when the admin allows it) |
+| `POST /accounts/{a}/realtime/keys` | Add a LiveKit key for the account (when the admin allows it): body `{"name"}` |
+| `DELETE /accounts/{a}/realtime/keys/{key}` | Remove one of the account's keys |
+| `POST /accounts/{a}/realtime/token` | A join token signed with one of the account's keys |
 
 ## Server
 
