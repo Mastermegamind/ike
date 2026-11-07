@@ -242,7 +242,7 @@ server {
     index{{if eq .Runtime "php"}} index.php{{end}} index.html index.htm;
 
     location / {
-        try_files $uri $uri/ {{if eq .Runtime "php"}}/index.php?$args{{else}}=404{{end}};
+        try_files $uri $uri/ {{if eq .Runtime "php"}}/index.php?$args{{else if .SPA}}/index.html{{else}}=404{{end}};
     }
 {{- if eq .Runtime "php"}}
 
@@ -435,6 +435,10 @@ var apacheTmpl = template.Must(template.New("apache").Parse(`# Managed by Ike. M
         AllowOverride All
         Require all granted
         DirectoryIndex{{if eq .Runtime "php"}} index.php{{end}} index.html index.htm
+{{- if .SPA}}
+        # Single-page app: unknown paths get index.html.
+        FallbackResource /index.html
+{{- end}}
     </Directory>
 {{- if eq .Runtime "php"}}
 

@@ -63,6 +63,25 @@ export class Demo5 {
   private tokens: APIToken[];
   private events: ServerEvent[];
   private readUpTo = 0;
+  private ike: { current: string; latest?: { latest: string; update_available: boolean; url: string; notes: string }; checked_at?: string; settings: { mode: "notify" | "auto" | "off"; skip?: string };
+    kept_versions: string[]; history: { id: string; kind: "update" | "rollback"; from: string; to: string; by?: string; status: string; reason?: string; started_at: string; finished_at?: string }[]; busy: boolean } = {
+    current: "0.6.0", checked_at: ago(40), settings: { mode: "notify" }, busy: false,
+    latest: { latest: "0.7.0", update_available: true, url: "https://github.com/Mastermegamind/ike/releases/tag/v0.7.0",
+      notes: "Ike updates itself with your approval, checks the new version and goes back by itself if it isn't healthy.\nPackage updates keep a history and can be rolled back.\nNext.js, Nuxt, SvelteKit, Astro, Remix and single-page React, Vue and Angular apps deploy without settings." },
+    kept_versions: ["0.5.0"],
+    history: [{ id: "u1", kind: "update", from: "0.5.0", to: "0.6.0", by: "marvellous", status: "done", started_at: ago(3 * 1440), finished_at: ago(3 * 1440 - 3) },
+      { id: "u0", kind: "update", from: "0.5.0", to: "0.5.1-rc1", by: "auto", status: "rolled_back", reason: "ike-panel isn't running", started_at: ago(9 * 1440), finished_at: ago(9 * 1440 - 4) }],
+  };
+  private pkgRuns: { id: string; kind: "security" | "all" | "rollback" | "release"; by?: string; status: string; error?: string; changes: { name: string; from?: string; to?: string }[]; skipped?: string[]; rollback_of?: string; rolled_back_by?: string; started_at: string; finished_at?: string }[] = [
+    { id: "r2", kind: "all", by: "marvellous", status: "done", started_at: ago(2 * 1440), finished_at: ago(2 * 1440 - 6), changes: [
+      { name: "nginx", from: "1.24.0-2ubuntu7.1", to: "1.24.0-2ubuntu7.3" }, { name: "openssl", from: "3.0.13-0ubuntu3.4", to: "3.0.13-0ubuntu3.5" },
+      { name: "libssl3t64", from: "3.0.13-0ubuntu3.4", to: "3.0.13-0ubuntu3.5" }, { name: "php8.3-fpm", from: "8.3.6-0ubuntu0.24.04.2", to: "8.3.6-0ubuntu0.24.04.3" }] },
+    { id: "r1", kind: "security", by: "maintenance window", status: "done", started_at: ago(9 * 1440), finished_at: ago(9 * 1440 - 3), changes: [
+      { name: "curl", from: "8.5.0-2ubuntu10.4", to: "8.5.0-2ubuntu10.6" }, { name: "libcurl4t64", from: "8.5.0-2ubuntu10.4", to: "8.5.0-2ubuntu10.6" }] },
+  ];
+  private release = { current: "24.04", available: "26.04", supported: true, checked_at: ago(200), checks: [
+    { name: "Ike supports Ubuntu 26.04", ok: true }, { name: "At least 5 GB free on /", ok: true, note: "41.3 GB free" },
+    { name: "No restart waiting from earlier updates", ok: true }, { name: "All package updates installed", ok: false, note: "install waiting updates first (6 waiting)" }] };
   private passkeys: PasskeyInfo[] = [
     { id: "pk1", name: "MacBook (iCloud Keychain)", synced: true, created_at: ago(40 * 1440), last_used_at: ago(2) },
     { id: "pk2", name: "YubiKey 5C", synced: false, created_at: ago(120 * 1440), last_used_at: ago(9 * 1440) },
@@ -231,6 +250,65 @@ export class Demo5 {
 
     // ---- the preview's "developer" view
     if (is("GET", "/session")) return { username: "emeka.dev", role: "developer", areas: { sites: "write", files: "write", databases: "read" } };
+
+    // ---- package managers, PECL and PEAR
+    if (is("GET", "/package-tools")) return [
+      { name: "npm", language: "JavaScript", installed: true, detects: "package-lock.json, package.json", note: "comes with Node.js" },
+      { name: "pnpm", language: "JavaScript", installed: true, detects: "pnpm-lock.yaml or packageManager", note: "run through npx, at the version the project pins" },
+      { name: "Yarn", language: "JavaScript", installed: true, detects: "yarn.lock, .yarnrc.yml or packageManager", note: "classic and Berry, at the version the project pins" },
+      { name: "Bun", language: "JavaScript", installed: true, detects: "bun.lock, bun.lockb", note: "run through npx" },
+      { name: "Composer", language: "PHP", installed: true, detects: "composer.json" },
+      { name: "Phive", language: "PHP", installed: true, detects: ".phive/phars.xml", note: "list trusted GPG key ids in .phive/trusted-keys" },
+      { name: "PECL", language: "PHP", installed: true, detects: "", note: "extensions, from PHP extensions" },
+      { name: "PEAR", language: "PHP", installed: true, detects: "", note: "shared PHP libraries, from PHP extensions" },
+      { name: "pip", language: "Python", installed: true, detects: "requirements.txt, pyproject.toml", note: "comes with Python" },
+      { name: "uv", language: "Python", installed: true, detects: "uv.lock" },
+      { name: "Poetry", language: "Python", installed: true, detects: "poetry.lock" },
+      { name: "Pipenv", language: "Python", installed: true, detects: "Pipfile, Pipfile.lock" },
+      { name: "pipx", language: "Python", installed: true, detects: "", note: "command-line tools for SSH users" },
+      { name: "Maven", language: "Java", installed: false, detects: "pom.xml (mvnw is used when present)" },
+      { name: "Gradle", language: "Java", installed: false, detects: "build.gradle (gradlew is used when present)" },
+      { name: "Go modules", language: "Go", installed: true, detects: "go.mod", note: "comes with Go" },
+      { name: "pub", language: "Dart", installed: false, detects: "pubspec.yaml", note: "comes with Dart" },
+    ];
+    if ((p = is("POST", "/php/:v/pecl/:n"))) return this.h.job("php-ext", `Build PECL ${p.n} for PHP ${p.v}`, ["Making sure PHP " + p.v + "'s build tools are installed", `Building ${p.n} for PHP ${p.v}`, "Build complete", `PHP ${p.v} reloaded`]);
+    if (is("POST", "/php/pear")) return this.h.job("pear", `Install PEAR ${q.get("name")}`, [`Installing PEAR package ${q.get("name")}`, "install ok"]);
+
+    // ---- Ike's own updates and package history
+    if (is("GET", "/ike")) return this.ike;
+    if (is("POST", "/ike/check")) { this.ike.checked_at = now(); return this.ike.latest; }
+    if (is("PUT", "/ike/settings")) { this.ike.settings = { mode: b.mode, skip: b.skip || undefined }; return this.ike.settings; }
+    if (is("POST", "/ike/update")) {
+      const to = this.ike.latest!.latest, from = this.ike.current;
+      return this.h.job("ike-update", "Update Ike to " + to, [`Downloading ike-agent ${to}`, `Downloading ike-panel ${to}`, "Checksums verified", "The new version starts on this server",
+        `Kept Ike ${from} so it can come back`, `Installed. Restarting Ike; ${from} checks the new one in 90 seconds`], () => {
+        this.ike.history.unshift({ id: hex(4), kind: "update", from, to, by: "marvellous", status: "done", started_at: now(), finished_at: now() });
+        this.ike.kept_versions = [from, ...this.ike.kept_versions.filter((v) => v !== from)];
+        this.ike.current = to;
+        this.ike.latest = { ...this.ike.latest!, update_available: false };
+      });
+    }
+    if (is("POST", "/ike/rollback")) {
+      const to = b.version as string, from = this.ike.current;
+      return this.h.job("ike-rollback", "Go back to Ike " + to, [`Going back from ${from} to ${to}`, `Kept Ike ${from} so it can come back`, "Restarting Ike"], () => {
+        this.ike.history.unshift({ id: hex(4), kind: "rollback", from, to, by: "marvellous", status: "done", started_at: now(), finished_at: now() });
+        this.ike.kept_versions = [from, ...this.ike.kept_versions.filter((v) => v !== from && v !== to)];
+        this.ike.current = to;
+        this.ike.latest = { ...this.ike.latest!, update_available: true };
+      });
+    }
+    if (is("GET", "/updates/history")) return this.pkgRuns;
+    if ((p = is("POST", "/updates/runs/:id/rollback"))) {
+      const r = this.pkgRuns.find((x) => x.id === p!.id)!;
+      return this.h.job("os-rollback", "Roll back package update " + r.id, [`Reinstalling ${r.changes.length - 1} earlier versions`, "Can't get the earlier version of: libssl3t64", "Done"], () => {
+        const id = hex(4);
+        r.rolled_back_by = id;
+        this.pkgRuns.unshift({ id, kind: "rollback", by: "marvellous", status: "done", rollback_of: r.id, skipped: ["libssl3t64"], started_at: now(), finished_at: now(),
+          changes: r.changes.filter((c) => c.name !== "libssl3t64").map((c) => ({ name: c.name, from: c.to, to: c.from })) });
+      });
+    }
+    if (is("GET", "/updates/release")) return this.release;
+    if (is("POST", "/updates/release")) return this.h.job("os-release-upgrade", "Move to Ubuntu 26.04", ["Moving from Ubuntu 24.04 to 26.04", "Downloading 1,214 packages", "Turned ondrej-php.list back on", "Done. Restart the server to finish"]);
 
     // ---- passkeys (the preview has no real authenticator; adding one is simulated)
     if (is("GET", "/me/passkeys")) return this.passkeys;

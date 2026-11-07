@@ -2,7 +2,7 @@
 
 Ike's full scope, grouped by area. Pick anything not done and open a PR; see [CONTRIBUTING.md](../CONTRIBUTING.md).
 
-**v0.6.0: 177 done · 0 partly done · 0 planned** (of 177)
+**v0.7.0: 177 done · 0 partly done · 0 planned** (of 177)
 
 | Mark | Meaning |
 |---|---|
@@ -229,7 +229,7 @@ Ike's full scope, grouped by area. Pick anything not done and open a PR; see [CO
 | ✅ | Multiple server nodes and server grouping |  |
 | ✅ | Remote agents with secure communication | mutual TLS with pinned certificates |
 | ✅ | Infrastructure templates | spec templates with variables |
-| ✅ | API-first administration | 379 routes, scoped tokens, documented in API.md |
+| ✅ | API-first administration | 392 routes, scoped tokens, documented in API.md |
 | ✅ | CLI for automation | the ike command for Linux, macOS and Windows |
 | ✅ | Webhooks and event subscriptions | signed, with retries and a delivery log |
 | ✅ | Infrastructure as code integration | declarative specs: plan, apply, export |

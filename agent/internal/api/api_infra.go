@@ -68,7 +68,7 @@ func (s *Server) setupInfra(f *Features) {
 		if s.Updates == nil {
 			return nil
 		}
-		j, err := s.Updates.Apply(true)
+		j, err := s.Updates.Apply(true, "maintenance window")
 		if err != nil {
 			return err
 		}

@@ -66,6 +66,8 @@ Languages
   --python "3.12 3.13"        Python versions, or "none" (default: "3.12")
   --java "17 21"              OpenJDK versions (default: none)
   --maven                     Also install Maven for Java builds
+  --gradle 8.14               Also install Gradle (projects with gradlew don't need it)
+  --no-package-tools          Skip Poetry, Pipenv, pipx, uv, PEAR/PECL and Phive
   --go "1.24 1.25"            Go versions (default: none)
   --dart "latest"             Dart SDK: latest or an exact version like 3.9.4 (default: none)
 

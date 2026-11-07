@@ -7,7 +7,7 @@ Mark each item done (x), partly done (~) or not yet ( ), with a short note.
 """
 import os
 
-VERSION = "0.6.0"
+VERSION = "0.7.0"
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 AREAS = [
@@ -191,7 +191,7 @@ AREAS = [
  ("x", "Multiple server nodes and server grouping", ""),
  ("x", "Remote agents with secure communication", "mutual TLS with pinned certificates"),
  ("x", "Infrastructure templates", "spec templates with variables"),
- ("x", "API-first administration", "379 routes, scoped tokens, documented in API.md"),
+ ("x", "API-first administration", "392 routes, scoped tokens, documented in API.md"),
  ("x", "CLI for automation", "the ike command for Linux, macOS and Windows"),
  ("x", "Webhooks and event subscriptions", "signed, with retries and a delivery log"),
  ("x", "Infrastructure as code integration", "declarative specs: plan, apply, export"),

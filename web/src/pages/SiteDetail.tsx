@@ -4,7 +4,7 @@ import { api, demo } from "../api/client";
 import { phpEol, runtimeName } from "../api/demo";
 import type { LogKind, Runtimes, Site, SiteStatus, WebServer, WordPressResult } from "../api/types";
 import { Badge, Button, CopyField, Field, Modal, Segmented, Skeleton, Tabs, timeAgo, useAsync, useToast } from "../components/ui";
-import { ConfirmDelete, PageHead, RuntimeBadge, StatusBadge, webServerLabel } from "../components/common";
+import { ConfirmDelete, PageHead, RuntimeBadge, StatusBadge, Toggle, webServerLabel } from "../components/common";
 import { navigate } from "../router";
 import { isDeveloper } from "../layouts/nav";
 import { EnvTab, HealthCheckPanel, HealthTab, StagingPanel } from "./SiteExtras";
@@ -59,6 +59,13 @@ export function SiteDetail({ domain }: { domain: string }) {
                 <dt>Runtime</dt><dd>{runtimeName(site.runtime)} {site.version}</dd>
                 <dt>Web server</dt><dd>{webServerLabel[site.web_server]}{site.web_server === "nginx+apache" ? " (.htaccess on)" : site.web_server === "openlitespeed" ? " (.htaccess rewrites on)" : ""}</dd>
                 {isApp || site.runtime === "proxy" ? <><dt>Local port</dt><dd><code>127.0.0.1:{site.port}</code></dd></> : null}
+                {site.deploy?.framework ? <><dt>Framework</dt><dd>{site.deploy.framework.name}
+                  <div className="small muted">{site.deploy.framework.static && site.runtime === "static" && !site.deploy.public_dir ? `Serving ${site.deploy.framework.output_dir}/` : site.deploy.framework.start && isApp ? `Started with ${site.deploy.framework.start}` : "Detected from package.json"}</div></dd></> : null}
+                {site.runtime === "static" ? <><dt>Single-page app</dt><dd>
+                  {site.deploy?.framework?.spa ? <span>On, for {site.deploy.framework.name}</span> : (
+                  <Toggle checked={!!site.spa} label={site.spa ? "On" : "Off"}
+                    onChange={async (v) => { try { update(await api.updateSite(site.domain, { spa: v })); toast("ok", v ? "Unknown paths now get index.html" : "Unknown paths get the 404 page"); } catch (e) { toast("error", (e as Error).message); } }} />)}
+                  <div className="small muted">For React, Vue or Angular apps with their own routing: any path that isn't a file gets index.html.</div></dd></> : null}
                 <dt>Created</dt><dd>{timeAgo(site.created_at)}</dd>
               </dl>
             </div>

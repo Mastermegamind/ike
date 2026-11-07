@@ -679,6 +679,43 @@ func (s *Server) tools5() []tool {
 				return out, s.Agent.Do(ctx, "POST", "/v1/clusters/"+esc(argStr(a, "cluster"))+"/promote", pick("server")(a), &out)
 			}},
 
+		// ---------------------------------------------------- Ike and Ubuntu updates
+		{Name: "get_ike_versions", Title: "Ike versions", area: "server", Annotations: readOnly(), InputSchema: none,
+			Description: "The running Ike version, the newest release and its notes, the update mode (notify, auto, off), versions kept for rollback and the update history.",
+			handler:     s.get(fixed("/v1/ike"))},
+		{Name: "update_ike", Title: "Update Ike", area: "server", write: true, Annotations: write(false, true), InputSchema: none,
+			Description: "Install the newest Ike release on this server. The previous version is kept and goes back by itself if the new one isn't healthy. Only when the human asked. Returns a job id.",
+			handler:     s.call("POST", fixed("/v1/ike/update"), nil)},
+		{Name: "rollback_ike", Title: "Go back to an earlier Ike", area: "server", write: true, Annotations: write(true, true),
+			Description: "Go back to a kept Ike version (see get_ike_versions). Only when the human asked. Returns a job id.",
+			InputSchema: obj(map[string]any{"version": str("Kept version, e.g. 0.6.0 (optional: the newest older one)")}),
+			handler:     s.call("POST", fixed("/v1/ike/rollback"), pick("version"))},
+		{Name: "get_package_update_history", Title: "Package update history", area: "server", Annotations: readOnly(), InputSchema: none,
+			Description: "Ubuntu package updates installed through Ike, with each package's version before and after, and which were rolled back.",
+			handler:     s.get(fixed("/v1/updates/history"))},
+		{Name: "rollback_package_update", Title: "Roll back a package update", area: "server", write: true, Annotations: write(true, true),
+			Description: "Reinstall the earlier versions of the packages one update run changed (see get_package_update_history), where apt can still get them. Only when the human asked. Returns a job id.",
+			InputSchema: obj(map[string]any{"run": str("Run id")}, "run"),
+			handler:     s.call("POST", func(a map[string]any) string { return "/v1/updates/runs/" + esc(argStr(a, "run")) + "/rollback" }, nil)},
+		{Name: "check_ubuntu_release", Title: "Newer Ubuntu release", area: "server", Annotations: readOnly(), InputSchema: none,
+			Description: "Whether a newer Ubuntu LTS is available and whether the server is ready to move. Moving is only started by a person in the panel, after taking a snapshot.",
+			handler:     s.get(fixed("/v1/updates/release"))},
+
+		// ---------------------------------------------------- package managers
+		{Name: "list_package_tools", Title: "Package managers", area: "server", Annotations: readOnly(), InputSchema: none,
+			Description: "Package managers deploys detect (npm, pnpm, Yarn, Bun, Composer, Phive, pip, uv, Poetry, Pipenv, Maven, Gradle, Go modules, pub) and which are installed.",
+			handler:     s.get(fixed("/v1/package-tools"))},
+		{Name: "install_pecl_extension", Title: "Build a PECL extension", area: "server", write: true, Annotations: write(false, true),
+			Description: "Build a PHP extension from PECL for one PHP version (prefer install_php_extension when Ubuntu packages it), turn it on and reload PHP. Returns a job id.",
+			InputSchema: obj(map[string]any{"version": str("PHP version, e.g. 8.3"), "name": str("PECL package, e.g. swoole or swoole-5.1.4")}, "version", "name"),
+			handler: s.call("POST", func(a map[string]any) string {
+				return "/v1/php/" + esc(argStr(a, "version")) + "/pecl/" + esc(argStr(a, "name"))
+			}, nil)},
+		{Name: "install_pear_package", Title: "Install a PEAR package", area: "server", write: true, Annotations: write(false, true),
+			Description: "Install a PEAR package (a PHP library shared by every website), e.g. Mail or Net_SMTP. Returns a job id.",
+			InputSchema: obj(map[string]any{"name": str("PEAR package")}, "name"),
+			handler:     s.call("POST", func(a map[string]any) string { return "/v1/php/pear?name=" + url.QueryEscape(argStr(a, "name")) }, nil)},
+
 		// ---------------------------------------------------- panel: passkeys
 		{Name: "list_my_passkeys", Title: "My passkeys", panel: true, Annotations: readOnly(), InputSchema: none,
 			Description: "The passkeys the token's owner can sign in with (name, synced or one device, last used). Passkeys are added and removed in the panel in a browser, never through a token.",

@@ -28,6 +28,8 @@ JAVA_VERSIONS=""            # e.g. "17 21"
 GO_VERSIONS=""              # e.g. "1.24"
 DART_VERSIONS=""            # e.g. "latest" or "3.9.4"
 INSTALL_MAVEN=0
+INSTALL_PKG_TOOLS=1          # Poetry, Pipenv, pipx, uv, PEAR/PECL, Phive
+GRADLE_VERSION=""
 INSTALL_DOCKER=0
 DOCKER_FOR_ACCOUNTS=0
 INSTALL_PACK=0
@@ -130,6 +132,8 @@ Languages
   --python "3.12 3.13"        Python versions, or "none" (default: "${PYTHON_VERSIONS}")
   --java "17 21"              OpenJDK versions (default: none)
   --maven                     Also install Maven for Java builds
+  --gradle 8.14               Also install Gradle (projects with gradlew don't need it)
+  --no-package-tools          Skip Poetry, Pipenv, pipx, uv, PEAR/PECL and Phive
   --go "1.24 1.25"            Go versions (default: none)
   --dart "latest"             Dart SDK: latest or an exact version like 3.9.4 (default: none)
 
@@ -192,6 +196,8 @@ while [ $# -gt 0 ]; do
 		--python) PYTHON_VERSIONS="${2:?}"; shift 2 ;;
 		--java) JAVA_VERSIONS="${2:?}"; shift 2 ;;
 		--maven) INSTALL_MAVEN=1; shift ;;
+		--gradle) GRADLE_VERSION="${2:?}"; shift 2 ;;
+		--no-package-tools) INSTALL_PKG_TOOLS=0; shift ;;
 		--go) GO_VERSIONS="${2:?}"; shift 2 ;;
 		--dart) DART_VERSIONS="${2:?}"; shift 2 ;;
 		--docker) INSTALL_DOCKER=1; shift ;;
@@ -323,6 +329,7 @@ case "$DEFAULT_WEB_SERVER" in
 	nginx|nginx+apache) [ "$WEB_STACK" = "hybrid" ] || die "--default-web-server only applies to --web hybrid" ;;
 	*) die "--default-web-server must be nginx or nginx+apache" ;;
 esac
+case "$GRADLE_VERSION" in ""|[0-9]*.[0-9]*) ;; *) die "--gradle takes a version like 8.14" ;; esac
 case "$PMA_CHANNEL" in stable|6|none) ;; *) die "--phpmyadmin must be stable, 6 or none" ;; esac
 [ "$INSTALL_MARIADB" -eq 0 ] && PMA_CHANNEL="none"
 
@@ -725,6 +732,72 @@ install_python() {
 		ln -sfn "$(dirname "$(dirname "$bin")")" "${RUNTIMES_DIR}/python/${v}"
 		PYTHON_INSTALLED="${PYTHON_INSTALLED:-} ${v}"
 	done
+}
+
+# Package managers deploys and SSH users can use, besides the ones that come
+# with each language (npm, pip, Go modules, pub) and Composer:
+#   Python: uv, Poetry, Pipenv and pipx, installed with uv as tools
+#   PHP:    PEAR and PECL (php-pear), Phive (signature checked)
+#   Java:   Gradle (--gradle VERSION; Maven is --maven)
+install_package_tools() {
+	[ "$INSTALL_PKG_TOOLS" -eq 1 ] || return 0
+	info "Installing package managers"
+	local t
+	if [ -x "${OPT_DIR}/bin/uv" ]; then
+		ln -sfn "${OPT_DIR}/bin/uv" /usr/local/bin/uv
+		[ -x "${OPT_DIR}/bin/uvx" ] && ln -sfn "${OPT_DIR}/bin/uvx" /usr/local/bin/uvx
+		install -d -m 0755 "${OPT_DIR}/tools"
+		for t in poetry pipenv pipx; do
+			if UV_TOOL_DIR="${OPT_DIR}/tools" UV_TOOL_BIN_DIR=/usr/local/bin UV_PYTHON_INSTALL_DIR="${RUNTIMES_DIR}/python/.uv" \
+				"${OPT_DIR}/bin/uv" tool install --quiet "$t" >>"$LOG_FILE" 2>&1; then
+				PKG_TOOLS_INSTALLED="${PKG_TOOLS_INSTALLED:-} ${t}"
+			else
+				warn "${t} could not be installed; skipping."
+			fi
+		done
+		chmod -R a+rX "${OPT_DIR}/tools"
+	fi
+	if [ -n "${PHP_INSTALLED:-}" ]; then
+		apt_install php-pear && PKG_TOOLS_INSTALLED="${PKG_TOOLS_INSTALLED:-} pear pecl"
+		install_phive
+	fi
+	install_gradle
+}
+
+# Phive, the PHAR installer, checked against its developers' GPG signature.
+install_phive() {
+	local tmp key=0x9D8A98B29B2D5D79
+	tmp=$(mktemp -d)
+	if download "https://phar.io/releases/phive.phar" "${tmp}/phive.phar" && download "https://phar.io/releases/phive.phar.asc" "${tmp}/phive.phar.asc" \
+		&& GNUPGHOME="$tmp" gpg --batch --keyserver hkps://keys.openpgp.org --recv-keys "$key" >>"$LOG_FILE" 2>&1 \
+		&& GNUPGHOME="$tmp" gpg --batch --verify "${tmp}/phive.phar.asc" "${tmp}/phive.phar" >>"$LOG_FILE" 2>&1; then
+		install -m 0755 "${tmp}/phive.phar" /usr/local/bin/phive
+		PKG_TOOLS_INSTALLED="${PKG_TOOLS_INSTALLED:-} phive"
+	else
+		warn "Phive could not be downloaded or its signature didn't check out; skipping."
+	fi
+	rm -rf "$tmp"
+}
+
+# Gradle from gradle.org, checked against its published SHA-256.
+install_gradle() {
+	[ -n "$GRADLE_VERSION" ] || return 0
+	[ -n "${JAVA_INSTALLED:-}" ] || { warn "Gradle needs Java (--java); skipping."; return 0; }
+	local tmp sha zip="gradle-${GRADLE_VERSION}-bin.zip"
+	tmp=$(mktemp -d)
+	if download "https://services.gradle.org/distributions/${zip}.sha256" "${tmp}/sha"; then
+		sha=$(tr -d '[:space:]' <"${tmp}/sha")
+		apt_install unzip
+		download "https://services.gradle.org/distributions/${zip}" "${tmp}/${zip}" "$sha"
+		rm -rf "${OPT_DIR}/gradle"
+		unzip -q "${tmp}/${zip}" -d "$tmp"
+		mv "${tmp}/gradle-${GRADLE_VERSION}" "${OPT_DIR}/gradle"
+		ln -sfn "${OPT_DIR}/gradle/bin/gradle" /usr/local/bin/gradle
+		PKG_TOOLS_INSTALLED="${PKG_TOOLS_INSTALLED:-} gradle-${GRADLE_VERSION}"
+	else
+		warn "Gradle ${GRADLE_VERSION} isn't on gradle.org; skipping."
+	fi
+	rm -rf "$tmp"
 }
 
 # Composer, the PHP package manager, checked against its published SHA-256.
@@ -2250,6 +2323,7 @@ ${C_BLD}${C_GRN}${PANEL_NAME} installed successfully${C_RST}
   phpMyAdmin    ${PMA_INSTALLED:-not installed}$( [ -n "${PMA_INSTALLED:-}" ] && echo " — ssh -L ${PMA_PORT}:127.0.0.1:${PMA_PORT} root@${ip}, then open http://localhost:${PMA_PORT}" )
   Server IP     ${ip}
   Firewall      ${FIREWALL}
+  Package tools${PKG_TOOLS_INSTALLED:- none}
   Install log   ${LOG_FILE}
 
 ${C_BLD}Sign in to the panel${C_RST} (browsers warn about the panel's self-signed certificate; websites get free Let's Encrypt certificates from their HTTPS tab):
@@ -2364,6 +2438,7 @@ main() {
 	install_java
 	install_go
 	install_dart
+	install_package_tools
 	install_mariadb
 	install_postgres
 	install_redis

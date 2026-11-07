@@ -250,6 +250,10 @@ func (m *Manager) applyOLSLayout(s *Site, L *layout) {
 		rules = append(rules, "# Redirects and rewrites")
 		rules = append(rules, L.ApacheRules...)
 	}
+	if L.SPA {
+		rules = append(rules, "# Single-page app: unknown paths get index.html", `RewriteCond %{REQUEST_URI} !^/(\.well-known/|__ike_)`,
+			"RewriteCond %{DOCUMENT_ROOT}%{REQUEST_URI} !-f", "RewriteCond %{DOCUMENT_ROOT}%{REQUEST_URI} !-d", "RewriteRule ^ /index.html [L]")
+	}
 	L.OLSRules = rules
 	if L.HSTS {
 		L.OLSHeaders = append(L.OLSHeaders, "set Strict-Transport-Security \"max-age=31536000\"")

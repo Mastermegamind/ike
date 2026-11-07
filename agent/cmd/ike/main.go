@@ -63,7 +63,7 @@ func readSecret() (string, error) {
 	return strings.TrimRight(line, "\r\n"), nil
 }
 
-const version = "0.6.0"
+const version = "0.7.0"
 
 // ---------------------------------------------------------------- config
 
@@ -369,6 +369,15 @@ Access
 
 Developers (people who work in some of your accounts, in chosen areas)
   ike passkeys                                 (your passkeys; add or remove them in the panel in a browser)
+  ike update                                   Ike's version, the newest release, kept versions and history
+  ike update check | install [--wait] | rollback [VERSION] [--wait] | mode notify|auto|off | skip VERSION
+  ike os                                       Ubuntu package updates waiting
+  ike os install [--security] [--wait]         ike os history        ike os rollback RUN [--wait]
+  ike os release                               a newer Ubuntu LTS, and whether this server is ready
+  ike os release upgrade --i-have-a-snapshot [--wait]
+  ike tools                                    package managers deploys use (npm, pnpm, Yarn, Bun, Composer, Phive,
+                                               pip, uv, Poetry, Pipenv, Maven, Gradle, Go, pub)
+  ike pecl install|remove NAME --php 8.3 [--wait]     ike pear install|remove NAME [--wait]
   ike developers                               ike developers pause|resume|rm USERNAME
   ike developers invite USERNAME --email E --account A --area sites=write [--area files=write ...]
   ike developers set USERNAME [--account A ...] [--area AREA=read|write ...]
@@ -457,7 +466,7 @@ func run(args []string) error {
 	}
 	cmd, rest := args[0], args[1:]
 	pos, fs := parseFlags(rest, "wait", "plan", "remove-files", "insecure", "wildcard", "with-sites",
-		"yes", "overwrite", "delete-mail", "send-only", "rename", "recursive", "read-only", "point-dns")
+		"yes", "overwrite", "delete-mail", "send-only", "rename", "recursive", "read-only", "point-dns", "security", "i-have-a-snapshot")
 	if cmd == "version" || cmd == "--version" {
 		fmt.Println("ike", version)
 		return nil
@@ -699,6 +708,14 @@ func run(args []string) error {
 		return sftpCmd(c, pos, fs)
 	case "passkeys":
 		return passkeysCmd(c, pos)
+	case "update", "upgrade":
+		return updateCmd(c, pos, fs)
+	case "os", "os-updates":
+		return osCmd(c, pos, fs)
+	case "pecl", "pear":
+		return phpPkgCmd(c, cmd, pos, fs)
+	case "tools":
+		return toolsCmd(c)
 	case "developers", "team":
 		return teamCmd(c, pos, fs)
 	case "tokens":

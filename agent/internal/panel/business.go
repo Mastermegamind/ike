@@ -1131,7 +1131,12 @@ func (s *Server) ForwardEvents(ctx context.Context, since int64) int64 {
 		if e.ID > since {
 			since = e.ID
 		}
-		if e.Level == "bad" && s.Notifier != nil {
+		if s.Notifier == nil {
+			continue
+		}
+		if title, detail, ok := updateAlert(e); ok {
+			s.Notifier.Send(ctx, title, detail)
+		} else if e.Level == "bad" {
 			detail := e.Type
 			if msg, ok := e.Data["error"].(string); ok {
 				detail += ": " + msg
@@ -1173,4 +1178,30 @@ func (s *Server) ssoLogin(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	_ = ssoPage.Execute(w, nil)
+}
+
+// updateAlert words the update events admins hear about on their alert
+// channels: new versions waiting for approval, and how updates went.
+func updateAlert(e notification) (title, detail string, ok bool) {
+	str := func(k string) string { v, _ := e.Data[k].(string); return v }
+	num := func(k string) int { v, _ := e.Data[k].(float64); return int(v) }
+	switch e.Type {
+	case "ike.update.available":
+		return "Ike " + str("latest") + " is available", "This server runs Ike " + str("current") + ". Open Updates in the panel to read what's new and install it. Ike keeps the current version and goes back by itself if the new one isn't healthy.", true
+	case "ike.updated":
+		return "Ike updated to " + str("to"), "Updated from " + str("from") + " and checked: the agent and panel are healthy.", true
+	case "ike.rolled_back":
+		return "Ike is back on " + str("to"), "Went back from " + str("from") + " as asked.", true
+	case "ike.update.failed":
+		return "Ike update to " + str("to") + " didn't go through", str("reason") + ". This server still runs Ike " + str("from") + ".", true
+	case "server.updates.security":
+		return fmt.Sprintf("%d security updates are waiting", num("security")), fmt.Sprintf("%d package updates in all, %d of them security fixes. Open Updates in the panel to install them.", num("packages"), num("security")), true
+	case "server.updates.available":
+		return fmt.Sprintf("%d package updates are waiting", num("packages")), "Open Updates in the panel to review and install them.", true
+	case "server.updates.failed":
+		return "Package updates failed", str("error"), true
+	case "server.release.available":
+		return "Ubuntu " + str("available") + " is available", "This server runs Ubuntu " + str("current") + ". Moving to a new release needs a snapshot first; see Updates in the panel.", true
+	}
+	return "", "", false
 }

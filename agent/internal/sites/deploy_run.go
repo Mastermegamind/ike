@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -558,53 +559,99 @@ func (m *Manager) exists(path string) bool {
 	return err == nil
 }
 
-// detectBuild picks build steps from the files in the release.
+// detectBuild picks build steps from the files in the release. Supported
+// package managers: npm, pnpm, Yarn (classic and Berry), Bun; Composer and
+// Phive; pip, uv, Poetry, Pipenv; Maven (and mvnw), Gradle (and gradlew);
+// Go modules; Dart pub. A build command set on the website replaces this.
 func (m *Manager) detectBuild(L layout, rel string) []string {
 	has := func(f string) bool { return m.exists(filepath.Join(rel, f)) }
 	var cmds []string
-	npm := func() {
+	pkgJSON := m.p(filepath.Join(rel, "package.json"))
+	js := func() {
+		pm, ver := packageManager(pkgJSON)
+		run := "npm run build"
 		switch {
-		case has("pnpm-lock.yaml"):
-			cmds = append(cmds, "npx --yes pnpm@9 install --frozen-lockfile")
-		case has("yarn.lock"):
-			cmds = append(cmds, "npx --yes yarn@1 install --frozen-lockfile")
-		case has("package-lock.json"):
+		case pm == "bun" || has("bun.lockb") || has("bun.lock"):
+			bun := "npx --yes bun@" + orLatest(ver, "1")
+			cmds = append(cmds, bun+" install --frozen-lockfile")
+			run = bun + " run build"
+		case pm == "pnpm" || has("pnpm-lock.yaml"):
+			pnpm := "npx --yes pnpm@" + orLatest(ver, "9")
+			cmds = append(cmds, pnpm+" install --frozen-lockfile")
+			run = pnpm + " run build"
+		case pm == "yarn" || has("yarn.lock"):
+			if ver == "" || strings.HasPrefix(ver, "1") {
+				if !has(".yarnrc.yml") {
+					cmds = append(cmds, "npx --yes yarn@1 install --frozen-lockfile")
+					run = "npx --yes yarn@1 run build"
+					break
+				}
+				ver = "4"
+			}
+			// Yarn 2+ (Berry) runs from the version the project pins.
+			yarn := "npx --yes @yarnpkg/cli-dist@" + ver
+			cmds = append(cmds, yarn+" install --immutable")
+			run = yarn + " run build"
+		case has("package-lock.json") || has("npm-shrinkwrap.json"):
 			cmds = append(cmds, "npm ci")
 		default:
 			cmds = append(cmds, "npm install")
 		}
-		if pkgHasScript(m.p(filepath.Join(rel, "package.json")), "build") {
-			cmds = append(cmds, "npm run build")
+		if pkgHasScript(pkgJSON, "build") {
+			cmds = append(cmds, run)
+		}
+	}
+	php := func() {
+		if has("composer.json") {
+			cmds = append(cmds, "/usr/bin/php"+L.Version+" "+m.cfg.ComposerPath+" install --no-dev --no-interaction --prefer-dist --optimize-autoloader")
+		}
+		if has(".phive/phars.xml") {
+			// Phive checks each tool's GPG signature; list the keys you
+			// trust in .phive/trusted-keys (one id per line).
+			cmds = append(cmds, `phive --no-progress install --copy $(test -f .phive/trusted-keys && printf -- '--trust-gpg-keys %s' "$(grep -v '^#' .phive/trusted-keys | tr -s '\n ' ',' | sed 's/,$//')")`)
 		}
 	}
 	switch L.Runtime {
 	case RuntimePHP:
-		if has("composer.json") {
-			cmds = append(cmds, "/usr/bin/php"+L.Version+" "+m.cfg.ComposerPath+" install --no-dev --no-interaction --prefer-dist --optimize-autoloader")
-		}
-		if has("package.json") && pkgHasScript(m.p(filepath.Join(rel, "package.json")), "build") {
-			npm()
+		php()
+		if has("package.json") && pkgHasScript(pkgJSON, "build") {
+			js()
 		}
 	case RuntimeStatic, RuntimeNode:
 		if has("package.json") {
-			npm()
+			js()
 		}
 	case RuntimePython:
 		cmds = append(cmds, "python3 -m venv .venv")
 		switch {
+		case has("uv.lock"):
+			cmds = append(cmds, "UV_PROJECT_ENVIRONMENT=.venv uv sync --frozen --no-dev --python .venv/bin/python")
+		case has("poetry.lock"):
+			cmds = append(cmds, "POETRY_VIRTUALENVS_IN_PROJECT=true poetry install --only main --no-root --no-interaction")
+		case has("Pipfile.lock"):
+			cmds = append(cmds, "PIPENV_VENV_IN_PROJECT=1 pipenv sync")
+		case has("Pipfile"):
+			cmds = append(cmds, "PIPENV_VENV_IN_PROJECT=1 pipenv install --deploy")
 		case has("requirements.txt"):
 			cmds = append(cmds, ".venv/bin/pip install --no-input -r requirements.txt")
 		case has("pyproject.toml"):
 			cmds = append(cmds, ".venv/bin/pip install --no-input .")
 		}
 	case RuntimeGo:
+		if has("go.mod") {
+			cmds = append(cmds, "go mod download")
+		}
 		cmds = append(cmds, "go build -o app .")
 	case RuntimeJava:
 		switch {
 		case has("gradlew"):
 			cmds = append(cmds, "sh ./gradlew --no-daemon build -x test")
+		case has("mvnw"):
+			cmds = append(cmds, "sh ./mvnw -B -q -DskipTests package")
 		case has("pom.xml"):
 			cmds = append(cmds, "mvn -B -q -DskipTests package")
+		case has("build.gradle") || has("build.gradle.kts"):
+			cmds = append(cmds, "gradle --no-daemon build -x test")
 		}
 	case RuntimeDart:
 		if has("pubspec.yaml") {
@@ -612,6 +659,39 @@ func (m *Manager) detectBuild(L layout, rel string) []string {
 		}
 	}
 	return cmds
+}
+
+// packageManager reads package.json's "packageManager" ("pnpm@9.12.0").
+func packageManager(path string) (name, version string) {
+	b, err := os.ReadFile(path)
+	if err != nil || len(b) > 1<<20 {
+		return "", ""
+	}
+	var p struct {
+		PackageManager string `json:"packageManager"`
+	}
+	if json.Unmarshal(b, &p) != nil {
+		return "", ""
+	}
+	name, version, _ = strings.Cut(p.PackageManager, "@")
+	version, _, _ = strings.Cut(version, "+") // drop the "+sha512..." hash
+	if !pmVersionRe.MatchString(version) {
+		version = ""
+	}
+	switch name {
+	case "npm", "pnpm", "yarn", "bun":
+		return name, version
+	}
+	return "", ""
+}
+
+var pmVersionRe = regexp.MustCompile(`^[0-9]+(\.[0-9]+){0,2}(-[0-9A-Za-z.]+)?$`)
+
+func orLatest(v, def string) string {
+	if v == "" {
+		return def
+	}
+	return v
 }
 
 func pkgHasScript(path, name string) bool {
@@ -669,6 +749,10 @@ func (m *Manager) colorLayout(L layout, color, dir string, port int) layout {
 		c.AppDir = dir
 		c.AppEnvExtra = m.runtimeEnv(c)
 		c.AppPath = runtimePath(c, dir)
+		if fw := DetectFramework(m.p(dir)); fw != nil && fw.Start != "" && c.Runtime == RuntimeNode &&
+			(c.SiteStart == "" || c.SiteStart == defaultStartCommand(RuntimeNode)) {
+			c.StartCommand = fw.Start
+		}
 	}
 	if port != 0 {
 		c.Port = port
@@ -708,6 +792,8 @@ func (m *Manager) switchRelease(ctx context.Context, d *Deployment, log func(str
 	old := *site
 	nd := *site.Deploy
 	nd.Current = d.Release
+	nd.Framework = DetectFramework(m.p(rel))
+	logFramework(site, nd.Framework, log)
 	site.Deploy = &nd
 	newL := m.layout(site)
 	switch {
@@ -809,6 +895,7 @@ func (m *Manager) switchBlueGreen(ctx context.Context, site *Site, d *Deployment
 		old := *cur
 		nd := *cur.Deploy
 		nd.Current, nd.Color = d.Release, to
+		nd.Framework = DetectFramework(m.p(rel))
 		nd.Colors = map[string]string{}
 		for k, v := range cur.Deploy.Colors {
 			nd.Colors[k] = v
@@ -955,4 +1042,22 @@ func postSigned(ctx context.Context, url, secret string, body []byte) error {
 		return fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 	return nil
+}
+
+// logFramework tells the deploy log what was detected, and warns when the
+// website's runtime can't run it.
+func logFramework(site *Site, fw *Framework, log func(string, ...any)) {
+	if fw == nil {
+		return
+	}
+	switch {
+	case site.Runtime == RuntimeStatic && !fw.Static:
+		log("This is a %s app with its own server. A static website can only serve files; create the website as Node.js to run it.", fw.Name)
+	case site.Runtime == RuntimeStatic:
+		log("%s project: serving %s/%s", fw.Name, fw.OutputDir, map[bool]string{true: ", unknown paths get index.html", false: ""}[fw.SPA])
+	case site.Runtime == RuntimeNode && fw.Start != "":
+		log("%s project: started with %q unless the website has its own start command", fw.Name, fw.Start)
+	default:
+		log("%s project", fw.Name)
+	}
 }

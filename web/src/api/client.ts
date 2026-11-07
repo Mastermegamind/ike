@@ -109,7 +109,7 @@ class HttpApi implements Api {
   sites() { return this.get<Site[]>("/sites"); }
   site(d: string) { return this.get<Site>(`/sites/${e(d)}`); }
   createSite(r: CreateSiteRequest) { return this.req<Site>("POST", "/sites", r); }
-  updateSite(d: string, p: { version?: string; web_server?: WebServer; start_command?: string }) { return this.req<Site>("PATCH", `/sites/${e(d)}`, p); }
+  updateSite(d: string, p: { version?: string; web_server?: WebServer; start_command?: string; spa?: boolean }) { return this.req<Site>("PATCH", `/sites/${e(d)}`, p); }
   async deleteSite(d: string, rm: boolean) { await this.req("DELETE", `/sites/${e(d)}${rm ? "?remove_files=true" : ""}`); }
   setStatus(d: string, status: SiteStatus, allow_ips: string[]) { return this.req<Site>("PUT", `/sites/${e(d)}/status`, { status, allow_ips }); }
   async appAction(d: string, a: "start" | "stop" | "restart") { await this.req("POST", `/sites/${e(d)}/app/${a}`); }

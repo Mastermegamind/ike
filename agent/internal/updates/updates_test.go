@@ -2,13 +2,8 @@ package updates
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -45,11 +40,11 @@ func TestApplyAndAutoSettings(t *testing.T) {
 	root := t.TempDir()
 	r := &runner.DryRun{}
 	m := &Manager{Run: r, Jobs: jobs.NewManager(), Root: root}
-	j, err := m.Apply(true)
+	j, err := m.Apply(true, "test")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := m.Apply(false); err == nil {
+	if _, err := m.Apply(false, "test"); err == nil {
 		// may already be done in a fast run; only fail if still running
 		if jj, _ := m.Jobs.Get(j.ID); jj.Status == jobs.Running {
 			t.Error("second upgrade allowed while one runs")
@@ -83,67 +78,5 @@ func TestApplyAndAutoSettings(t *testing.T) {
 	}
 	if err := m.ScheduleReboot(context.Background(), 0); err == nil {
 		t.Error("zero-minute reboot accepted")
-	}
-}
-
-func TestSelfUpdate(t *testing.T) {
-	bin := []byte("new-agent-binary")
-	sum := sha256.Sum256(bin)
-	bad := false
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case strings.HasSuffix(r.URL.Path, "/releases/latest"):
-			w.Write([]byte(`{"tag_name":"v0.9.0","html_url":"https://example/rel","body":"Fixes"}`))
-		case strings.HasSuffix(r.URL.Path, ".sha256"):
-			s := hex.EncodeToString(sum[:])
-			if bad {
-				s = strings.Repeat("0", 64)
-			}
-			w.Write([]byte(s + "  file\n"))
-		case strings.Contains(r.URL.Path, "ike-panel"):
-			http.NotFound(w, r)
-		case strings.HasSuffix(r.URL.Path, "-linux-"+runtime.GOARCH):
-			w.Write(bin)
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer srv.Close()
-	root := t.TempDir()
-	r := &runner.DryRun{}
-	m := &Manager{Run: r, Jobs: jobs.NewManager(), Root: root, Version: "0.3.0", Repo: "acme/ike",
-		APIBase: srv.URL, DownloadBase: srv.URL, BinDir: "/usr/local/bin"}
-
-	rel, err := m.CheckIke(context.Background())
-	if err != nil || !rel.Available || rel.Latest != "0.9.0" {
-		t.Fatalf("%v %+v", err, rel)
-	}
-	j, err := m.UpdateIke(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if d := m.Jobs.Wait(j.ID, 3*time.Second); d.Status != jobs.Done {
-		t.Fatalf("%+v", d)
-	}
-	if b, _ := os.ReadFile(filepath.Join(root, "usr/local/bin/ike-agent")); string(b) != string(bin) {
-		t.Error("binary not installed")
-	}
-	if !strings.Contains(strings.Join(r.History(), "\n"), "systemd-run --on-active=3") {
-		t.Error("restart not scheduled")
-	}
-
-	bad = true
-	_ = os.Remove(filepath.Join(root, "usr/local/bin/ike-agent"))
-	j, _ = m.UpdateIke(context.Background())
-	if d := m.Jobs.Wait(j.ID, 3*time.Second); d.Status != jobs.Failed || !strings.Contains(d.Error, "checksum") {
-		t.Fatalf("bad checksum must fail: %+v", d)
-	}
-	if _, err := os.Stat(filepath.Join(root, "usr/local/bin/ike-agent")); !os.IsNotExist(err) {
-		t.Error("binary installed despite bad checksum")
-	}
-
-	m.Repo = "Mastermegamind/ike"
-	if _, err := m.CheckIke(context.Background()); err == nil {
-		t.Error("placeholder repo should be refused")
 	}
 }

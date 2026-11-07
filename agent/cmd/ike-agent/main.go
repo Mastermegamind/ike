@@ -36,6 +36,9 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "join" {
 		os.Exit(join(os.Args[2:]))
 	}
+	if len(os.Args) > 1 && os.Args[1] == "upgrade-verify" {
+		os.Exit(upgradeVerify(os.Args[2:]))
+	}
 	var (
 		socket  = flag.String("socket", "/run/ike/agent.sock", "unix socket to listen on")
 		cfgPath = flag.String("config", "/etc/ike/agent.json", "config file")
@@ -90,7 +93,8 @@ func run(socket, cfgPath, root, group string, dryRun bool) error {
 	}
 	jm := jobs.NewManager()
 	up := &updates.Manager{Run: r, Jobs: jm, Root: root, DryRun: dryRun, Version: api.Version, Repo: cfg.Repo,
-		APIBase: "https://api.github.com", DownloadBase: "https://github.com", BinDir: "/usr/local/bin"}
+		APIBase: "https://api.github.com", DownloadBase: "https://github.com", BinDir: "/usr/local/bin",
+		StateDir: "/var/lib/ike", Socket: socket}
 	srv := &api.Server{Sites: mgr, Updates: up, Jobs: jm, Firewall: fw, Runner: r, Config: cfg,
 		AuditPath: filepath.Join(root, "var/log/ike/agent-audit.log"),
 		Metrics:   sysinfo.NewSampler("/proc", filepath.Join(root, "var/lib/ike/metrics.json"))}
@@ -99,6 +103,7 @@ func run(socket, cfgPath, root, group string, dryRun bool) error {
 		return err
 	}
 	mgr.RewriteAllKeys()
+	up.Publish = srv.F.Env.Publish
 
 	if err := os.MkdirAll(filepath.Dir(socket), 0o750); err != nil {
 		return err
@@ -133,6 +138,10 @@ func run(socket, cfgPath, root, group string, dryRun bool) error {
 	go mgr.RunHealthMonitor(ctx)
 	go mgr.RunUsageSampler(ctx)
 	go srv.Metrics.Run(ctx)
+	if !cfg.DryRun {
+		go up.Watch(ctx, 6*time.Hour)
+		go up.WatchPackages(ctx, 12*time.Hour)
+	}
 	if !cfg.DryRun {
 		f := mgr.DetectWebFeatures(ctx)
 		slog.Info("web server features", "nginx", f.NginxVersion, "http2_directive", f.H2Directive, "http3", f.HTTP3)
@@ -209,4 +218,23 @@ func serveAuthSocket(ctx context.Context, path, group string, h http.Handler) er
 		}
 	}()
 	return nil
+}
+
+// upgradeVerify is the safety check after an update, run by systemd from the
+// copy of the version that was replaced: if the new Ike isn't healthy, it
+// puts this version back.
+func upgradeVerify(args []string) int {
+	fs := flag.NewFlagSet("upgrade-verify", flag.ExitOnError)
+	state := fs.String("state", "/var/lib/ike", "state folder")
+	socket := fs.String("socket", "/run/ike/agent.sock", "agent socket")
+	bin := fs.String("bin", "/usr/local/bin", "where Ike's programs are installed")
+	_ = fs.Parse(args)
+	m := &updates.Manager{Run: runner.Exec{}, Root: "/", Version: api.Version, StateDir: *state, Socket: *socket, BinDir: *bin}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	if err := m.VerifyUpgrade(ctx); err != nil {
+		slog.Error("upgrade check", "err", err)
+		return 1
+	}
+	return 0
 }

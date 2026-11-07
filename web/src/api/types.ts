@@ -27,6 +27,7 @@ export interface Site {
   php?: PHPSettings;
   ssl?: SSLSettings;
   deploy?: DeployState;
+  spa?: boolean;
   staging?: boolean;
   staging_of?: string;
   health?: HealthCheck;
@@ -209,6 +210,7 @@ export interface DeployState {
   build_command?: string; release_command?: string; container_port?: number; health_path?: string; keep_releases?: number;
   notify_url?: string; previews?: PreviewSettings; preview_of?: string; preview_number?: number;
   current?: string; color?: string; alt_port?: number;
+  framework?: { id: string; name: string; output_dir?: string; start?: string; spa?: boolean; static?: boolean };
 }
 export interface DeploySetup extends Omit<DeployState, "current" | "color" | "alt_port" | "preview_of" | "preview_number" | "strategy"> {
   strategy?: "restart" | "blue-green"; token?: string;
@@ -289,7 +291,7 @@ export interface Api {
   sites(): Promise<Site[]>;
   site(domain: string): Promise<Site>;
   createSite(req: CreateSiteRequest): Promise<Site>;
-  updateSite(domain: string, patch: { version?: string; web_server?: WebServer; start_command?: string }): Promise<Site>;
+  updateSite(domain: string, patch: { version?: string; web_server?: WebServer; start_command?: string; spa?: boolean }): Promise<Site>;
   deleteSite(domain: string, removeFiles: boolean): Promise<void>;
   setStatus(domain: string, status: SiteStatus, allowIps: string[]): Promise<Site>;
   appAction(domain: string, action: "start" | "stop" | "restart"): Promise<void>;

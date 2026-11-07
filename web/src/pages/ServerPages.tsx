@@ -1,4 +1,5 @@
 // Admin pages: firewall, activity, AI agents, server software, app installer, terminal.
+import { PackageToolsPanel } from "./PackageTools";
 import { useEffect, useRef, useState } from "react";
 import { AppWindow, Ban as BanIcon, Bot, Lock, Plus, ShieldCheck, ShieldOff, SquareTerminal, Trash2 } from "lucide-react";
 import { api } from "../api/client";
@@ -213,6 +214,7 @@ export function Software() {
           ))}
         </div>
       </section>
+      <PackageToolsPanel />
     </div>
   );
 }

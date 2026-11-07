@@ -2,7 +2,7 @@
 
 Everything the panel does goes through this API, so anything you can click you can also script. The `ike` CLI, the MCP server (`ike-mcp`), and the WHMCS and Blesta modules all use it.
 
-This page is generated from the code by `scripts/gen_api_doc.py`. A test fails when a route is missing, so the list stays complete: 379 routes.
+This page is generated from the code by `scripts/gen_api_doc.py`. A test fails when a route is missing, so the list stays complete: 392 routes.
 
 ## Where to send requests
 
@@ -500,8 +500,12 @@ Services, updates, usage, inventory, maintenance, webhooks, specs, migration and
 | `POST /drift/reconcile` | Reconcile: body `{"paths":` [...]} restore them (all when empty) |
 | `POST /fanout` *(panel)* | Run one request on many servers {"servers" or "group","method","path","body"} |
 | `POST /git/webhook/{domain}` | Raw Git host webhook (forwarded by the panel) |
+| `GET /ike` | Running version, newest release, settings, kept versions, history |
+| `POST /ike/check` | Ask GitHub now |
 | `GET /ike/release` | Newest Ike release vs running version |
-| `POST /ike/update` | Download, verify, install, restart → job |
+| `POST /ike/rollback` | Rollback: body `{"version"}` go back to a kept version → job |
+| `PUT /ike/settings` | Set the settings: body `{"mode":"notify\|auto\|off","skip"}` |
+| `POST /ike/update` | Download, verify, install, restart, health check → job |
 | `GET /imports` | Backups waiting in the imports folder |
 | `GET /imports/cpanel/{file}` | Inspect a cPanel backup in the imports folder |
 | `DELETE /imports/cpanel/{file}` | Delete an uploaded cPanel backup |
@@ -512,9 +516,14 @@ Services, updates, usage, inventory, maintenance, webhooks, specs, migration and
 | `GET /maintenance` | Maintenance windows |
 | `POST /maintenance` | Maintenance: body `{"title","start","end","sites","updates","reboot"}` |
 | `DELETE /maintenance/{id}` | Cancel a maintenance window |
+| `GET /package-tools` | Package managers deploys detect, and which are installed |
+| `POST /php/pear` | Install a PEAR package → job |
+| `DELETE /php/pear` | Remove it → job |
 | `GET /php/{version}/extensions` | Optional PHP extensions for a PHP version |
 | `POST /php/{version}/extensions/{name}` | Install → job |
 | `DELETE /php/{version}/extensions/{name}` | Remove → job |
+| `POST /php/{version}/pecl/{name}` | Build a PECL extension for this PHP version → job |
+| `DELETE /php/{version}/pecl/{name}` | Remove it → job |
 | `GET /quotas` | Disk quota status and per-account use |
 | `GET /server/metrics` | Server CPU, memory, swap, network per interface, disk I/O (+24 h history) |
 | `POST /server/reboot` | Reboot: body `{"in_minutes":` 5} |
@@ -538,6 +547,10 @@ Services, updates, usage, inventory, maintenance, webhooks, specs, migration and
 | `POST /updates/apply` | Apply: body `{"security_only":` bool} → background job |
 | `GET /updates/auto` | Automatic security update settings |
 | `PUT /updates/auto` | Set the auto: body `{"security_updates","auto_reboot","reboot_time"}` |
+| `GET /updates/history` | Package update runs with the versions they changed |
+| `GET /updates/release` | A newer Ubuntu LTS and whether the server is ready (?refresh=1) |
+| `POST /updates/release` | Release: body `{"have_snapshot":` true} move to it → job |
+| `POST /updates/runs/{id}/rollback` | Put a run's packages back to their earlier versions → job |
 | `GET /usage` | Per-account CPU, memory, disk, bandwidth (+24 h history) |
 | `GET /web/features` | Nginx version, HTTP/2 style, HTTP/3 |
 | `GET /webhooks` | List webhooks |

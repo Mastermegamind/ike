@@ -1,5 +1,12 @@
 # Roadmap
 
+## Done in v0.7.0
+
+- Ike updates itself with approval, a health check and automatic rollback; manual rollback ([UPDATES.md](UPDATES.md))
+- Ubuntu package update history with rollback; new Ubuntu releases on approval
+- JavaScript framework detection (Next.js, Nuxt, SvelteKit, Astro, Remix, NestJS, Vite, React, Vue, Angular, Gatsby)
+- More package managers: pnpm, Yarn Berry, Bun, uv, Poetry, Pipenv, pipx, Phive, PECL, PEAR, Maven and Gradle wrappers
+
 ## Done in v0.6.0
 
 - Swap and network graphs for the server (24 hours, every 5 minutes)
@@ -20,7 +27,7 @@
 - **Reseller and billing:** packages with enforced limits, reseller quotas, monthly bandwidth caps, recurring subscriptions, WHMCS and Blesta modules, white-label branding
 - **App platform:** Git deploys, previews, rollback, blue-green, Docker, Compose, buildpacks, k3s
 - **Scale:** many servers joined over mutual TLS, database clusters with failover, load balancing, server specs (infrastructure as code), webhooks, maintenance windows, inventory
-- **Automation:** the `ike` CLI, a 177-tool MCP server, the full API, scoped API tokens and per-key SSH access ([ACCESS.md](ACCESS.md))
+- **Automation:** the `ike` CLI, a 186-tool MCP server, the full API, scoped API tokens and per-key SSH access ([ACCESS.md](ACCESS.md))
 - **Migration:** cPanel full backups, including mail, cron and DNS
 - **Panel:** command palette, keyboard shortcuts, notification centre, help on every screen, and six languages
 

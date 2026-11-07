@@ -1,7 +1,7 @@
 // Server care: updates, the security scan with drift detection, resource usage and limits, and cPanel migration.
 import { useState } from "react";
 import {
-  ArrowUpCircle, CircleAlert, CircleCheck, FileDiff, FolderInput, PackageCheck, Power, RefreshCw, RotateCcw, Search,
+  CircleAlert, CircleCheck, FileDiff, FolderInput, PackageCheck, Power, RefreshCw, RotateCcw, Search,
   ShieldAlert, ShieldCheck, SlidersHorizontal, TriangleAlert,
 } from "lucide-react";
 import { api } from "../api/client";
@@ -11,6 +11,7 @@ import { Badge, Button, Empty, Field, Meter, Modal, Segmented, Skeleton, formatM
 import { PageHead, Toggle } from "../components/common";
 import { JobModal, useJob } from "../components/job";
 import { UsageChart } from "../components/chart";
+import { IkeVersions, PackageHistory, ServerVersions, UbuntuReleaseCard } from "./UpdatesV7";
 import type { MetricPoint, ServerMetrics } from "../api/types5";
 
 /* =============================================================== Updates */
@@ -78,28 +79,10 @@ export function Updates() {
         </section>
 
         <div className="stack">
-          <section className="panel">
-            <div className="panel-head">
-              <div><h2>Ike</h2><p className="small muted">{rel.data ? `Version ${rel.data.current}` : "Checking GitHub…"}</p></div>
-              {rel.data ? (rel.data.update_available ? <Badge tone="accent">{rel.data.latest} available</Badge> : <Badge tone="ok">Latest</Badge>) : null}
-            </div>
-            <div className="panel-body stack" style={{ gap: 12 }}>
-              {rel.error ? <p className="small muted">{rel.error}</p> : null}
-              {rel.data?.update_available ? (
-                <>
-                  <p className="small">{rel.data.notes}</p>
-                  <p className="small muted">Downloads are checked against their SHA-256 checksums. Websites stay online; the panel reconnects in a few seconds.</p>
-                  <div className="row">
-                    <Button variant="primary" loading={busy === "ike"} onClick={() => run("ike", async () => start(await api.updateIke()))}><ArrowUpCircle size={16} />Update to {rel.data.latest}</Button>
-                    <a className="btn ghost" href={rel.data.url} target="_blank" rel="noreferrer">Release notes</a>
-                  </div>
-                </>
-              ) : rel.data ? <p className="small muted">You're on the latest release.</p> : <Skeleton />}
-            </div>
-          </section>
+          <IkeVersions />
 
           <section className="panel">
-            <div className="panel-head"><div><h2>Automatic updates</h2><p className="small muted">Security fixes only. Feature updates always wait for you.</p></div></div>
+            <div className="panel-head"><div><h2>Automatic updates</h2><p className="small muted">Ubuntu's own daily security fixes. Everything else waits until you approve it here; you're told when updates are waiting.</p></div></div>
             {a ? (
               <div className="panel-body form-grid">
                 <Toggle checked={a.security_updates} onChange={(v) => setAuto({ ...a, security_updates: v })} label="Install security updates every day" />
@@ -114,6 +97,12 @@ export function Updates() {
             ) : <div className="panel-body"><Skeleton /></div>}
           </section>
         </div>
+      </div>
+
+      <PackageHistory onJob={() => st.reload()} />
+      <div className="grid-2">
+        <UbuntuReleaseCard />
+        <ServerVersions latest={rel.data?.latest} />
       </div>
 
       <JobModal job={job} onClose={clear} />

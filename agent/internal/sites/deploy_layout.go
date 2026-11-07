@@ -23,6 +23,8 @@ type DeployState struct {
 	Previews       *PreviewSettings `json:"previews,omitempty"`
 	PreviewOf      string           `json:"preview_of,omitempty"` // a preview deployment of this website
 	PreviewNumber  int              `json:"preview_number,omitempty"`
+	// Framework is what the live release was built with (detected).
+	Framework *Framework `json:"framework,omitempty"`
 
 	Current string            `json:"current,omitempty"`  // live release id
 	Color   string            `json:"color,omitempty"`    // a | b: which app instance is live (blue-green)
@@ -55,6 +57,7 @@ func (m *Manager) applyDeployLayout(s *Site, L *layout) {
 	if L.IsApp {
 		L.AppDir = cur
 	}
+	m.applyFramework(s, L, d.Framework, cur)
 	if d.Color == "b" {
 		L.ActivePort, L.ActiveUnit = d.AltPort, L.UnitName+"-b"
 		if id := d.Colors["b"]; id != "" && L.IsApp {
@@ -80,4 +83,21 @@ func (m *Manager) cleanupExtras(ctx context.Context, s *Site, L layout) {
 	m.removeDeployState(ctx, s, L)
 	_ = os.Remove(m.p(m.wafFile(s.Domain)))
 	_ = os.RemoveAll(m.p(htpasswdDir(s.Domain))) // password protection users
+}
+
+// applyFramework serves a static build's output folder (with index.html for
+// unknown paths in single-page apps) and starts Node.js frameworks with their
+// own server, unless the website says otherwise.
+func (m *Manager) applyFramework(s *Site, L *layout, fw *Framework, release string) {
+	if fw == nil {
+		return
+	}
+	L.Framework = fw
+	switch {
+	case s.Runtime == RuntimeStatic && fw.Static && safeRel(fw.OutputDir) && (s.Deploy == nil || s.Deploy.PublicDir == ""):
+		L.Root = filepath.Join(release, fw.OutputDir)
+		L.SPA = L.SPA || fw.SPA
+	case s.Runtime == RuntimeNode && fw.Start != "" && (s.StartCommand == "" || s.StartCommand == defaultStartCommand(RuntimeNode)):
+		L.StartCommand = fw.Start
+	}
 }

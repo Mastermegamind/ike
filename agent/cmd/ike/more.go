@@ -1477,3 +1477,229 @@ func passkeysCmd(c *client, pos []string) error {
 	})
 	return nil
 }
+
+// ---------------------------------------------------------------- updates
+
+func (c *client) startJob(method, path string, body any, wait bool, what string) error {
+	var j struct {
+		ID string `json:"id"`
+	}
+	if err := c.do(method, path, body, &j); err != nil {
+		return err
+	}
+	if wait {
+		return c.waitJob(j.ID)
+	}
+	c.done("%s started (job %s). Follow it with: ike jobs %s --wait", what, j.ID, j.ID)
+	return nil
+}
+
+func updateCmd(c *client, pos []string, fs flagSet) error {
+	wait := fs.bools["wait"]
+	if len(pos) == 0 || pos[0] == "status" {
+		var st struct {
+			Current string `json:"current"`
+			Latest  *struct {
+				Latest    string `json:"latest"`
+				Available bool   `json:"update_available"`
+				Notes     string `json:"notes"`
+			} `json:"latest"`
+			Settings struct {
+				Mode string `json:"mode"`
+				Skip string `json:"skip"`
+			} `json:"settings"`
+			Kept    []string         `json:"kept_versions"`
+			History []map[string]any `json:"history"`
+		}
+		if err := c.do("GET", "/ike", nil, &st); err != nil {
+			return err
+		}
+		c.show(st, func(w *tabwriter.Writer) {
+			fmt.Fprintf(w, "Ike\t%s\n", st.Current)
+			if st.Latest != nil && st.Latest.Available {
+				fmt.Fprintf(w, "Newest\t%s (ike update install)\n", st.Latest.Latest)
+			} else {
+				fmt.Fprintln(w, "Newest\tyou have it")
+			}
+			fmt.Fprintf(w, "New versions\t%s\n", map[string]string{"notify": "ask first", "auto": "install by itself", "off": "not checked"}[st.Settings.Mode])
+			if len(st.Kept) > 0 {
+				fmt.Fprintf(w, "Kept for rollback\t%s\n", strings.Join(st.Kept, ", "))
+			}
+			if len(st.History) > 0 {
+				fmt.Fprintln(w, "\nCHANGE\tBY\tRESULT\tWHEN")
+				for _, h := range st.History {
+					fmt.Fprintf(w, "%v → %v\t%v\t%v %v\t%v\n", h["from"], h["to"], orDefault(text(h["by"]), "-"), h["status"], text(h["reason"]), h["started_at"])
+				}
+			}
+		})
+		return nil
+	}
+	switch pos[0] {
+	case "check":
+		var rel map[string]any
+		if err := c.do("POST", "/ike/check", nil, &rel); err != nil {
+			return err
+		}
+		if rel["update_available"] == true {
+			c.done("Ike %v is available (you have %v). Install it with: ike update install", rel["latest"], rel["current"])
+		} else {
+			c.done("Ike %v is the newest version", rel["current"])
+		}
+		return nil
+	case "install":
+		return c.startJob("POST", "/ike/update", nil, wait, "Update")
+	case "rollback":
+		body := map[string]string{}
+		if len(pos) > 1 {
+			body["version"] = pos[1]
+		}
+		return c.startJob("POST", "/ike/rollback", body, wait, "Rollback")
+	case "mode":
+		if len(pos) != 2 {
+			return errUsage
+		}
+		var cur struct {
+			Settings map[string]any `json:"settings"`
+		}
+		if err := c.do("GET", "/ike", nil, &cur); err != nil {
+			return err
+		}
+		cur.Settings["mode"] = pos[1]
+		if err := c.do("PUT", "/ike/settings", cur.Settings, nil); err != nil {
+			return err
+		}
+		c.done("New Ike versions: %s", pos[1])
+		return nil
+	case "skip":
+		if len(pos) != 2 {
+			return errUsage
+		}
+		var cur struct {
+			Settings map[string]any `json:"settings"`
+		}
+		if err := c.do("GET", "/ike", nil, &cur); err != nil {
+			return err
+		}
+		cur.Settings["skip"] = pos[1]
+		if err := c.do("PUT", "/ike/settings", cur.Settings, nil); err != nil {
+			return err
+		}
+		c.done("Skipping Ike %s; newer versions are offered again", pos[1])
+		return nil
+	}
+	return errUsage
+}
+
+func osCmd(c *client, pos []string, fs flagSet) error {
+	wait := fs.bools["wait"]
+	if len(pos) == 0 || pos[0] == "list" {
+		var st struct {
+			Packages []map[string]any `json:"packages"`
+			Security int              `json:"security_count"`
+			Reboot   bool             `json:"reboot_required"`
+		}
+		if err := c.do("GET", "/updates", nil, &st); err != nil {
+			return err
+		}
+		c.show(st, func(w *tabwriter.Writer) {
+			fmt.Fprintf(w, "%d waiting, %d security. Install with: ike os install [--security] --wait\n", len(st.Packages), st.Security)
+			if st.Reboot {
+				fmt.Fprintln(w, "A restart is needed to finish earlier updates.")
+			}
+			fmt.Fprintln(w, "\nPACKAGE\tFROM\tTO\t")
+			for _, p := range st.Packages {
+				sec := ""
+				if p["security"] == true {
+					sec = "security"
+				}
+				fmt.Fprintf(w, "%v\t%v\t%v\t%s\n", p["name"], p["from"], p["to"], sec)
+			}
+		})
+		return nil
+	}
+	switch pos[0] {
+	case "install":
+		return c.startJob("POST", "/updates/apply", map[string]bool{"security_only": fs.bools["security"]}, wait, "Package update")
+	case "history":
+		var runs []map[string]any
+		if err := c.do("GET", "/updates/history", nil, &runs); err != nil {
+			return err
+		}
+		c.show(runs, func(w *tabwriter.Writer) {
+			fmt.Fprintln(w, "RUN\tKIND\tBY\tCHANGED\tRESULT\tWHEN")
+			for _, r := range runs {
+				ch, _ := r["changes"].([]any)
+				res := text(r["status"])
+				if r["rolled_back_by"] != nil {
+					res += ", rolled back"
+				}
+				fmt.Fprintf(w, "%v\t%v\t%v\t%d\t%s\t%v\n", r["id"], r["kind"], orDefault(text(r["by"]), "-"), len(ch), res, r["started_at"])
+			}
+		})
+		return nil
+	case "rollback":
+		if len(pos) != 2 {
+			return errUsage
+		}
+		return c.startJob("POST", "/updates/runs/"+url.PathEscape(pos[1])+"/rollback", nil, wait, "Rollback")
+	case "release":
+		if len(pos) == 2 && pos[1] == "upgrade" {
+			if !fs.bools["i-have-a-snapshot"] {
+				return fmt.Errorf("moving to a new Ubuntu release can't be undone from Ike; take a snapshot at your provider, then add --i-have-a-snapshot")
+			}
+			return c.startJob("POST", "/updates/release", map[string]bool{"have_snapshot": true}, wait, "Release upgrade")
+		}
+		var r map[string]any
+		if err := c.do("GET", "/updates/release?refresh=1", nil, &r); err != nil {
+			return err
+		}
+		c.show(r, func(w *tabwriter.Writer) {
+			if text(r["available"]) == "" {
+				fmt.Fprintf(w, "%s is the newest release offered.\n", strings.TrimSpace("Ubuntu "+text(r["current"])))
+				return
+			}
+			fmt.Fprintf(w, "Ubuntu %v is available (this server runs %v).\n\n", r["available"], r["current"])
+			checks, _ := r["checks"].([]any)
+			for _, x := range checks {
+				ch, _ := x.(map[string]any)
+				mark := "ok "
+				if ch["ok"] != true {
+					mark = "no "
+				}
+				fmt.Fprintf(w, "%s\t%v\t%v\n", mark, ch["name"], text(ch["note"]))
+			}
+			fmt.Fprintln(w, "\nWhen every check is ok: ike os release upgrade --i-have-a-snapshot --wait")
+		})
+		return nil
+	}
+	return errUsage
+}
+
+func phpPkgCmd(c *client, kind string, pos []string, fs flagSet) error {
+	if len(pos) < 2 || (pos[0] != "install" && pos[0] != "remove") {
+		return errUsage
+	}
+	method := map[string]string{"install": "POST", "remove": "DELETE"}[pos[0]]
+	if kind == "pear" {
+		return c.startJob(method, "/php/pear?name="+url.QueryEscape(pos[1]), nil, fs.bools["wait"], "PEAR "+pos[1])
+	}
+	v := fs.get("php")
+	if v == "" {
+		return fmt.Errorf("say which PHP version with --php 8.3")
+	}
+	return c.startJob(method, "/php/"+url.PathEscape(v)+"/pecl/"+url.PathEscape(pos[1]), nil, fs.bools["wait"], "PECL "+pos[1])
+}
+
+func toolsCmd(c *client) error {
+	var tools []map[string]any
+	if err := c.do("GET", "/package-tools", nil, &tools); err != nil {
+		return err
+	}
+	c.show(tools, func(w *tabwriter.Writer) {
+		fmt.Fprintln(w, "TOOL\tLANGUAGE\tINSTALLED\tA DEPLOY USES IT FOR")
+		for _, t := range tools {
+			fmt.Fprintf(w, "%v\t%v\t%v\t%v\n", t["name"], t["language"], map[bool]string{true: "yes", false: "no"}[t["installed"] == true], orDefault(text(t["detects"]), text(t["note"])))
+		}
+	})
+	return nil
+}

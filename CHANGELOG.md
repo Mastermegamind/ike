@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.7.0
+
+### New
+
+- **Ike updates itself, safely.** Every server checks for new releases and tells admins in the panel and on their alert channels. Updates install when an admin approves them, or by themselves if you choose. Before installing, Ike keeps the current version; after the restart, the previous version checks the new one and goes back by itself if it isn't healthy. Go back to any of the last three versions by hand. **Skip this version**. On a multi-server panel, see and update each server's version. [docs/UPDATES.md](docs/UPDATES.md)
+- **Ubuntu packages with a history.** Waiting updates are announced (security fixes separately) and install when an admin approves. Each run records every package's version before and after, and can be rolled back.
+- **New Ubuntu releases.** A newer LTS is announced; moving runs only after checks pass and you confirm a snapshot, and Ike turns its package sources back on afterwards.
+- **JavaScript frameworks.** Git deploys recognise Next.js, Nuxt, SvelteKit, Astro, Remix, NestJS, Express and friends, Vite (React, Vue, Svelte, Solid, Preact), Create React App, Angular and Gatsby: static builds are served from their output folder, single-page apps send unknown paths to `index.html`, and Node.js apps start with the framework's server. **Single-page app** switch for static websites.
+- **Package managers.** Deploys detect pnpm, Yarn (classic and Berry) and Bun at the version the project pins, uv, Poetry, Pipenv, Phive, Maven and Gradle wrappers and Go modules, next to npm, Composer, pip and pub. The installer adds uv, Poetry, Pipenv, pipx, PEAR/PECL and Phive (`--gradle` for Gradle). PECL extensions and PEAR packages install from the PHP extensions page.
+- CLI: `ike update`, `ike os`, `ike tools`, `ike pecl`, `ike pear`. MCP: 9 new tools.
+
+### Fixed
+
+- Update checks were switched off by the repository rename in v0.6.0.
+
 ## v0.6.0
 
 Every item in the feature tracker is now done.

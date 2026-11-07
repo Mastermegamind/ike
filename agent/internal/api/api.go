@@ -49,8 +49,16 @@
 //	PUT    /v1/updates/auto                    {"security_updates","auto_reboot","reboot_time"}
 //	POST   /v1/server/reboot                   {"in_minutes": 5}
 //	DELETE /v1/server/reboot                   cancel a scheduled reboot
+//	GET    /v1/updates/history                 package update runs with the versions they changed
+//	POST   /v1/updates/runs/{id}/rollback      put a run's packages back to their earlier versions → job
+//	GET    /v1/updates/release                 a newer Ubuntu LTS and whether the server is ready (?refresh=1)
+//	POST   /v1/updates/release                 {"have_snapshot": true} move to it → job
 //	GET    /v1/ike/release                     newest Ike release vs running version
-//	POST   /v1/ike/update                      download, verify, install, restart → job
+//	GET    /v1/ike                             running version, newest release, settings, kept versions, history
+//	POST   /v1/ike/check                       ask GitHub now
+//	PUT    /v1/ike/settings                    {"mode":"notify|auto|off","skip"}
+//	POST   /v1/ike/update                      download, verify, install, restart, health check → job
+//	POST   /v1/ike/rollback                    {"version"} go back to a kept version → job
 //	GET    /v1/jobs, GET /v1/jobs/{id}         background job status and log
 //
 //	GET    /v1/sites/{domain}/diagnose         health assistant: plain-language findings
@@ -424,9 +432,43 @@ func (s *Server) Handler() http.Handler {
 
 	// ---- updates and jobs
 	h("GET /v1/updates", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		if r.URL.Query().Get("cached") == "1" {
+			if st := s.Updates.CachedStatus(); st != nil {
+				return ok(st, nil)
+			}
+		}
 		ctx, cancel := long(r)
 		defer cancel()
 		return ok(s.Updates.Check(ctx))
+	})
+	h("GET /v1/updates/history", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		return ok(s.Updates.PackageRuns(), nil)
+	})
+	h("POST /v1/updates/runs/{id}/rollback", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		j, err := s.Updates.RollbackPackages(r.Context(), r.PathValue("id"), actor(r))
+		return http.StatusAccepted, j, err
+	})
+	h("GET /v1/updates/release", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		if r.URL.Query().Get("refresh") != "1" {
+			if rel := s.Updates.CachedRelease(); rel != nil {
+				return ok(rel, nil)
+			}
+		}
+		ctx, cancel := long(r)
+		defer cancel()
+		return ok(s.Updates.CheckRelease(ctx))
+	})
+	h("POST /v1/updates/release", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		var body struct {
+			HaveSnapshot bool `json:"have_snapshot"`
+		}
+		if !decode(w, r, &body) {
+			return 0, nil, nil
+		}
+		ctx, cancel := long(r)
+		defer cancel()
+		j, err := s.Updates.UpgradeRelease(ctx, actor(r), body.HaveSnapshot)
+		return http.StatusAccepted, j, err
 	})
 	h("POST /v1/updates/apply", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
 		var body struct {
@@ -435,7 +477,7 @@ func (s *Server) Handler() http.Handler {
 		if r.ContentLength != 0 && !decode(w, r, &body) {
 			return 0, nil, nil
 		}
-		j, err := s.Updates.Apply(body.SecurityOnly)
+		j, err := s.Updates.Apply(body.SecurityOnly, actor(r))
 		return http.StatusAccepted, j, err
 	})
 	h("GET /v1/updates/auto", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
@@ -464,7 +506,30 @@ func (s *Server) Handler() http.Handler {
 		return ok(s.Updates.CheckIke(r.Context()))
 	})
 	h("POST /v1/ike/update", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
-		j, err := s.Updates.UpdateIke(r.Context())
+		j, err := s.Updates.UpdateIke(r.Context(), actor(r))
+		return http.StatusAccepted, j, err
+	})
+	h("GET /v1/ike", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		return ok(s.Updates.SelfStatus(), nil)
+	})
+	h("POST /v1/ike/check", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		return ok(s.Updates.CheckNow(r.Context()))
+	})
+	h("PUT /v1/ike/settings", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		var body updates.SelfSettings
+		if !decode(w, r, &body) {
+			return 0, nil, nil
+		}
+		return ok(s.Updates.SetSelfSettings(body))
+	})
+	h("POST /v1/ike/rollback", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		var body struct {
+			Version string `json:"version"`
+		}
+		if r.ContentLength != 0 && !decode(w, r, &body) {
+			return 0, nil, nil
+		}
+		j, err := s.Updates.Rollback(r.Context(), body.Version, actor(r))
 		return http.StatusAccepted, j, err
 	})
 	h("GET /v1/jobs", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
@@ -712,7 +777,7 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 func writeErr(w http.ResponseWriter, err error) {
 	code := http.StatusBadRequest
 	switch {
-	case errors.Is(err, sites.ErrNotFound), errors.Is(err, firewall.ErrNotFound):
+	case errors.Is(err, sites.ErrNotFound), errors.Is(err, firewall.ErrNotFound), errors.Is(err, updates.ErrNotFound):
 		code = http.StatusNotFound
 	case errors.Is(err, sites.ErrExists), errors.Is(err, firewall.ErrExists):
 		code = http.StatusConflict

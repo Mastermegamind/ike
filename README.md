@@ -49,7 +49,9 @@ An open-source, all-in-one hosting control panel for Linux VPS servers. It combi
 - **SSH per account**: none, SFTP-only (chrooted to the account's home) or full shell, and each key can be narrowed to SFTP or read-only SFTP, some addresses and an expiry date; website SFTP users see one website only
 - **Developers:** account owners invite a developer to chosen accounts and areas (websites, files, databases ...), never billing
 - **Password-protected folders** with their own users, and **server graphs** for CPU, memory, swap, disk and network
-- **API, CLI and AI agents**: every screen is in the [API](docs/API.md), the [`ike` command](docs/CLI.md) and a 177-tool [MCP server](docs/MCP.md). Each gives full or limited access: API tokens can be limited to some areas (read or write), accounts and addresses, and can expire ([who can do what](docs/ACCESS.md))
+- **Updates with a way back:** Ike and Ubuntu packages update when you approve; a new Ike version is checked after it starts and rolled back by itself if it isn't healthy ([updates](docs/UPDATES.md))
+- **Frameworks:** Next.js, Nuxt, SvelteKit, Astro, Remix, NestJS, React, Vue and Angular deploy from Git without settings, with npm, pnpm, Yarn, Bun, Composer, Poetry, Pipenv, uv, Maven or Gradle
+- **API, CLI and AI agents**: every screen is in the [API](docs/API.md), the [`ike` command](docs/CLI.md) and a 186-tool [MCP server](docs/MCP.md). Each gives full or limited access: API tokens can be limited to some areas (read or write), accounts and addresses, and can expire ([who can do what](docs/ACCESS.md))
 - **Safe by design**: the root agent only accepts a fixed set of validated actions, never shell commands; failed changes roll back automatically
 
 ## Supported systems
@@ -165,7 +167,7 @@ docs/         Guides, API reference, feature tracker and roadmap
 
 ## Roadmap
 
-v0.6.0 covers all 177 features in the [tracker](docs/FEATURES.md). Next: a one-click app catalog, a certificate for the panel's own address from the settings, MCP over HTTP from the panel, and creating servers through cloud provider APIs. See [docs/ROADMAP.md](docs/ROADMAP.md) and the [ports plan](docs/PORTS.md).
+v0.7.0 covers all 177 features in the [tracker](docs/FEATURES.md). Next: a one-click app catalog, a certificate for the panel's own address from the settings, MCP over HTTP from the panel, and creating servers through cloud provider APIs. See [docs/ROADMAP.md](docs/ROADMAP.md) and the [ports plan](docs/PORTS.md).
 
 ## Development
 

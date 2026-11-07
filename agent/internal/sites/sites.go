@@ -19,20 +19,23 @@ import (
 
 // Site is one website inside an account.
 type Site struct {
-	Domain       string       `json:"domain"`
-	Account      string       `json:"account"`
-	Runtime      string       `json:"runtime"`           // php | node | python | static
-	Version      string       `json:"version,omitempty"` // 8.3, 22, 3.12
-	WebServer    string       `json:"web_server"`        // nginx | apache | nginx+apache
-	DocRoot      string       `json:"doc_root"`
-	Port         int          `json:"port,omitempty"` // local port for Node.js/Python apps
-	StartCommand string       `json:"start_command,omitempty"`
-	Status       string       `json:"status"`               // active | maintenance | suspended
-	AllowIPs     []string     `json:"allow_ips,omitempty"`  // see the real site during maintenance
-	Staging      bool         `json:"staging,omitempty"`    // a staging copy, hidden from search engines
-	StagingOf    string       `json:"staging_of,omitempty"` // the live domain it was copied from
-	Health       *HealthCheck `json:"health,omitempty"`     // apps only
-	CreatedAt    time.Time    `json:"created_at"`
+	Domain       string   `json:"domain"`
+	Account      string   `json:"account"`
+	Runtime      string   `json:"runtime"`           // php | node | python | static
+	Version      string   `json:"version,omitempty"` // 8.3, 22, 3.12
+	WebServer    string   `json:"web_server"`        // nginx | apache | nginx+apache
+	DocRoot      string   `json:"doc_root"`
+	Port         int      `json:"port,omitempty"` // local port for Node.js/Python apps
+	StartCommand string   `json:"start_command,omitempty"`
+	Status       string   `json:"status"`              // active | maintenance | suspended
+	AllowIPs     []string `json:"allow_ips,omitempty"` // see the real site during maintenance
+	Staging      bool     `json:"staging,omitempty"`   // a staging copy, hidden from search engines
+	// SPA answers unknown paths with index.html (client-side routing in React,
+	// Vue or Angular apps). Detected for deployed projects; can be set by hand.
+	SPA       bool         `json:"spa,omitempty"`
+	StagingOf string       `json:"staging_of,omitempty"` // the live domain it was copied from
+	Health    *HealthCheck `json:"health,omitempty"`     // apps only
+	CreatedAt time.Time    `json:"created_at"`
 
 	// Domains: extra names served by this website.
 	Aliases         []string          `json:"aliases,omitempty"`          // other domains, subdomains or *.wildcards
@@ -65,6 +68,7 @@ type UpdateRequest struct {
 	Version      string `json:"version,omitempty"`
 	WebServer    string `json:"web_server,omitempty"`
 	StartCommand string `json:"start_command,omitempty"`
+	SPA          *bool  `json:"spa,omitempty"`
 }
 
 type layout struct {
@@ -131,6 +135,10 @@ type layout struct {
 	// OpenLiteSpeed
 	OLSApp, OLSFile      string
 	OLSRules, OLSHeaders []string
+	// JavaScript frameworks
+	SPA       bool
+	Framework *Framework
+	SiteStart string // the start command set on the website (before framework detection)
 }
 
 // siteID is a short, stable, filename-safe id for a domain.
@@ -165,6 +173,8 @@ func (m *Manager) layout(s *Site) layout {
 		StartScript:  filepath.Join(m.cfg.AppsDir, key+".sh"),
 		Port:         s.Port,
 		StartCommand: s.StartCommand,
+		SiteStart:    s.StartCommand,
+		SPA:          s.SPA,
 		IsApp:        IsApp(s.Runtime),
 		Proxied:      IsProxied(s.Runtime),
 		AcmeDir:      m.cfg.AcmeDir,
@@ -478,6 +488,18 @@ func (m *Manager) Update(ctx context.Context, domain string, req UpdateRequest) 
 			return nil, err
 		}
 		site.StartCommand = req.StartCommand
+	}
+	if req.SPA != nil {
+		if site.Runtime != RuntimeStatic {
+			return nil, fmt.Errorf("only static websites answer unknown paths with index.html; apps do their own routing")
+		}
+		site.SPA = *req.SPA
+	}
+	if site.SPA != old.SPA && site.Version == old.Version && site.WebServer == old.WebServer && site.StartCommand == old.StartCommand {
+		if err := m.applyWeb(ctx, site, &old); err != nil {
+			return nil, err
+		}
+		return site, nil
 	}
 	if site.Version == old.Version && site.WebServer == old.WebServer && site.StartCommand == old.StartCommand {
 		return site, nil

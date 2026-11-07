@@ -62,7 +62,7 @@ When it starts, `ike-mcp` asks the panel what the token may do and hides every t
 
 ## Tools
 
-177 tools. Tools marked * need the panel connection.
+186 tools. Tools marked * need the panel connection.
 
 | Area (`--tools` name) | Read | Change (need `--allow-write`) |
 |---|---|---|
@@ -76,7 +76,7 @@ When it starts, `ike-mcp` asks the panel what the token may do and hides every t
 | Containers (`containers`) | `list_containers`, `list_stacks`, `kubernetes_status` | `container_action`, `stack_action` |
 | Security (`security`) | `security_scan`, `get_firewall`, `list_bans`, `list_malware_scans`, `get_malware_overview`, `list_quarantine`, `get_waf_events`, `get_secrets_status` | `open_port`, `close_port`, `block_address`, `unblock_address`, `unban_ip`, `scan_for_malware`, `quarantine_findings`, `restore_quarantined_file`, `set_waf` |
 | Packages and billing (`billing`) | `get_disk_quotas`, `list_packages`*, `list_account_packages`*, `get_bandwidth`*, `list_subscriptions`*, `list_invoices`* | `create_package`*, `assign_package`*, `create_subscription`*, `cancel_subscription`* |
-| Server (`server`) | `get_system_info`, `get_service_status`, `get_audit_log`, `check_updates`, `get_usage`, `detect_drift`, `list_php_extensions`, `get_server_metrics`, `get_inventory`, `get_events`, `list_maintenance`, `list_webhooks`, `export_spec`, `plan_spec`, `list_cpanel_imports`, `inspect_cpanel_backup`, `list_servers`*, `list_clusters`*, `list_my_passkeys`*, `list_notifications`* | `install_updates`, `install_php_extension`, `reconcile_drift`, `apply_spec`, `schedule_maintenance`, `restore_cpanel_backup`, `promote_replica`* |
+| Server (`server`) | `get_system_info`, `get_service_status`, `get_audit_log`, `check_updates`, `get_usage`, `detect_drift`, `list_php_extensions`, `get_server_metrics`, `get_inventory`, `get_events`, `list_maintenance`, `list_webhooks`, `export_spec`, `plan_spec`, `list_cpanel_imports`, `inspect_cpanel_backup`, `list_servers`*, `list_clusters`*, `get_ike_versions`, `get_package_update_history`, `check_ubuntu_release`, `list_package_tools`, `list_my_passkeys`*, `list_notifications`* | `install_updates`, `install_php_extension`, `reconcile_drift`, `apply_spec`, `schedule_maintenance`, `restore_cpanel_backup`, `promote_replica`*, `update_ike`, `rollback_ike`, `rollback_package_update`, `install_pecl_extension`, `install_pear_package` |
 | Always available (always) | `list_runtimes`, `get_job`, `list_apps` |  |
 
 ## Safety

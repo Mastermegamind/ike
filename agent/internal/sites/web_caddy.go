@@ -145,6 +145,10 @@ var caddyTmpl = template.Must(template.New("caddy").Funcs(caddyFuncs).Parse(`# M
 {{- end}}
 		@ike_static path_regexp ike_static ` + "`\\.(css|js|mjs|jpg|jpeg|png|gif|webp|avif|svg|ico|woff2?)$`" + `
 		header @ike_static Cache-Control "public, max-age=2592000"
+{{- if .SPA}}
+		# Single-page app: unknown paths get index.html.
+		try_files {path} {path}/ /index.html
+{{- end}}
 		file_server
 {{- end}}
 	}

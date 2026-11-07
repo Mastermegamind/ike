@@ -2,8 +2,8 @@
 //
 //   - Ubuntu packages: list pending updates, apply all or security-only,
 //     configure automatic security updates, detect and schedule reboots.
-//   - Ike: check GitHub releases and replace ike-agent / ike-mcp after
-//     verifying their SHA-256 checksums.
+//   - Ike: check GitHub releases, announce new versions, install them on
+//     approval with a health check and automatic rollback (selfupdate.go).
 //
 // Moving to a new Ubuntu release is deliberately not done in place: Ike's
 // server-to-server migration moves accounts to a freshly installed VPS instead.
@@ -12,8 +12,6 @@ package updates
 import (
 	"bufio"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,7 +20,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -43,6 +40,13 @@ type Manager struct {
 	DownloadBase string // https://github.com
 	BinDir       string // /usr/local/bin
 	HTTP         *http.Client
+
+	StateDir string // /var/lib/ike: update history and kept versions
+	Socket   string // the agent socket the watchdog checks
+	// Publish sends events to the notification centre (may be nil).
+	Publish func(kind, subject string, data map[string]any)
+	// Health returns the running agent's version (tests; nil = ask the socket).
+	Health func(ctx context.Context) (string, error)
 }
 
 func (m *Manager) p(abs string) string { return filepath.Join(m.Root, abs) }
@@ -108,6 +112,7 @@ func (m *Manager) Check(ctx context.Context) (*Status, error) {
 	}
 	st.RebootRequired, st.RebootPackages = m.rebootRequired()
 	st.Auto = m.AutoSettings()
+	m.remember(st)
 	return st, nil
 }
 
@@ -121,45 +126,6 @@ func (m *Manager) rebootRequired() (bool, []string) {
 		pkgs = append(pkgs, l)
 	}
 	return true, pkgs
-}
-
-// Apply installs updates in the background. securityOnly uses Ubuntu's
-// unattended-upgrade, which only takes packages from the security pocket.
-func (m *Manager) Apply(securityOnly bool) (*jobs.Job, error) {
-	title := "Install all updates"
-	if securityOnly {
-		title = "Install security updates"
-	}
-	return m.Jobs.Start("os-upgrade", title, 90*time.Minute, func(ctx context.Context, log jobs.Logger) error {
-		log("Refreshing package lists")
-		if out, err := m.Run.Run(ctx, "apt-get", "update", "-q"); err != nil {
-			log("%s", out)
-			return err
-		}
-		var out []byte
-		var err error
-		if securityOnly {
-			log("Installing security updates")
-			out, err = m.Run.Run(ctx, "unattended-upgrade", "-v")
-		} else {
-			log("Installing all updates (existing config files are kept)")
-			out, err = m.Run.Run(ctx, "env", "DEBIAN_FRONTEND=noninteractive", "NEEDRESTART_MODE=a",
-				"apt-get", "-y", "-q", "-o", "Dpkg::Options::=--force-confdef", "-o", "Dpkg::Options::=--force-confold", "upgrade")
-		}
-		log("%s", tail(string(out), 120))
-		if err != nil {
-			return err
-		}
-		if out, err := m.Run.Run(ctx, "apt-get", "-y", "-q", "autoremove"); err != nil {
-			log("%s", tail(string(out), 20))
-		}
-		if r, pkgs := m.rebootRequired(); r {
-			log("A reboot is needed to finish (%s).", strings.Join(pkgs, ", "))
-		} else {
-			log("All done. No reboot needed.")
-		}
-		return nil
-	})
 }
 
 func tail(s string, n int) string {
@@ -243,7 +209,7 @@ type Release struct {
 
 // CheckIke asks GitHub for the latest release.
 func (m *Manager) CheckIke(ctx context.Context) (*Release, error) {
-	if m.Repo == "" || strings.Contains(m.Repo, "Mastermegamind") {
+	if m.Repo == "" || strings.Contains(m.Repo, "YOUR-"+"ORG") {
 		return nil, fmt.Errorf("the Ike release repository isn't configured yet (set \"repo\" in agent.json)")
 	}
 	req, _ := http.NewRequestWithContext(ctx, "GET", m.APIBase+"/repos/"+m.Repo+"/releases/latest", nil)
@@ -253,6 +219,9 @@ func (m *Manager) CheckIke(ctx context.Context) (*Release, error) {
 		return nil, fmt.Errorf("can't reach GitHub: %w", err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == 404 {
+		return nil, fmt.Errorf("no Ike release is published on github.com/%s yet", m.Repo)
+	}
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("GitHub returned HTTP %d", resp.StatusCode)
 	}
@@ -292,51 +261,6 @@ func parseVer(v string) [3]int {
 		out[i], _ = strconv.Atoi(part)
 	}
 	return out
-}
-
-// UpdateIke downloads, verifies and installs the latest ike-agent and ike-mcp,
-// then restarts Ike's services a few seconds later (after this job reports back).
-func (m *Manager) UpdateIke(ctx context.Context) (*jobs.Job, error) {
-	rel, err := m.CheckIke(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if !rel.Available {
-		return nil, fmt.Errorf("Ike %s is already the newest version", m.Version)
-	}
-	return m.Jobs.Start("ike-update", "Update Ike to "+rel.Latest, 20*time.Minute, func(ctx context.Context, log jobs.Logger) error {
-		arch := runtime.GOARCH
-		for _, bin := range []string{"ike-agent", "ike-mcp", "ike-panel"} {
-			url := fmt.Sprintf("%s/%s/releases/download/v%s/%s-linux-%s", m.DownloadBase, m.Repo, rel.Latest, bin, arch)
-			log("Downloading %s %s", bin, rel.Latest)
-			data, err := m.fetch(ctx, url, 200<<20)
-			if err != nil {
-				if bin == "ike-panel" {
-					log("No ike-panel in this release; skipping")
-					continue
-				}
-				return err
-			}
-			sumFile, err := m.fetch(ctx, url+".sha256", 4096)
-			if err != nil {
-				return fmt.Errorf("no checksum published for %s; refusing to install it", bin)
-			}
-			want := strings.Fields(string(sumFile))
-			got := sha256.Sum256(data)
-			if len(want) == 0 || !strings.EqualFold(want[0], hex.EncodeToString(got[:])) {
-				return fmt.Errorf("checksum mismatch for %s; nothing was installed", bin)
-			}
-			log("Checksum verified")
-			dest := m.p(filepath.Join(m.BinDir, bin))
-			if err := writeFile(dest, data, 0o755); err != nil {
-				return err
-			}
-		}
-		log("Restarting Ike in 3 seconds")
-		_, err := m.Run.Run(ctx, "systemd-run", "--on-active=3", "--unit=ike-self-restart", "--collect",
-			"systemctl", "restart", "ike-agent", "ike-panel")
-		return err
-	})
 }
 
 func (m *Manager) fetch(ctx context.Context, url string, max int64) ([]byte, error) {

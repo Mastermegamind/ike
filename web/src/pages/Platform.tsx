@@ -11,6 +11,7 @@ import { ConfirmDelete, PageHead } from "../components/common";
 import { JobModal, useJob } from "../components/job";
 import { useAccountParam } from "./AccountTools";
 import { href } from "../router";
+import { PECLAndPEAR } from "./PackageTools";
 
 const stateTone = (s: string) => (s === "running" ? "ok" : s === "restarting" ? "warn" : s === "exited" || s === "dead" ? "bad" : undefined);
 
@@ -476,6 +477,7 @@ export function PHPExtensions() {
           </table></div>
         )}
       </section>
+      {v ? <PECLAndPEAR version={v} onJob={start} /> : null}
       <JobModal job={job} onClose={clear} />
     </div>
   );

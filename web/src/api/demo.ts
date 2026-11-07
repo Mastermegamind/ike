@@ -95,7 +95,7 @@ export class DemoApi implements Api {
     { domain: "api.kelechi.dev", account: "kelechi", runtime: "node", version: "22", web_server: "nginx", port: 3001, start_command: "npm start", status: "active", created_at: ago(5 * day),
       deploy: { type: "native", git: { provider: "github", url: "git@github.com:kelechi/api.git", ref_type: "branch", ref: "main", auth: "deploy_key", auto_deploy: true },
         strategy: "blue-green", health_path: "/health", shared_paths: [".env"], keep_releases: 5, current: "20261012-181502-9f3c2ab", color: "b", alt_port: 3010,
-        previews: { enabled: true, base_domain: "preview.kelechi.dev" } },
+        previews: { enabled: true, base_domain: "preview.kelechi.dev" }, framework: { id: "next", name: "Next.js", start: "npm start" } },
       ssl: { provider: "letsencrypt", names: ["api.kelechi.dev"], issuer: "R10", issued_at: ago(5 * day), expires_at: ago(-85 * day), force_https: true, hsts: false, http2: true, http3: false } },
     { domain: "jobs.kelechi.dev", account: "kelechi", runtime: "go", version: "1.25", web_server: "nginx", port: 3004, start_command: "./app", status: "active", created_at: ago(2 * day) },
     { domain: "status.kelechi.dev", account: "kelechi", runtime: "docker", web_server: "nginx", port: 3005, status: "active", created_at: ago(1 * day),
@@ -103,7 +103,7 @@ export class DemoApi implements Api {
     { domain: "ml.kelechi.dev", account: "kelechi", runtime: "python", version: "3.12", web_server: "nginx", port: 3002, start_command: "gunicorn app:app --bind 127.0.0.1:$PORT", status: "active", created_at: ago(4 * day) },
     { domain: "docs.kelechi.dev", account: "kelechi", runtime: "static", web_server: "nginx", status: "active", created_at: ago(3 * day),
       deploy: { type: "native", git: { provider: "gitlab", url: "https://gitlab.com/kelechi/docs.git", ref_type: "tag", ref: "v*", auth: "token", auto_deploy: true },
-        strategy: "restart", public_dir: "dist", keep_releases: 5, current: "20261010-120000-71aa0de" } },
+        strategy: "restart", keep_releases: 5, current: "20261010-120000-71aa0de", framework: { id: "vite", name: "React (Vite)", output_dir: "dist", static: true, spa: true } } },
     { domain: "oldclient.com", account: "oldclient", runtime: "php", version: "8.2", web_server: "nginx", status: "suspended", created_at: ago(400 * day) },
   ] as Omit<Site, "doc_root">[]).map((s) => ({ ...s, doc_root: docRoot(s) }));
 
@@ -376,10 +376,10 @@ export class DemoApi implements Api {
     this.record("POST", "/v1/sites", 201);
     return site;
   }
-  async updateSite(domain: string, patch: { version?: string; web_server?: WebServer; start_command?: string }) {
+  async updateSite(domain: string, patch: { version?: string; web_server?: WebServer; start_command?: string; spa?: boolean }) {
     await wait(700);
     const s = this.find(domain);
-    Object.assign(s, Object.fromEntries(Object.entries(patch).filter(([, v]) => v)));
+    Object.assign(s, Object.fromEntries(Object.entries(patch).filter(([k, v]) => v || k === "spa")));
     this.record("PATCH", `/v1/sites/${domain}`);
     return { ...s };
   }
@@ -566,10 +566,10 @@ export class DemoApi implements Api {
   async scheduleReboot(minutes: number) { await wait(300); if (minutes < 1) throw new Error("Pick a delay of at least a minute."); this.record("POST", "/v1/server/reboot"); }
   async ikeRelease(): Promise<IkeRelease> {
     await wait(500);
-    return { current: "0.3.0", latest: "0.3.1", update_available: true, url: "https://github.com/Mastermegamind/ike/releases/tag/v0.3.1",
-      notes: "Fixes: PHP 8.5 pools on Ubuntu 26.04, faster usage sampling. New: Paystack split payments." };
+    return { current: "0.6.0", latest: "0.7.0", update_available: true, url: "https://github.com/Mastermegamind/ike/releases/tag/v0.7.0",
+      notes: "Safe self-updates with rollback, package update history, framework detection." };
   }
-  async updateIke() { await wait(300); return this.startJob("ike-update", "Update Ike to 0.3.1", ["Downloading ike-agent 0.3.1", "Checksum verified", "Downloading ike-mcp 0.3.1", "Checksum verified", "Restarting Ike in 3 seconds"]); }
+  async updateIke() { await wait(300); return this.startJob("ike-update", "Update Ike to 0.7.0", ["Downloading ike-agent 0.7.0", "Checksums verified", "Restarting Ike"]); }
 
   async diagnose(domain: string): Promise<Diagnosis> {
     await wait(1100);

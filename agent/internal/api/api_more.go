@@ -20,6 +20,11 @@ package api
 //	GET    /v1/php/{version}/extensions
 //	POST   /v1/php/{version}/extensions/{name} install → job
 //	DELETE /v1/php/{version}/extensions/{name} remove → job
+//	POST   /v1/php/{version}/pecl/{name}       build a PECL extension for this PHP version → job
+//	DELETE /v1/php/{version}/pecl/{name}       remove it → job
+//	POST   /v1/php/pear?name=                  install a PEAR package → job
+//	DELETE /v1/php/pear?name=                  remove it → job
+//	GET    /v1/package-tools                   package managers deploys detect, and which are installed
 //
 //	GET    /v1/sites/{domain}/deploy           settings, deploy key, webhook path
 //	PUT    /v1/sites/{domain}/deploy           connect a repository or image
@@ -179,6 +184,31 @@ func (s *Server) moreRoutes(h func(string, handler)) {
 	}
 	h("POST /v1/php/{version}/extensions/{name}", phpExt(true))
 	h("DELETE /v1/php/{version}/extensions/{name}", phpExt(false))
+	pecl := func(install bool) handler {
+		return func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+			v, name := r.PathValue("version"), r.PathValue("name")
+			verb := map[bool]string{true: "Build", false: "Remove"}[install]
+			return s.job("php-ext:"+v, verb+" PECL "+name+" for PHP "+v, 40*time.Minute, func(ctx context.Context, log jobs.Logger) error {
+				return s.Sites.ChangePECLExtension(ctx, v, name, install, log)
+			})
+		}
+	}
+	h("POST /v1/php/{version}/pecl/{name}", pecl(true))
+	h("DELETE /v1/php/{version}/pecl/{name}", pecl(false))
+	pear := func(install bool) handler {
+		return func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+			name := r.URL.Query().Get("name")
+			verb := map[bool]string{true: "Install", false: "Remove"}[install]
+			return s.job("pear", verb+" PEAR "+name, 20*time.Minute, func(ctx context.Context, log jobs.Logger) error {
+				return s.Sites.ChangePEARPackage(ctx, name, install, log)
+			})
+		}
+	}
+	h("POST /v1/php/pear", pear(true))
+	h("DELETE /v1/php/pear", pear(false))
+	h("GET /v1/package-tools", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		return ok(s.Sites.PackageTools(r.Context()), nil)
+	})
 
 	// ---- HTTPS
 	h("POST /v1/sites/{domain}/ssl", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
