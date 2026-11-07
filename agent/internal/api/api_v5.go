@@ -43,6 +43,7 @@ import (
 
 	"github.com/Mastermegamind/ike/agent/internal/backups"
 	"github.com/Mastermegamind/ike/agent/internal/databases"
+	"github.com/Mastermegamind/ike/agent/internal/datasaver"
 	"github.com/Mastermegamind/ike/agent/internal/dns"
 	"github.com/Mastermegamind/ike/agent/internal/files"
 	"github.com/Mastermegamind/ike/agent/internal/firewall"
@@ -73,6 +74,8 @@ type Features struct {
 	Spec    *spec.Manager
 	// Realtime is the TURN server and LiveKit.
 	Realtime *realtime.Manager
+	// DataSaver holds background traffic for a time window and caps it.
+	DataSaver *datasaver.Manager
 }
 
 // zoneAdapter lets the mail manager publish records through DNS.
@@ -153,6 +156,11 @@ func (s *Server) Setup() error {
 	}
 	s.F = f
 	f.Backups = backups.New(env, keys, f.Storage, s.backupSources())
+	f.DataSaver = datasaver.New(env)
+	f.Backups.Saver = f.DataSaver
+	if s.Updates != nil {
+		s.Updates.Allowed = f.DataSaver.Allowed
+	}
 	s.setupInfra(f)
 	f.Realtime = realtime.New(env, keys)
 	f.Realtime.CertFiles = s.Sites.CertFiles
@@ -264,6 +272,7 @@ func (s *Server) v5Routes(h func(string, handler)) {
 	s.infraRoutes(h)
 	s.realtimeRoutes(h)
 	s.expiryRoutes(h)
+	s.dataSaverRoutes(h)
 	s.migrateRoutes(h)
 
 	// ---- DNS: admin ----

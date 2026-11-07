@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Mastermegamind/ike/agent/internal/datasaver"
 	"github.com/Mastermegamind/ike/agent/internal/dns"
 	"github.com/Mastermegamind/ike/agent/internal/kit"
 	"github.com/Mastermegamind/ike/agent/internal/realtime"
@@ -100,6 +101,27 @@ func (s *Server) expiryRoutes(h func(string, handler)) {
 		e, err := s.F.DNS.RefreshDomain(ctx, r.PathValue("domain"))
 		return http.StatusOK, e, err
 	}))
+}
+
+// dataSaverRoutes: GET /v1/datasaver, PUT {"enabled","start","end","upload_kbps","download_kbps"}.
+func (s *Server) dataSaverRoutes(h func(string, handler)) {
+	h("GET /v1/datasaver", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		if !isAdmin(r) {
+			return 0, nil, kit.ErrForbidden
+		}
+		return http.StatusOK, s.F.DataSaver.Status(), nil
+	})
+	h("PUT /v1/datasaver", func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		if !isAdmin(r) {
+			return 0, nil, kit.ErrForbidden
+		}
+		var b datasaver.Settings
+		if !decode(w, r, &b) {
+			return 0, nil, nil
+		}
+		st, err := s.F.DataSaver.Set(r.Context(), b)
+		return http.StatusOK, st, err
+	})
 }
 
 func (s *Server) realtimeRoutes(h func(string, handler)) {

@@ -560,6 +560,8 @@ Services, updates, usage, inventory, maintenance, webhooks, specs, migration and
 | `POST /php/{version}/pecl/{name}` | Build a PECL extension for this PHP version → job |
 | `DELETE /php/{version}/pecl/{name}` | Remove it → job |
 | `GET /quotas` | Disk quota status and per-account use |
+| `GET /datasaver` | Data saver: settings, whether held-back work may run now (`open`) and when it next may (`next_open`) |
+| `PUT /datasaver` | Data saver: body `{"enabled","start":"00:00","end":"06:00","upload_kbps","download_kbps"}`. Scheduled backups and automatic Ike and Ubuntu updates wait for the window; restic and apt keep under the caps. Backups and updates started by hand run at once |
 | `GET /server/metrics` | Server CPU, memory, swap, network per interface, disk I/O (+24 h history) |
 | `POST /server/reboot` | Reboot: body `{"in_minutes":` 5} |
 | `DELETE /server/reboot` | Cancel a scheduled reboot |
