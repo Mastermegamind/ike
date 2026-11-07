@@ -2,7 +2,7 @@
 
 Ike's full scope, grouped by area. Pick anything not done and open a PR; see [CONTRIBUTING.md](../CONTRIBUTING.md).
 
-**v0.7.0: 177 done · 0 partly done · 0 planned** (of 177)
+**v0.8.0: 177 done · 0 partly done · 0 planned** (of 177)
 
 | Mark | Meaning |
 |---|---|

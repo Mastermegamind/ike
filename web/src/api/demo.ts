@@ -566,10 +566,10 @@ export class DemoApi implements Api {
   async scheduleReboot(minutes: number) { await wait(300); if (minutes < 1) throw new Error("Pick a delay of at least a minute."); this.record("POST", "/v1/server/reboot"); }
   async ikeRelease(): Promise<IkeRelease> {
     await wait(500);
-    return { current: "0.6.0", latest: "0.7.0", update_available: true, url: "https://github.com/Mastermegamind/ike/releases/tag/v0.7.0",
+    return { current: "0.7.0", latest: "0.8.0", update_available: true, url: "https://github.com/Mastermegamind/ike/releases/tag/v0.8.0",
       notes: "Safe self-updates with rollback, package update history, framework detection." };
   }
-  async updateIke() { await wait(300); return this.startJob("ike-update", "Update Ike to 0.7.0", ["Downloading ike-agent 0.7.0", "Checksums verified", "Restarting Ike"]); }
+  async updateIke() { await wait(300); return this.startJob("ike-update", "Update Ike to 0.8.0", ["Downloading ike-agent 0.8.0", "Checksums verified", "Restarting Ike"]); }
 
   async diagnose(domain: string): Promise<Diagnosis> {
     await wait(1100);

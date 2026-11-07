@@ -66,7 +66,7 @@ export class Demo5 {
   private ike: { current: string; latest?: { latest: string; update_available: boolean; url: string; notes: string }; checked_at?: string; settings: { mode: "notify" | "auto" | "off"; skip?: string };
     kept_versions: string[]; history: { id: string; kind: "update" | "rollback"; from: string; to: string; by?: string; status: string; reason?: string; started_at: string; finished_at?: string }[]; busy: boolean } = {
     current: "0.6.0", checked_at: ago(40), settings: { mode: "notify" }, busy: false,
-    latest: { latest: "0.7.0", update_available: true, url: "https://github.com/Mastermegamind/ike/releases/tag/v0.7.0",
+    latest: { latest: "0.8.0", update_available: true, url: "https://github.com/Mastermegamind/ike/releases/tag/v0.8.0",
       notes: "Ike updates itself with your approval, checks the new version and goes back by itself if it isn't healthy.\nPackage updates keep a history and can be rolled back.\nNext.js, Nuxt, SvelteKit, Astro, Remix and single-page React, Vue and Angular apps deploy without settings." },
     kept_versions: ["0.5.0"],
     history: [{ id: "u1", kind: "update", from: "0.5.0", to: "0.6.0", by: "marvellous", status: "done", started_at: ago(3 * 1440), finished_at: ago(3 * 1440 - 3) },
