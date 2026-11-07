@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Mastermegamind/ike/agent/internal/dns"
 	"github.com/Mastermegamind/ike/agent/internal/kit"
 	"github.com/Mastermegamind/ike/agent/internal/realtime"
 	"github.com/Mastermegamind/ike/agent/internal/sites"
@@ -57,6 +58,8 @@ func (s *Server) realtimeSite(ctx context.Context, account, domain string, port 
 // The panel adds hosting terms and filters by who is asking.
 //
 //	GET    /v1/expiry/server                        {"domains": [...], "certificates": [...]}
+//	PUT    /v1/expiry/domains/{domain}              {"auto_renew","years","days_before","manual_expires"}
+//	POST   /v1/expiry/domains/{domain}/renew        {"years"} renew at the registrar now
 //	POST   /v1/expiry/domains/{domain}/refresh      ask the registry now
 func (s *Server) expiryRoutes(h func(string, handler)) {
 	admin := func(fn handler) handler {
@@ -70,6 +73,26 @@ func (s *Server) expiryRoutes(h func(string, handler)) {
 	h("GET /v1/expiry/server", admin(func(w http.ResponseWriter, r *http.Request) (int, any, error) {
 		doms, err := s.F.DNS.DomainExpiries()
 		return http.StatusOK, map[string]any{"domains": doms, "certificates": s.Sites.Certificates()}, err
+	}))
+	h("PUT /v1/expiry/domains/{domain}", admin(func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		var b dns.RenewalRequest
+		if !decode(w, r, &b) {
+			return 0, nil, nil
+		}
+		ren, err := s.F.DNS.SetRenewal(r.PathValue("domain"), b)
+		return http.StatusOK, ren, err
+	}))
+	h("POST /v1/expiry/domains/{domain}/renew", admin(func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		var b struct {
+			Years int `json:"years"`
+		}
+		if r.ContentLength != 0 && !decode(w, r, &b) {
+			return 0, nil, nil
+		}
+		ctx, cancel := long(r)
+		defer cancel()
+		res, err := s.F.DNS.RenewNow(ctx, r.PathValue("domain"), b.Years)
+		return http.StatusOK, res, err
 	}))
 	h("POST /v1/expiry/domains/{domain}/refresh", admin(func(w http.ResponseWriter, r *http.Request) (int, any, error) {
 		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)

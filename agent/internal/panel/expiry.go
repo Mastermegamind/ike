@@ -35,6 +35,8 @@ type ExpiryItem struct {
 	// suspended if it stays unpaid (billing's grace days, when auto-suspend is on).
 	InvoiceID  string    `json:"invoice_id,omitempty"`
 	SuspendsOn time.Time `json:"suspends_on,omitzero"`
+	// Domains: in the connected registrar account (so Ike can renew it).
+	AtRegistrar bool `json:"at_registrar,omitempty"`
 }
 
 // ExpirySummary counts what needs attention.
@@ -76,6 +78,8 @@ type agentExpiry struct {
 		AutoRenew   bool      `json:"auto_renew"`
 		AtRegistrar bool      `json:"at_registrar"`
 		Error       string    `json:"error"`
+		RenewDays   int       `json:"renew_days_before"`
+		RenewError  string    `json:"renew_error"`
 	} `json:"domains"`
 	Certificates []struct {
 		Domain    string    `json:"domain"`
@@ -98,15 +102,18 @@ func (s *Server) expiries(ctx context.Context, agent *client.Client, acc access)
 		if !acc.has(d.Account) {
 			continue
 		}
-		it := ExpiryItem{Kind: "domain", Name: d.Domain, Account: d.Account, Expires: d.Expires, Source: d.Source, AutoRenews: d.AutoRenew}
+		it := ExpiryItem{Kind: "domain", Name: d.Domain, Account: d.Account, Expires: d.Expires, Source: d.Source, AutoRenews: d.AutoRenew, AtRegistrar: d.AtRegistrar}
 		switch {
+		case d.RenewError != "":
+			it.Detail = "Automatic renewal failed: " + d.RenewError
+		case d.AutoRenew:
+			it.Detail = fmt.Sprintf("Renewed through the registrar %d days before it expires", d.RenewDays)
 		case d.Error != "" && d.Expires.IsZero():
 			it.Detail = d.Error
+		case d.Source == "manual":
+			it.Detail = "Renewal date set by hand"
 		case d.Registrar != "":
 			it.Detail = "Registered with " + d.Registrar
-			if d.AutoRenew {
-				it.Detail += ", renews automatically"
-			}
 		}
 		out = append(out, it)
 	}
@@ -400,4 +407,69 @@ func expiryBody(it ExpiryItem) string {
 		b += " See Billing in the panel."
 	}
 	return b
+}
+
+// domainOwnerAccount finds the account a registered domain belongs to, among
+// the ones acc can see ("" when none).
+func (s *Server) domainOwnerAccount(r *http.Request, acc access, domain string) string {
+	items, err := s.expiries(r.Context(), s.agentFor(r), acc)
+	if err != nil {
+		return ""
+	}
+	for _, it := range items {
+		if it.Kind == "domain" && it.Name == domain {
+			return it.Account
+		}
+	}
+	return ""
+}
+
+// PUT /api/v1/expiry/domains/{domain} {"auto_renew","years","days_before","manual_expires"}.
+// Renewing spends the admin's registrar balance, so only admins switch
+// auto-renew; resellers may set renewal dates for their customers' domains.
+func (s *Server) setDomainRenewal(w http.ResponseWriter, r *http.Request) {
+	me := personFrom(r)
+	domain := strings.ToLower(r.PathValue("domain"))
+	var req struct {
+		AutoRenew     *bool   `json:"auto_renew"`
+		Years         *int    `json:"years"`
+		DaysBefore    *int    `json:"days_before"`
+		ManualExpires *string `json:"manual_expires"`
+	}
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	if me.Role != store.Admin {
+		if me.Role != store.Reseller || req.AutoRenew != nil || req.Years != nil || req.DaysBefore != nil ||
+			s.domainOwnerAccount(r, s.accessFor(me), domain) == "" {
+			failErr(w, errForbidden)
+			return
+		}
+	}
+	var out any
+	if err := s.agentFor(r).Do(r.Context(), "PUT", "/v1/expiry/domains/"+client.PathEscape(domain), req, &out); err != nil {
+		failErr(w, err)
+		return
+	}
+	writeJSON(w, 200, out)
+}
+
+// POST /api/v1/expiry/domains/{domain}/renew {"years"}: admins only.
+func (s *Server) renewDomain(w http.ResponseWriter, r *http.Request) {
+	if personFrom(r).Role != store.Admin {
+		failErr(w, errForbidden)
+		return
+	}
+	var req struct {
+		Years int `json:"years"`
+	}
+	if r.ContentLength != 0 && !decodeBody(w, r, &req) {
+		return
+	}
+	var out any
+	if err := s.agentFor(r).Do(r.Context(), "POST", "/v1/expiry/domains/"+client.PathEscape(strings.ToLower(r.PathValue("domain")))+"/renew", req, &out); err != nil {
+		failErr(w, err)
+		return
+	}
+	writeJSON(w, 200, out)
 }

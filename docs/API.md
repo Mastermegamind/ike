@@ -486,6 +486,8 @@ When domains, certificates and hosting run out. Token area: `billing`. Account o
 |---|---|
 | `GET /expiry` *(panel)* | Domains, SSL certificates and hosting you can see, soonest first: `{"items":[{"kind":"domain\|ssl\|hosting","name","account","expires","days_left","state","detail"}],"summary"}` |
 | `PUT /expiry/hosting/{account}` *(panel)* | Set an account's hosting end date when it isn't billed by Ike: body `{"expires":"YYYY-MM-DD"}` (empty clears it) |
+| `PUT /expiry/domains/{domain}` | How a domain is renewed: body `{"auto_renew","years","days_before","manual_expires":"YYYY-MM-DD"}` (missing fields stay). Auto-renew renews through the connected Namecheap account `days_before` the expiry (default 30); only admins switch it. Resellers may set `manual_expires` for their customers' domains |
+| `POST /expiry/domains/{domain}/renew` | Renew at the registrar now (admins): body `{"years"}` (default 1) |
 | `POST /expiry/domains/{domain}/refresh` | Ask the domain registry now (RDAP); also for domains whose DNS is elsewhere |
 | `GET /expiry/server` | The server's raw data: `{"domains","certificates"}` (admin; the panel's `/expiry` builds on it) |
 

@@ -109,6 +109,9 @@ type Manager struct {
 	WebsiteDomains func() []DomainRef
 	regOnce        sync.Once
 	regs           *kit.Store[map[string]*cachedReg]
+	renewOnce      sync.Once
+	renewals       *kit.Store[map[string]*Renewal]
+	atRegistrar    *kit.Store[registrarState]
 }
 
 func New(env *kit.Env, keys *secrets.Keyring) *Manager {

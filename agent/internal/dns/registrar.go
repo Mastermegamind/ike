@@ -215,6 +215,7 @@ func (m *Manager) expiryPass(ctx context.Context) {
 		}
 	}
 	m.websiteExpiryPass(ctx, set.ExpiryReminders)
+	m.autoRenewPass(ctx)
 	slog.Info("domain expiry check finished", "zones", len(all))
 }
 

@@ -50,10 +50,10 @@ type Server struct {
 	PublicURL string // https://panel.example.com:2083, for payment return links
 	// MailHook replaces sending customer emails (tests).
 	MailHook func(fromName, to, subject, body string) error
-	TLS       bool
-	Issuer    string // shown in authenticator apps
-	Notifier  *alerts.Notifier
-	Monitor   *alerts.Monitor
+	TLS      bool
+	Issuer   string // shown in authenticator apps
+	Notifier *alerts.Notifier
+	Monitor  *alerts.Monitor
 	// Providers overrides billing providers (tests); nil = from settings.
 	Providers func() map[string]billing.Provider
 
@@ -174,6 +174,8 @@ func (s *Server) Handler(l Listener) http.Handler {
 	mux.HandleFunc("GET /api/v1/expiry", s.authed(s.listExpiry))
 	mux.HandleFunc("PUT /api/v1/expiry/hosting/{account}", s.authed(s.setHostingExpiry))
 	mux.HandleFunc("POST /api/v1/expiry/domains/{domain}/refresh", s.authed(s.refreshDomainExpiry))
+	mux.HandleFunc("PUT /api/v1/expiry/domains/{domain}", s.authed(s.setDomainRenewal))
+	mux.HandleFunc("POST /api/v1/expiry/domains/{domain}/renew", s.authed(s.renewDomain))
 	mux.HandleFunc("/api/v1/", s.authed(s.proxy))
 	mux.HandleFunc("/", s.static)
 
