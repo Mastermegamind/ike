@@ -8,17 +8,28 @@
 - **Video and calls.** `install.sh --turn --livekit`, then Server → Real-time media (`ike realtime`). TURN (coturn) with short-lived signed logins, no relaying into private networks and TLS from a certificate Ike manages; LiveKit behind a website of yours (`wss://`), with sealed API keys per app or account, a webhook, Ike's TURN server for its callers, and a join-token tester. Account owners get **Video & calls** when the admin allows it. [docs/REALTIME.md](docs/REALTIME.md)
 - **Expiry dates.** Domains, SSL certificates and hosting in one list, soonest first (Hosting → Expiry dates, `ike expiry`), with a "Running out soon" card on the dashboard. Domains whose DNS is hosted elsewhere now get their expiry date from the registry too. Hosting comes from Billing subscriptions (an overdue invoice shows the suspension date) or an end date set for accounts billed elsewhere.
 - **Expiry reminders on your alert channels.** Domains and hosting reach WhatsApp, Telegram and email at 30, 14, 7, 3, 1 and 0 days, once per mark.
+- **Expiry emails to customers.** Owners hear about their hosting, and domains and uploaded certificates that don't renew themselves, at 30, 14, 7 and 1 days, in their reseller's brand, with a Pay now link. Each hosting expiry shows when the account would be suspended.
+- **Domain auto-renew through Namecheap** (Ike renews N days before expiry, failures alert you), and renewal dates set by hand for domains registered elsewhere.
+- **SMS alerts** through Termii or Africa's Talking, next to WhatsApp, Telegram and email.
+- **Bank transfer invoices**: a temporary account number from Paystack or Flutterwave to pay into.
+- **Data saver for the server**: scheduled backups and automatic updates wait for a night window and keep under speed caps (restic and apt limits).
+- **Laravel per website**: queue workers, the scheduler and Reverb on ws.<domain>, restarted after deploys.
+- **Meilisearch per account** (Laravel Scout) and **S3 storage per account** with Garage (buckets, quotas, one key per account).
+- **Public status pages** per reseller with 90 days of uptime.
+- **Jitsi Meet** in one step (Docker), using the TURN server.
 - `install.sh --add dragonfly,turn,livekit` adds caches and media servers to a server that already runs Ike, keeping its settings.
-- API: `/realtime/...`, `/accounts/{a}/realtime/...`, `/expiry`, `/expiry/hosting/{account}`, `/expiry/domains/{domain}/refresh`; the cache route takes `engine`. MCP: 13 new tools (199 in all).
+- API: `/realtime/...`, `/accounts/{a}/realtime/...`, `/expiry`, `/expiry/hosting/{account}`, `/expiry/domains/{domain}/refresh`; the cache route takes `engine`. MCP: 22 new tools (208 in all).
 
 ### Fixed
 
 - Domain expiry reminders never reached the alert channels (only failures were forwarded).
 - A domain found already past several reminder days got one reminder per day; it now gets one, for the nearest day.
+- During the week between a subscription's invoice and its due date, hosting expiry showed next month's date.
+- Starting a second checkout for an invoice lost the first one's payment reference, so paying through the first didn't settle it.
 
 ### Not yet run on a live server
 
-- The Dragonfly, coturn and LiveKit configurations follow their documentation and are covered by tests, but haven't been run on a server yet. Please report anything they refuse.
+- The Dragonfly, coturn, LiveKit, Garage, Meilisearch and Jitsi setups, the Laravel services, and Namecheap renewals follow their documentation and are covered by tests, but haven't been run on a server yet. Please report anything they refuse.
 
 ## v0.7.0
 

@@ -54,6 +54,7 @@ Opened by Ike when the admin switches the server on under Real-time media, and c
 | LiveKit media over TCP | 7881 TCP |
 | LiveKit media | 50000–60000 UDP |
 | LiveKit signalling | through its website on 443 (`wss://`); LiveKit itself listens on `127.0.0.1:7880` |
+| Jitsi Meet media | 10000 UDP (its web pages go through a website on 443; the container listens on `127.0.0.1:8000`) |
 
 ## Internal only (never opened in the firewall)
 
@@ -65,3 +66,6 @@ Opened by Ike when the admin switches the server on under Real-time media, and c
 | Node.js / Python apps | `127.0.0.1:3001` and up |
 | MariaDB | unix socket only |
 | Account caches (Redis, Valkey, Dragonfly) | a unix socket in the account's home, no TCP port |
+| Meilisearch per account | `127.0.0.1:7700` and up (with a master key) |
+| Garage S3 / admin API | `127.0.0.1:3900` (served through a website on 443) / `127.0.0.1:3903` |
+| Laravel Reverb | a local port per website, served through `ws.<domain>` on 443 |

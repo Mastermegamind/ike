@@ -50,10 +50,14 @@ An open-source, all-in-one hosting control panel for Linux VPS servers. It combi
 - **Developers:** account owners invite a developer to chosen accounts and areas (websites, files, databases ...), never billing
 - **Password-protected folders** with their own users, and **server graphs** for CPU, memory, swap, disk and network
 - **Video and calls:** a TURN server (coturn) and LiveKit for WebRTC rooms, calls and live streams, set up from the panel with signed TURN logins and per-app API keys ([guide](docs/REALTIME.md))
-- **Expiry dates:** domains (from their registry, even with DNS elsewhere), SSL certificates and hosting in one list, with reminders on WhatsApp, Telegram and email
+- **Expiry dates:** domains (from their registry, even with DNS elsewhere), SSL certificates and hosting in one list, with reminders on WhatsApp, Telegram, SMS and email, expiry emails to customers with a Pay now link, and domain auto-renew through Namecheap
+- **Laravel without extras:** queue workers, the scheduler and Reverb (broadcasting without Pusher) per website; Meilisearch per account for Scout; S3 storage per account (Garage)
+- **Made for Nigeria:** SMS alerts through Termii or Africa's Talking, invoices paid by bank transfer (Paystack or Flutterwave account numbers), and a data saver that keeps backups and updates to a night window under a speed cap
+- **Status pages:** a public page per reseller with 90 days of uptime, in their branding
+- **Jitsi Meet** in one step, using the TURN server
 - **Updates with a way back:** Ike and Ubuntu packages update when you approve; a new Ike version is checked after it starts and rolled back by itself if it isn't healthy ([updates](docs/UPDATES.md))
 - **Frameworks:** Next.js, Nuxt, SvelteKit, Astro, Remix, NestJS, React, Vue and Angular deploy from Git without settings, with npm, pnpm, Yarn, Bun, Composer, Poetry, Pipenv, uv, Maven or Gradle
-- **API, CLI and AI agents**: every screen is in the [API](docs/API.md), the [`ike` command](docs/CLI.md) and a 199-tool [MCP server](docs/MCP.md). Each gives full or limited access: API tokens can be limited to some areas (read or write), accounts and addresses, and can expire ([who can do what](docs/ACCESS.md))
+- **API, CLI and AI agents**: every screen is in the [API](docs/API.md), the [`ike` command](docs/CLI.md) and a 208-tool [MCP server](docs/MCP.md). Each gives full or limited access: API tokens can be limited to some areas (read or write), accounts and addresses, and can expire ([who can do what](docs/ACCESS.md))
 - **Safe by design**: the root agent only accepts a fixed set of validated actions, never shell commands; failed changes roll back automatically
 
 ## Supported systems

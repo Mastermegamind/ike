@@ -71,6 +71,10 @@ at.addGrant({ room: "class-1", roomJoin: true });
 const token = await at.toJwt(); // the browser connects to wss://rtc.example.com with it
 ```
 
+## Jitsi Meet
+
+For video meetings in the browser with nothing to install, switch on **Jitsi Meet** under Real-time media (it needs Docker: `install.sh --add` doesn't install Docker, so use the installer's `--docker` first). Ike runs the official Jitsi images as one Compose project, serves the meeting site on a domain of yours with HTTPS (the container itself only listens on `127.0.0.1:8000`), opens 10000/udp for media, and, when you tick it, gives Jitsi this server's TURN server. **Lobby** makes everyone wait until a moderator lets them in. The first start downloads the images, so it takes a few minutes.
+
 ## Sizing
 
 LiveKit forwards video rather than mixing it, so CPU is modest; bandwidth is what runs out. A rough guide: each person receiving one 720p video uses about 1.5 Mbit/s down from the server, so a class of 30 watching one teacher needs about 45 Mbit/s out. On a VPS with a 200 Mbit/s port, that's a few such classes at once. TURN relays both directions of every relayed call, so set **Kbit/s per session** if the server is shared with websites.

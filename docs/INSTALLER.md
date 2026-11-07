@@ -103,8 +103,15 @@ Databases
 
 Adding to a server that already runs Ike
   --add LIST                  Install only these, keep everything else as it is, and tell the agent:
-                              any of redis, valkey, dragonfly, turn, livekit (comma-separated).
+                              any of redis, valkey, dragonfly, turn, livekit, meilisearch, garage
+                              (comma-separated).
                               Example: install.sh --add dragonfly,turn,livekit
+
+Search and S3 storage
+  --meilisearch               Meilisearch: a private search engine per account (Laravel Scout and others)
+  --garage                    Garage: S3-compatible storage; each account gets buckets and its own key.
+                              Served through a website you choose in the panel.
+  --garage-version VERSION    Garage release to install (default: v2.1.0)
 
 Real-time media
   --turn                      TURN server (coturn): lets WebRTC calls connect through strict firewalls and
