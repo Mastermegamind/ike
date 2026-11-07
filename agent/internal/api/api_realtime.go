@@ -179,6 +179,16 @@ func (s *Server) realtimeRoutes(h func(string, handler)) {
 		st, key, err := rt.SetLiveKit(ctx, b)
 		return ok(map[string]any{"status": st, "new_key": key}, err)
 	}))
+	h("PUT /v1/realtime/jitsi", admin(func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		var b realtime.JitsiSettings
+		if !decode(w, r, &b) {
+			return 0, nil, nil
+		}
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 15*time.Minute) // first start pulls images
+		defer cancel()
+		info, notes, err := rt.SetJitsi(ctx, b)
+		return ok(map[string]any{"jitsi": info, "notes": notes}, err)
+	}))
 	h("POST /v1/realtime/livekit/keys", admin(func(w http.ResponseWriter, r *http.Request) (int, any, error) {
 		var b struct {
 			Name    string `json:"name"`

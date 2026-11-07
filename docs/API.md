@@ -515,6 +515,7 @@ TURN logins are short-lived and signed with a shared secret (the TURN REST API s
 | `POST /realtime/turn/credentials` | A TURN login: body `{"user","ttl_hours"}` (default 12, at most 168) → `{"uris","username","credential","expires"}` |
 | `POST /realtime/turn/secret` | New TURN secret; logins signed with the old one stop working |
 | `PUT /realtime/livekit` | LiveKit settings: body `{"enabled","domain","account","use_turn","empty_timeout","max_participants","webhook_urls","allow_accounts"}`; the first time also returns `new_key` with its secret |
+| `PUT /realtime/jitsi` | Jitsi Meet (needs Docker): body `{"enabled","domain","account","use_turn","lobby","version"}`. Runs the official images as one Compose project; web on 127.0.0.1:8000 behind a website with a certificate, media on 10000/udp |
 | `POST /realtime/livekit/keys` | Add an API key: body `{"name","account"}` → key and secret, once |
 | `DELETE /realtime/livekit/keys/{key}` | Remove an API key (LiveKit restarts) |
 | `POST /realtime/livekit/token` | A join token: body `{"key","room","identity","name","ttl_minutes","can_publish","room_admin"}` → `{"token","url","expires"}` |
