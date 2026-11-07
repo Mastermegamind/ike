@@ -2626,7 +2626,9 @@ install_quotas() {
 add_main() {
 	: >"$LOG_FILE"
 	chmod 0600 "$LOG_FILE"
-	[ -e "$CONF_DIR/installed" ] && [ -e "$CONF_DIR/agent.json" ] || die "--add is for a server that already runs ${PANEL_NAME}; run the installer without it first."
+	if [ ! -e "$CONF_DIR/installed" ] || [ ! -e "$CONF_DIR/agent.json" ]; then
+		die "--add is for a server that already runs ${PANEL_NAME}; run the installer without it first."
+	fi
 	check_system
 	info "Adding ${ADD_ONLY//,/, } to ${PANEL_NAME} on Ubuntu ${OS_VERSION}"
 	apt-get update -q >>"$LOG_FILE" 2>&1
