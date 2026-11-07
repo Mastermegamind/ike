@@ -3,7 +3,7 @@
 // ike-agent over its unix socket and never runs as a privileged process.
 //
 //	ike-panel --config /etc/ike/panel.json
-//	ike-panel create-admin --username andre --email andre@example.com   (password on stdin, or generated)
+//	ike-panel create-admin --username marvellous --email marvellous@example.com   (password on stdin, or generated)
 package main
 
 import (
@@ -330,7 +330,7 @@ func createAdmin(args []string) error {
 // and printed once. --disable-2fa also turns off two-factor sign-in.
 //
 //	systemctl stop ike-panel
-//	sudo -u ike ike-panel reset-password --username andre [--disable-2fa]
+//	sudo -u ike ike-panel reset-password --username marvellous [--disable-2fa]
 //	systemctl start ike-panel
 //
 // Stop the panel first: it keeps its data in memory and would overwrite the change.

@@ -71,7 +71,7 @@ func TestGitDeployPHPWithRollbackAndWebhooks(t *testing.T) {
 	secret := info.WebhookSecret
 	gitResponses(r, root, m.gitMirror(site), sha1)
 
-	d, err := m.Deploy("shop.ng", DeployRequest{Actor: "andre"})
+	d, err := m.Deploy("shop.ng", DeployRequest{Actor: "marvellous"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +119,7 @@ func TestGitDeployPHPWithRollbackAndWebhooks(t *testing.T) {
 	}
 	// Release folders don't exist in a dry run; create the first so rollback can find it.
 	_ = os.MkdirAll(filepath.Join(root, "home/shop/web/shop.ng/releases", first.Release), 0o750)
-	rb, err := m.Rollback("shop.ng", first.ID, "andre")
+	rb, err := m.Rollback("shop.ng", first.ID, "marvellous")
 	if err != nil {
 		t.Fatal(err)
 	}

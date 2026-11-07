@@ -8,7 +8,7 @@ import (
 func TestDeveloperRole(t *testing.T) {
 	e := setup(t)
 	admin := e.browser(e.admin)
-	admin.login("andre", "admin-password-1", "")
+	admin.login("marvellous", "admin-password-1", "")
 	for _, a := range []string{"shop", "blog", "other"} {
 		admin.do("POST", "/api/v1/accounts", map[string]string{"name": a}, nil)
 	}

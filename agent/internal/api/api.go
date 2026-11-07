@@ -622,7 +622,7 @@ func (w *statusWriter) WriteHeader(c int) { w.code = c; w.ResponseWriter.WriteHe
 
 // audit appends one JSON line per change (anything but GET). Request bodies are
 // not logged, so passwords and keys never reach the audit file. The caller says
-// who it acts for in X-Ike-Actor (e.g. "andre", "reseller:acme", "ai:claude").
+// who it acts for in X-Ike-Actor (e.g. "marvellous", "reseller:acme", "ai:claude").
 func (s *Server) audit(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet || s.AuditPath == "" {

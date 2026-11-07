@@ -61,7 +61,7 @@ func setup(t *testing.T) *env {
 	}
 	h, _ := auth.HashPassword("admin-password-1")
 	_ = st.Update(func(d *store.Data) error {
-		return d.AddPerson(&store.Person{Username: "andre", Email: "andre@ike.ng", Role: store.Admin, PasswordHash: h})
+		return d.AddPerson(&store.Person{Username: "marvellous", Email: "marvellous@ike.ng", Role: store.Admin, PasswordHash: h})
 	})
 	agentAddr := strings.TrimPrefix(agentHTTP.URL, "http://")
 	s := &Server{Store: st, Agent: &client.Client{BaseURL: agentHTTP.URL, HTTP: http.DefaultClient, Stream: http.DefaultClient,
@@ -117,13 +117,13 @@ func (b *browser) login(user, pass, code string) int {
 func TestLoginAnd2FA(t *testing.T) {
 	e := setup(t)
 	b := e.browser(e.admin)
-	if code := b.login("andre", "wrong-password-x", ""); code != 401 {
+	if code := b.login("marvellous", "wrong-password-x", ""); code != 401 {
 		t.Fatalf("wrong password: %d", code)
 	}
 	if code := b.do("GET", "/api/v1/sites", nil, nil); code != 401 {
 		t.Fatalf("unauthenticated access: %d", code)
 	}
-	if code := b.login("andre", "admin-password-1", ""); code != 200 {
+	if code := b.login("marvellous", "admin-password-1", ""); code != 200 {
 		t.Fatalf("login: %d", code)
 	}
 	var setup struct {
@@ -145,13 +145,13 @@ func TestLoginAnd2FA(t *testing.T) {
 
 	b2 := e.browser(e.admin)
 	var res map[string]any
-	if code := b2.do("POST", "/api/v1/session", map[string]string{"username": "andre", "password": "admin-password-1"}, &res); code != 401 || res["two_factor_required"] != true {
+	if code := b2.do("POST", "/api/v1/session", map[string]string{"username": "marvellous", "password": "admin-password-1"}, &res); code != 401 || res["two_factor_required"] != true {
 		t.Fatalf("2FA not required: %d %v", code, res)
 	}
-	if code := b2.login("andre", "admin-password-1", en.RecoveryCodes[0]); code != 200 {
+	if code := b2.login("marvellous", "admin-password-1", en.RecoveryCodes[0]); code != 200 {
 		t.Fatalf("recovery code: %d", code)
 	}
-	if code := e.browser(e.admin).login("andre", "admin-password-1", en.RecoveryCodes[0]); code != 401 {
+	if code := e.browser(e.admin).login("marvellous", "admin-password-1", en.RecoveryCodes[0]); code != 401 {
 		t.Error("recovery code reused")
 	}
 
@@ -170,9 +170,9 @@ func TestThrottleLogins(t *testing.T) {
 	e := setup(t)
 	b := e.browser(e.admin)
 	for i := 0; i < 10; i++ {
-		b.login("andre", "nope-nope-nope", "")
+		b.login("marvellous", "nope-nope-nope", "")
 	}
-	if code := b.login("andre", "admin-password-1", ""); code != 429 {
+	if code := b.login("marvellous", "admin-password-1", ""); code != 429 {
 		t.Errorf("expected lockout, got %d", code)
 	}
 }
@@ -180,7 +180,7 @@ func TestThrottleLogins(t *testing.T) {
 func TestRolesAndScoping(t *testing.T) {
 	e := setup(t)
 	admin := e.browser(e.admin)
-	admin.login("andre", "admin-password-1", "")
+	admin.login("marvellous", "admin-password-1", "")
 	if code := admin.do("POST", "/api/v1/people", map[string]any{"username": "webafrica", "email": "ops@webafrica.ng", "role": "reseller",
 		"password": "reseller-pass-1", "max_accounts": 2}, nil); code != 201 {
 		t.Fatalf("create reseller: %d", code)
@@ -274,7 +274,7 @@ func TestBillingSuspendAndPay(t *testing.T) {
 	_ = e.st.Update(func(d *store.Data) error { d.Billing.AutoSuspend, d.Billing.GraceDays = true, 0; return nil })
 
 	admin := e.browser(e.admin)
-	admin.login("andre", "admin-password-1", "")
+	admin.login("marvellous", "admin-password-1", "")
 	admin.do("POST", "/api/v1/accounts", map[string]string{"name": "naijabites"}, nil)
 	var inv store.Invoice
 	if code := admin.do("POST", "/api/v1/billing/invoices", map[string]any{"account": "naijabites", "description": "Business plan, October",
@@ -331,7 +331,7 @@ func TestBillingSuspendAndPay(t *testing.T) {
 func TestSecretsAreMasked(t *testing.T) {
 	e := setup(t)
 	admin := e.browser(e.admin)
-	admin.login("andre", "admin-password-1", "")
+	admin.login("marvellous", "admin-password-1", "")
 	set := map[string]any{"currency": "NGN", "grace_days": 7, "auto_suspend": true, "providers": map[string]any{
 		"bachs": map[string]any{"enabled": true, "secret_key": "sk_live_secret", "webhook_secret": "whsec_secret"}}}
 	var out map[string]any
@@ -355,7 +355,7 @@ func TestSecretsAreMasked(t *testing.T) {
 func TestGitWebhookThroughPanel(t *testing.T) {
 	e := setup(t)
 	b := e.browser(e.admin)
-	if b.login("andre", "admin-password-1", "") != 200 {
+	if b.login("marvellous", "admin-password-1", "") != 200 {
 		t.Fatal("login")
 	}
 	if c := b.do("POST", "/api/v1/accounts", map[string]string{"name": "gitty"}, nil); c != 201 {

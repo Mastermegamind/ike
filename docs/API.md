@@ -42,7 +42,7 @@ Limited tokens can never create, list or revoke tokens, or change your password 
 
 ```sh
 # A token for a deploy pipeline: websites only, one account, from the CI's addresses, 90 days
-ike tokens create "GitHub deploy" --username andre \
+ike tokens create "GitHub deploy" --username marvellous \
     --scope sites=write --account kelechi --ip 140.82.112.0/20 --days 90
 ```
 

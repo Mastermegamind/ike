@@ -8,7 +8,7 @@ import { Button, Field } from "../components/ui";
 import { languages, useI18n, type Lang } from "../i18n";
 
 export function Login({ onLogin }: { onLogin: (name: string, role: Role) => void }) {
-  const [user, setUser] = useState(isDemo ? "andre" : "");
+  const [user, setUser] = useState(isDemo ? "marvellous" : "");
   const [pass, setPass] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);

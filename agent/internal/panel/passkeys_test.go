@@ -17,13 +17,13 @@ func named(b *browser) (*browser, string) {
 func TestPasskeys(t *testing.T) {
 	e := setup(t)
 	admin, origin := named(e.browser(e.admin))
-	if c := admin.login("andre", "admin-password-1", ""); c != 200 {
+	if c := admin.login("marvellous", "admin-password-1", ""); c != 200 {
 		t.Fatalf("login: %d", c)
 	}
 
 	// By IP address the browser can't use passkeys at all.
 	ipb := e.browser(e.admin)
-	ipb.login("andre", "admin-password-1", "")
+	ipb.login("marvellous", "admin-password-1", "")
 	var out map[string]any
 	if c := ipb.do("POST", "/api/v1/me/passkeys/options", nil, &out); c != 400 || !strings.Contains(errText(out), "not by an IP address") {
 		t.Fatalf("options by IP: %d %v", c, out)
@@ -78,7 +78,7 @@ func TestPasskeys(t *testing.T) {
 		return b.do("POST", "/api/v1/session/passkey", k.SignIn(o, org), &res), res
 	}
 	fresh, org2 := named(e.browser(e.admin))
-	if c, res := signIn(fresh, key, org2); c != 200 || res["username"] != "andre" {
+	if c, res := signIn(fresh, key, org2); c != 200 || res["username"] != "marvellous" {
 		t.Fatalf("passkey sign-in: %d %v", c, res)
 	}
 	if c := fresh.do("GET", "/api/v1/session", nil, nil); c != 200 {

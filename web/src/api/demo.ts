@@ -159,17 +159,17 @@ export class DemoApi implements Api {
 
   private log: AuditEntry[] = [
     { time: ago(3), actor: "ai:mcp", method: "GET", path: "/v1/sites", status: 200, result: "ok" },
-    { time: ago(6), actor: "andre", method: "POST", path: "/v1/sites", status: 201, result: "ok" },
-    { time: ago(14), actor: "andre", method: "PUT", path: "/v1/sites/legacy.adaeze.com/status", status: 200, result: "ok" },
+    { time: ago(6), actor: "marvellous", method: "POST", path: "/v1/sites", status: 201, result: "ok" },
+    { time: ago(14), actor: "marvellous", method: "PUT", path: "/v1/sites/legacy.adaeze.com/status", status: 200, result: "ok" },
     { time: ago(38), actor: "ai:mcp", method: "DELETE", path: "/v1/sites/old.naijabites.ng", status: 403, result: "denied" },
     { time: ago(60), actor: "reseller:webafrica", method: "POST", path: "/v1/accounts/oldclient/suspend", status: 200, result: "ok" },
-    { time: ago(130), actor: "andre", method: "POST", path: "/v1/firewall/blocks", status: 201, result: "ok" },
-    { time: ago(26 * 60), actor: "andre", method: "POST", path: "/v1/accounts/lagosrentals/ssh/keys", status: 201, result: "ok" },
+    { time: ago(130), actor: "marvellous", method: "POST", path: "/v1/firewall/blocks", status: 201, result: "ok" },
+    { time: ago(26 * 60), actor: "marvellous", method: "POST", path: "/v1/accounts/lagosrentals/ssh/keys", status: 201, result: "ok" },
   ];
   private started = Date.now() - 1000 * 60 * 60 * 24 * 23.4;
 
   private record(method: string, path: string, status = 200) {
-    this.log.unshift({ time: now(), actor: "andre", method, path, status, result: status < 400 ? "ok" : "error" });
+    this.log.unshift({ time: now(), actor: "marvellous", method, path, status, result: status < 400 ? "ok" : "error" });
   }
   private acct(name: string) {
     const a = this.accounts_.find((x) => x.name === name);
@@ -192,7 +192,7 @@ export class DemoApi implements Api {
     }
     return { name: username, role: "admin" as Role };
   }
-  async passkeyLogin() { await wait(900); return { name: "andre", role: "admin" as Role }; }
+  async passkeyLogin() { await wait(900); return { name: "marvellous", role: "admin" as Role }; }
   async addPasskey(name: string, password: string) {
     await wait(700);
     if (!password) throw new Error("Enter your password to add a passkey.");
@@ -202,7 +202,7 @@ export class DemoApi implements Api {
   async setup2fa() {
     await wait(300);
     const secret = Array.from(crypto.getRandomValues(new Uint8Array(20)), (b) => "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"[b % 32]).join("");
-    return { secret, otpauth_url: `otpauth://totp/Ike:andre?secret=${secret}&issuer=Ike` };
+    return { secret, otpauth_url: `otpauth://totp/Ike:marvellous?secret=${secret}&issuer=Ike` };
   }
   async enable2fa(code: string) {
     await wait(400);
@@ -701,7 +701,7 @@ export class DemoApi implements Api {
 
   // -------------------------------------------------- people and billing
   private people_: Person[] = [
-    { username: "andre", email: "andre@megamind.ng", name: "Andre", role: "admin", totp_enabled: true, accounts: [], disabled: false, created_at: ago(90 * day), last_login_at: ago(2) },
+    { username: "marvellous", email: "marvellous@megamind.ng", name: "Marvellous", role: "admin", totp_enabled: true, accounts: [], disabled: false, created_at: ago(90 * day), last_login_at: ago(2) },
     { username: "webafrica", email: "ops@webafrica.ng", name: "WebAfrica Hosting", role: "reseller", totp_enabled: true, accounts: [], max_accounts: 25, disabled: false, created_at: ago(60 * day), last_login_at: ago(300) },
     { username: "ada", email: "ada@shop.adaeze.com", name: "Adaeze Okafor", role: "user", totp_enabled: false, reseller: "webafrica", accounts: ["adaeze"], disabled: false, created_at: ago(12 * day), last_login_at: ago(1500) },
     { username: "kelechi", email: "kelechi@kelechi.dev", role: "user", totp_enabled: true, accounts: ["kelechi"], disabled: false, created_at: ago(5 * day) },
@@ -720,7 +720,7 @@ export class DemoApi implements Api {
       if (!p.areas || !Object.keys(p.areas).length) throw new Error("give the developer at least one area, such as sites");
     }
     const n: Person = { username: p.username, email: p.email, name: p.name, role: p.role, totp_enabled: false, accounts: p.accounts || [], max_accounts: p.max_accounts, disabled: false, created_at: now(),
-      areas: p.areas as Person["areas"], invited_by: p.role === "developer" ? "andre" : undefined };
+      areas: p.areas as Person["areas"], invited_by: p.role === "developer" ? "marvellous" : undefined };
     this.people_.push(n);
     return n;
   }
@@ -790,7 +790,7 @@ export class DemoApi implements Api {
   private alerts: AlertSettings = {
     telegram: { enabled: true, bot_token: "••••••••", chat_id: "-1002233445566" },
     whatsapp: { enabled: false, phone_number_id: "", to: "" },
-    email: { enabled: true, host: "smtp-relay.brevo.com", port: 587, username: "alerts@megamind.ng", password: "••••••••", from: "alerts@megamind.ng", to: "andre@megamind.ng" },
+    email: { enabled: true, host: "smtp-relay.brevo.com", port: 587, username: "alerts@megamind.ng", password: "••••••••", from: "alerts@megamind.ng", to: "marvellous@megamind.ng" },
     uptime_interval_min: 5,
   };
   async alertSettings() { await wait(200); return JSON.parse(JSON.stringify(this.alerts)); }
@@ -1051,7 +1051,7 @@ export class DemoApi implements Api {
     if (!s.deploy?.git && s.deploy?.type !== "image") throw new Error(`${domain} isn't connected to a repository or image yet.`);
     const sha = hex(20);
     const rel = new Date().toISOString().replace(/[-:]/g, "").slice(0, 15).replace("T", "-") + (s.deploy.git ? "-" + sha.slice(0, 7) : "");
-    const d: Deployment = { id: hex(6), domain, trigger: "manual", actor: "andre", ref_type: r?.ref_type || s.deploy.git?.ref_type, ref: r?.ref || s.deploy.git?.ref,
+    const d: Deployment = { id: hex(6), domain, trigger: "manual", actor: "marvellous", ref_type: r?.ref_type || s.deploy.git?.ref_type, ref: r?.ref || s.deploy.git?.ref,
       image: s.deploy.image, status: "queued", queued_at: now() };
     (this.deps[domain] ||= []).unshift(d);
     const lines = s.deploy.type === "image" ? [`Pulling ${s.deploy.image}`, "Status: Image is up to date", `Starting container on port ${s.deploy.color === "b" ? s.port : s.deploy.alt_port}`, "Traffic moved; removing the old container"]
@@ -1082,7 +1082,7 @@ export class DemoApi implements Api {
     const old = (this.deps[domain] || []).find((x) => x.id === id);
     if (!old?.release) throw new Error("That deployment didn't produce a release to go back to.");
     if (s.deploy?.current === old.release) throw new Error("That release is already live.");
-    const d: Deployment = { ...old, id: hex(6), trigger: "rollback", actor: "andre", status: "live", rollback_of: old.release, queued_at: now(), started_at: now(), finished_at: now() };
+    const d: Deployment = { ...old, id: hex(6), trigger: "rollback", actor: "marvellous", status: "live", rollback_of: old.release, queued_at: now(), started_at: now(), finished_at: now() };
     (this.deps[domain] || []).forEach((x) => { if (x.status === "live") x.status = "replaced"; });
     this.deps[domain].unshift(d);
     this.depLogs[d.id] = `${new Date().toTimeString().slice(0, 8)}  Rolling back to release ${old.release}\n${new Date().toTimeString().slice(0, 8)}  Switched to release ${old.release}`;

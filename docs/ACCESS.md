@@ -68,7 +68,7 @@ A limited token can never create or list tokens, or change your password or two-
 | You, on your laptop | Full (made by `ike login --username you`) |
 
 ```sh
-ike tokens create "Claude for Adaeze" --username andre \
+ike tokens create "Claude for Adaeze" --username marvellous \
     --scope dns=write --scope mail=write --account adaeze --days 30
 ike tokens                 # list, with each token's access
 ike tokens revoke 5d7cc61b72

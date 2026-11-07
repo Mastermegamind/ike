@@ -51,7 +51,7 @@ func addReseller(t *testing.T, e *env, name string, maxAccounts, maxSites int) {
 func TestAPITokens(t *testing.T) {
 	e := setup(t)
 	admin := e.browser(e.admin)
-	admin.login("andre", "admin-password-1", "")
+	admin.login("marvellous", "admin-password-1", "")
 	var tok map[string]any
 	if c := admin.do("POST", "/api/v1/tokens", map[string]any{"name": "ike CLI"}, &tok); c != 201 {
 		t.Fatalf("create token: %d", c)
@@ -216,7 +216,7 @@ func TestPackagesProvisioningAndQuotas(t *testing.T) {
 func TestSubscriptionsAndBandwidth(t *testing.T) {
 	e := setup(t)
 	admin := e.browser(e.admin)
-	admin.login("andre", "admin-password-1", "")
+	admin.login("marvellous", "admin-password-1", "")
 	admin.do("POST", "/api/v1/accounts", map[string]string{"name": "shop"}, nil)
 	var pkg store.Package
 	admin.do("POST", "/api/v1/packages", map[string]any{"name": "Business", "price": 1500000, "interval": "month",
@@ -347,7 +347,7 @@ func TestResellerDomainAndAllocationQuotas(t *testing.T) {
 func TestLimitedTokens(t *testing.T) {
 	e := setup(t)
 	admin := e.browser(e.admin)
-	admin.login("andre", "admin-password-1", "")
+	admin.login("marvellous", "admin-password-1", "")
 	admin.do("POST", "/api/v1/accounts", map[string]string{"name": "shop"}, nil)
 	admin.do("POST", "/api/v1/accounts", map[string]string{"name": "other"}, nil)
 	var tok map[string]any

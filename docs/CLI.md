@@ -9,7 +9,7 @@ On the server it's already installed as `/usr/local/bin/ike`. As root there, it 
 On your own computer, download `ike` for Linux, macOS or Windows from the release page, then sign in:
 
 ```sh
-ike login https://server.example.com:2087 --username andre    # asks for your password (and 2FA code)
+ike login https://server.example.com:2087 --username marvellous    # asks for your password (and 2FA code)
 ike login https://server.example.com:2087 --token ike_…       # or use a token you made in the panel
 ike whoami
 ```
@@ -69,7 +69,7 @@ ike firewall block 203.0.113.7 --note "Brute force"
 ike metrics
 
 # Access
-ike tokens create "CI deploy" --username andre --scope sites=write --account shop --days 90
+ike tokens create "CI deploy" --username marvellous --scope sites=write --account shop --days 90
 ike keys add --account shop --key-file ~/.ssh/id_ed25519.pub --access sftp
 ike sftp add designer --account shop --domain shop.ng --read-only
 ike developers invite emeka.dev --email emeka@pixelforge.ng --account shop --area sites=write

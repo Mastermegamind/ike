@@ -251,12 +251,12 @@ func TestLetsEncryptIssue(t *testing.T) {
 	if _, err := m.IssueCertificate(ctx, "lets.ng", IssueRequest{Email: "not-an-email"}, log); err == nil {
 		t.Error("accepted a bad email")
 	}
-	s, err := m.IssueCertificate(ctx, "lets.ng", IssueRequest{Email: "andre@megamind.ng", IncludeAliases: true}, log)
+	s, err := m.IssueCertificate(ctx, "lets.ng", IssueRequest{Email: "marvellous@megamind.ng", IncludeAliases: true}, log)
 	if err != nil {
 		t.Fatal(err)
 	}
 	has(t, "certbot", strings.Join(r.History(), "\n"),
-		"certbot certonly --webroot -w /var/lib/ike/acme --cert-name lets.ng --non-interactive --agree-tos --keep-until-expiring --expand --deploy-hook systemctl reload nginx -m andre@megamind.ng -d lets.ng -d www.lets.ng -d lets.com")
+		"certbot certonly --webroot -w /var/lib/ike/acme --cert-name lets.ng --non-interactive --agree-tos --keep-until-expiring --expand --deploy-hook systemctl reload nginx -m marvellous@megamind.ng -d lets.ng -d www.lets.ng -d lets.com")
 	if strings.Contains(strings.Join(r.History(), "\n"), "-d *.lets.ng") {
 		t.Error("wildcard sent to HTTP-01")
 	}

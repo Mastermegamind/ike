@@ -22,8 +22,8 @@ func TestDomain(t *testing.T) {
 }
 
 func TestUsername(t *testing.T) {
-	good := []string{"andre", "shop1", "abc"}
-	bad := []string{"", "ab", "1abc", "Andre", "root", "nginx", "a-b-c", "verylongusername12", "a b", "../x"}
+	good := []string{"marvellous", "shop1", "abc"}
+	bad := []string{"", "ab", "1abc", "Marvellous", "root", "nginx", "a-b-c", "verylongusername12", "a b", "../x"}
 	for _, u := range good {
 		if err := Username(u); err != nil {
 			t.Errorf("Username(%q) unexpected error: %v", u, err)

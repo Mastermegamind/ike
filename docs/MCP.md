@@ -36,7 +36,7 @@ command="/usr/local/bin/ike-mcp --allow-write --tools sites,dns",restrict,from="
 1. In the panel, open **Settings → API tokens** and create a token. Choose **Limited** and set each area to *none*, *read* or *write*. Optionally pick accounts, allowed addresses and an expiry date. Or from a terminal:
 
    ```sh
-   ike tokens create "Claude for Adaeze" --username andre \
+   ike tokens create "Claude for Adaeze" --username marvellous \
        --scope sites=write --scope dns=write --scope mail=read --account adaeze --days 30
    ```
 

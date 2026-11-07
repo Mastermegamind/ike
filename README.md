@@ -121,7 +121,7 @@ Each key can then be narrowed: SFTP only or read-only SFTP even on a shell accou
 ## API, CLI and AI agents (MCP)
 
 ```sh
-ike login https://server.example.com:2087 --username andre
+ike login https://server.example.com:2087 --username marvellous
 ike sites
 ike deploy shop.ng --wait
 ```

@@ -46,7 +46,7 @@ func TestTOTP(t *testing.T) {
 	if _, ok := VerifyTOTP(secret, TOTPCode(secret, now.Add(-5*time.Minute)), now, 0); ok {
 		t.Error("old code accepted")
 	}
-	if !strings.HasPrefix(TOTPURL("Ike", "andre", NewTOTPSecret()), "otpauth://totp/Ike:andre?") {
+	if !strings.HasPrefix(TOTPURL("Ike", "marvellous", NewTOTPSecret()), "otpauth://totp/Ike:marvellous?") {
 		t.Error("bad otpauth URL")
 	}
 }
@@ -55,12 +55,12 @@ func TestThrottle(t *testing.T) {
 	th := NewThrottle(3, time.Minute)
 	now := time.Now()
 	for i := 0; i < 3; i++ {
-		th.Fail(now, "user:andre", "ip:1.2.3.4")
+		th.Fail(now, "user:marvellous", "ip:1.2.3.4")
 	}
-	if b, _ := th.Blocked(now, "user:andre"); !b {
+	if b, _ := th.Blocked(now, "user:marvellous"); !b {
 		t.Error("should be blocked")
 	}
-	if b, _ := th.Blocked(now.Add(2*time.Minute), "user:andre"); b {
+	if b, _ := th.Blocked(now.Add(2*time.Minute), "user:marvellous"); b {
 		t.Error("should unblock after window")
 	}
 }

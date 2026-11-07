@@ -19,7 +19,7 @@ func TestJoinAndRemoteProxy(t *testing.T) {
 	e.srv.ClusterDir = filepath.Join(t.TempDir(), "cluster")
 	e.srv.CertFingerprint = "AA:BB"
 	admin := e.browser(e.admin)
-	if c := admin.login("andre", "admin-password-1", ""); c != 200 {
+	if c := admin.login("marvellous", "admin-password-1", ""); c != 200 {
 		t.Fatal(c)
 	}
 	var tok struct {
@@ -91,7 +91,7 @@ func TestJoinAndRemoteProxy(t *testing.T) {
 	}
 	b, _ = io.ReadAll(resp.Body)
 	resp.Body.Close()
-	if resp.StatusCode != 200 || !bytes.Contains(b, []byte(`"remote-acct"`)) || !bytes.Contains(b, []byte(`"actor":"andre"`)) {
+	if resp.StatusCode != 200 || !bytes.Contains(b, []byte(`"remote-acct"`)) || !bytes.Contains(b, []byte(`"actor":"marvellous"`)) {
 		t.Fatalf("remote proxy %d %s", resp.StatusCode, b)
 	}
 	// nobody else can talk to the agent port

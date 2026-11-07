@@ -53,7 +53,7 @@ func TestRealRestic(t *testing.T) {
 	})
 	m.store.Path = filepath.Join(dir, "plans.json")
 	ctx := context.Background()
-	sp, err := m.Save(ctx, "", "andre", PlanRequest{Plan: Plan{Name: "Shop site", Scope: "site", Site: "shop.ng", Target: tg.ID, Enabled: true,
+	sp, err := m.Save(ctx, "", "marvellous", PlanRequest{Plan: Plan{Name: "Shop site", Scope: "site", Site: "shop.ng", Target: tg.ID, Enabled: true,
 		Databases: []string{"mariadb:shop_wp"}, Retention: Retention{KeepLast: 2}}})
 	if err != nil {
 		t.Fatal(err)

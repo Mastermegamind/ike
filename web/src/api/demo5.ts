@@ -162,8 +162,8 @@ export class Demo5 {
     ];
     this.accountPkg = { naijabites: "p2", adaeze: "p4", lagosrentals: "p2", kelechi: "p3", oldclient: "p1" };
     this.subs = [
-      { id: "sb1", account: "naijabites", package_id: "p2", price: 1500000, currency: "NGN", interval: "month", next_due: ago(-12 * day), status: "active", created_by: "andre", created_at: ago(80 * day) },
-      { id: "sb2", account: "kelechi", package_id: "p3", price: 12000000, currency: "NGN", interval: "year", next_due: ago(-360 * day), status: "active", created_by: "andre", created_at: ago(5 * day) },
+      { id: "sb1", account: "naijabites", package_id: "p2", price: 1500000, currency: "NGN", interval: "month", next_due: ago(-12 * day), status: "active", created_by: "marvellous", created_at: ago(80 * day) },
+      { id: "sb2", account: "kelechi", package_id: "p3", price: 12000000, currency: "NGN", interval: "year", next_due: ago(-360 * day), status: "active", created_by: "marvellous", created_at: ago(5 * day) },
     ];
     this.tokens = [
       { id: "t1", name: "WHMCS", read_only: false, created: ago(30 * day), last_used: ago(45), limited: true, scopes: { accounts: "write", billing: "write", sites: "write" } },
@@ -350,7 +350,7 @@ export class Demo5 {
     if (is("POST", "/billing/subscriptions")) {
       if (this.subs.some((s) => s.account === b.account && s.status === "active")) bad("This account already has an active subscription; cancel it first.");
       const pk = this.packages.find((x) => x.id === b.package_id) ?? nf("Package");
-      const s: Subscription = { id: hex(4), account: b.account, package_id: pk!.id, price: pk!.price, currency: pk!.currency, interval: pk!.interval, next_due: b.first_due || now(), status: "active", created_by: "andre", created_at: now() };
+      const s: Subscription = { id: hex(4), account: b.account, package_id: pk!.id, price: pk!.price, currency: pk!.currency, interval: pk!.interval, next_due: b.first_due || now(), status: "active", created_by: "marvellous", created_at: now() };
       this.subs.push(s); return s;
     }
     if ((p = is("POST", "/billing/subscriptions/:id/cancel"))) { const s = this.subs.find((x) => x.id === p!.id); if (s) s.status = "cancelled"; return {}; }
@@ -387,7 +387,7 @@ export class Demo5 {
     if (is("GET", "/dns/reverse")) return [{ address: IP, ptr: ["vps-lagos-1.megamind.ng"], hostname: "vps-lagos-1.megamind.ng", forward_confirmed: true, ok: true, advice: "Reverse DNS is set up correctly." },
       { address: "2c0f:f4c0:1::17", ptr: [], hostname: "vps-lagos-1.megamind.ng", forward_confirmed: false, ok: false, advice: "This address has no reverse DNS. Mail servers often reject mail from it. In your VPS provider's control panel, set the reverse DNS (PTR) of 2c0f:f4c0:1::17 to vps-lagos-1.megamind.ng." }];
     if (is("GET", "/dns/registrar")) return { kind: "namecheap", api_user: "megamind", api_key: "set", username: "megamind", client_ip: IP, sandbox: false,
-      contact: { first_name: "Andre", last_name: "Peterson", organization: "Megamind Technologies", address1: "12 Admiralty Way", city: "Lekki", state: "Lagos", postal_code: "106104", country: "NG", phone: "+234.8031234567", email: "domains@megamind.ng" } };
+      contact: { first_name: "Marvellous", last_name: "Okwor", organization: "Megamind Technologies", address1: "12 Admiralty Way", city: "Lekki", state: "Lagos", postal_code: "106104", country: "NG", phone: "+234.8031234567", email: "domains@megamind.ng" } };
     if (is("PUT", "/dns/registrar")) return { ...b, api_key: "set" };
     if (is("POST", "/dns/registrar/check")) return (b.domains as string[]).map((d, i) => ({ domain: d, available: i % 2 === 0 || d.endsWith(".ng"), premium: d.length < 7 && d.endsWith(".com"), price: d.length < 7 ? "$2,400" : undefined }));
     if (is("POST", "/dns/registrar/register")) { this.pushEvent("dns.domain.registered", b.domain, { years: b.years }); if (b.account) this.zones.push(zone(b.domain, b.account)); return { domain: b.domain, registered: true, charged: "8.88" }; }

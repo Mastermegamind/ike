@@ -415,8 +415,8 @@ func TestRDAPAndNamecheap(t *testing.T) {
 	if reg.Registrar != "Whogohost Ltd" || reg.Expires.Year() != 2027 || reg.Nameservers[0] != "ns1.host.ng" {
 		t.Fatalf("%+v", reg)
 	}
-	if _, err := m.SetRegistrar(Registrar{Kind: "namecheap", APIUser: "andre", Username: "andre", APIKey: "0123456789abcdef0123",
-		Contact: Contact{FirstName: "Andre", LastName: "P", Address1: "1 Marina", City: "Lagos", State: "Lagos", PostalCode: "101001",
+	if _, err := m.SetRegistrar(Registrar{Kind: "namecheap", APIUser: "marvellous", Username: "marvellous", APIKey: "0123456789abcdef0123",
+		Contact: Contact{FirstName: "Marvellous", LastName: "Okwor", Address1: "1 Marina", City: "Lagos", State: "Lagos", PostalCode: "101001",
 			Country: "NG", Phone: "+234.8031234567", Email: "a@b.ng"}}); err != nil {
 		t.Fatal(err)
 	}

@@ -46,11 +46,11 @@ func TestMaintenanceWindow(t *testing.T) {
 		return nil, nil
 	}
 	m.AllSites = func() []string { return []string{"shop.ng"} }
-	w, err := m.AddWindow(Window{Title: "Kernel update", Start: time.Now().Add(time.Minute), End: time.Now().Add(time.Hour)}, "andre")
+	w, err := m.AddWindow(Window{Title: "Kernel update", Start: time.Now().Add(time.Minute), End: time.Now().Add(time.Hour)}, "marvellous")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := m.AddWindow(Window{Title: "Overlap", Start: time.Now().Add(10 * time.Minute), End: time.Now().Add(2 * time.Hour)}, "andre"); err == nil {
+	if _, err := m.AddWindow(Window{Title: "Overlap", Start: time.Now().Add(10 * time.Minute), End: time.Now().Add(2 * time.Hour)}, "marvellous"); err == nil {
 		t.Fatal("overlap accepted")
 	}
 	m.startWindow(context.Background(), &w)

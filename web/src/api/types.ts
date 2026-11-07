@@ -95,7 +95,7 @@ export interface ServiceStatus { name: string; active: string }
 
 export interface AuditEntry {
   time: string;
-  actor: string; // "andre", "reseller:acme", "ai:mcp"
+  actor: string; // "marvellous", "reseller:acme", "ai:mcp"
   method: string;
   path: string;
   status: number;

@@ -13,7 +13,7 @@ import (
 func TestShareLinkAndStreaming(t *testing.T) {
 	e := setup(t)
 	admin := e.browser(e.panel)
-	if c := admin.login("andre", "admin-password-1", ""); c != 200 {
+	if c := admin.login("marvellous", "admin-password-1", ""); c != 200 {
 		t.Fatalf("login %d", c)
 	}
 	if c := admin.do("POST", "/api/v1/accounts", map[string]string{"name": "shop"}, nil); c != 201 {
@@ -67,7 +67,7 @@ func TestShareLinkAndStreaming(t *testing.T) {
 func TestTerminalTunnel(t *testing.T) {
 	e := setup(t)
 	admin := e.browser(e.panel)
-	admin.login("andre", "admin-password-1", "")
+	admin.login("marvellous", "admin-password-1", "")
 	u, _ := url.Parse(e.panel.URL)
 	var cookie string
 	for _, c := range admin.c.Jar.Cookies(u) {

@@ -387,12 +387,12 @@ func testKey(t *testing.T, comment string) string {
 }
 
 func TestParsePublicKey(t *testing.T) {
-	good := testKey(t, "andre@laptop")
+	good := testKey(t, "marvellous@laptop")
 	k, err := ParsePublicKey(good)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(k.Fingerprint, "SHA256:") || k.Comment != "andre@laptop" {
+	if !strings.HasPrefix(k.Fingerprint, "SHA256:") || k.Comment != "marvellous@laptop" {
 		t.Errorf("unexpected key %+v", k)
 	}
 	b64 := strings.Fields(good)[1]
