@@ -2,7 +2,7 @@ import {
   Box, Cloud, Puzzle, Ship,
   ArrowUpCircle, BarChart3, BellRing, CreditCard, FolderInput, KeyRound, ShieldHalf, UserCog,
   Activity, AppWindow, Bot, Boxes, CalendarClock, Database, Gauge, Globe, HardDriveDownload, LockKeyhole, Mail,
-  Network, Palette, Server, ShieldCheck, SquareTerminal, Users, FolderOpen, ServerCog, Bug, Inbox, Settings2, Brush, Bell, KeySquare,
+  Network, Palette, Server, CalendarX2, RadioTower, Video, ShieldCheck, SquareTerminal, Users, FolderOpen, ServerCog, Bug, Inbox, Settings2, Brush, Bell, KeySquare,
   type LucideIcon,
 } from "lucide-react";
 import type { Role } from "../api/types";
@@ -40,6 +40,8 @@ export const navGroups: NavGroup[] = [
       { to: "/apps", label: "App installer", icon: AppWindow, roles: ["admin", "reseller", "user"] },
       { to: "/containers", label: "Containers", icon: Box, roles: all, area: "containers" },
       { to: "/ssl", label: "SSL certificates", icon: LockKeyhole, roles: all, area: "sites" },
+      { to: "/expiry", label: "Expiry dates", icon: CalendarX2, roles: ["admin", "reseller", "user"] },
+      { to: "/realtime", label: "Video & calls", icon: Video, roles: ["reseller", "user", "developer"], area: "sites" },
       { to: "/terminal", label: "Terminal", icon: SquareTerminal, roles: all, area: "files" },
     ],
   },
@@ -56,6 +58,7 @@ export const navGroups: NavGroup[] = [
       { to: "/php-extensions", label: "PHP extensions", icon: Puzzle, roles: ["admin"] },
       { to: "/docker", label: "Docker", icon: Ship, roles: ["admin"] },
       { to: "/kubernetes", label: "Kubernetes", icon: Cloud, roles: ["admin"] },
+      { to: "/realtime", label: "Real-time media", icon: RadioTower, roles: ["admin"] },
       { to: "/usage", label: "Resource usage", icon: BarChart3, roles: ["admin", "reseller"] },
       { to: "/updates", label: "Updates", icon: ArrowUpCircle, roles: ["admin"] },
       { to: "/migrate", label: "Migrate from cPanel", icon: FolderInput, roles: ["admin"] },

@@ -36,6 +36,16 @@ ike rollback shop.ng DEPLOYMENT_ID
 ike ssl shop.ng --wildcard --wait
 ike logs shop.ng --kind error --lines 100
 
+# Caches, video and calls
+ike cache shop set --engine dragonfly --memory 512
+ike realtime turn on --domain turn.shop.ng --tls yes
+ike realtime livekit on --domain rtc.shop.ng --account shop --turn yes
+ike realtime token class-1 ada --minutes 30
+
+# Expiry dates
+ike expiry --kind domain
+ike expiry hosting oldclient 2027-03-31
+
 # DNS
 ike dns zones --account shop
 ike dns add shop.ng --account shop --type TXT --name @ --content "google-site-verification=…"

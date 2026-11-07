@@ -101,6 +101,14 @@ type Manager struct {
 	resolver func(server string) Resolver
 	// http fetches RDAP data and talks to the registrar; replaced in tests.
 	http httpDoer
+	// rdapPause spaces out registry lookups (politeness); 0 in tests.
+	rdapPause time.Duration
+
+	// WebsiteDomains lists the domains websites answer to (set by the API
+	// server), so domains whose DNS is elsewhere get expiry dates too.
+	WebsiteDomains func() []DomainRef
+	regOnce        sync.Once
+	regs           *kit.Store[map[string]*cachedReg]
 }
 
 func New(env *kit.Env, keys *secrets.Keyring) *Manager {
@@ -109,6 +117,7 @@ func New(env *kit.Env, keys *secrets.Keyring) *Manager {
 	m.providers = m.provider
 	m.resolver = netResolver
 	m.http = defaultHTTP()
+	m.rdapPause = 2 * time.Second
 	if keys != nil {
 		keys.Register("dns", m.reseal)
 	}

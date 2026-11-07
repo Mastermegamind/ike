@@ -42,6 +42,19 @@ Plain-text passwords are refused on every unencrypted connection. TLS 1.2 is the
 | HTTPS | 443 |
 | DNS (PowerDNS) | 53 TCP/UDP, only if this server hosts DNS |
 
+## Video and calls (only when switched on)
+
+Opened by Ike when the admin switches the server on under Real-time media, and closed again when it is switched off. See [REALTIME.md](REALTIME.md).
+
+| Service | Port |
+|---|---|
+| TURN and STUN (coturn) | 3478 UDP and TCP |
+| TURN over TLS | 5349 TCP and UDP (when TLS is on) |
+| TURN relay | 40000–49999 UDP |
+| LiveKit media over TCP | 7881 TCP |
+| LiveKit media | 50000–60000 UDP |
+| LiveKit signalling | through its website on 443 (`wss://`); LiveKit itself listens on `127.0.0.1:7880` |
+
 ## Internal only (never opened in the firewall)
 
 | Service | Address |
@@ -51,3 +64,4 @@ Plain-text passwords are refused on every unencrypted connection. TLS 1.2 is the
 | phpMyAdmin | `127.0.0.1:8090` until the panel proxies it with single sign-on |
 | Node.js / Python apps | `127.0.0.1:3001` and up |
 | MariaDB | unix socket only |
+| Account caches (Redis, Valkey, Dragonfly) | a unix socket in the account's home, no TCP port |

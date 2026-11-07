@@ -1,11 +1,11 @@
 // Databases for every engine (MariaDB, PostgreSQL, MongoDB), per-account
-// Redis or Valkey, import/export, connection diagnostics, live queries, the
+// Redis, Valkey or Dragonfly, import/export, connection diagnostics, live queries, the
 // slow query log and MariaDB replication.
 import { useState } from "react";
 import { Activity, Database, KeyRound, Plus, RefreshCw, Stethoscope, Trash2, Users, Zap } from "lucide-react";
 import { api } from "../api/client";
 import type { Job, Role } from "../api/types";
-import type { DBCredentials, DBProcess, EngineDB, Engines, Replication, RedisInstance, SlowQuery } from "../api/types5";
+import type { CacheEngine, DBCredentials, DBProcess, EngineDB, Engines, Replication, RedisInstance, SlowQuery } from "../api/types5";
 import { Badge, Button, CopyField, Empty, Field, Modal, Skeleton, Tabs, useAsync, useToast } from "../components/ui";
 import { ConfirmDelete, PageHead, Toggle } from "../components/common";
 import { JobModal, useJob } from "../components/job";
@@ -13,6 +13,18 @@ import { DownloadLink, enc, ErrorNote, FormModal, NumberField, OnceModal, Select
 import { useAccountParam } from "./AccountTools";
 
 const engineName: Record<string, string> = { mariadb: "MariaDB", postgres: "PostgreSQL", mongodb: "MongoDB" };
+const cacheName: Record<CacheEngine, string> = { redis: "Redis", valkey: "Valkey", dragonfly: "Dragonfly" };
+const cacheHint: Record<CacheEngine, string> = {
+  redis: "The original. Works with every Redis client.",
+  valkey: "Open-source Redis, same commands and clients.",
+  dragonfly: "Redis-compatible and faster on big caches. Needs at least 256 MB.",
+};
+/** The cache engines a server offers (older agents only report one). */
+function cachesOf(e?: Engines | null): CacheEngine[] {
+  if (!e) return [];
+  if (e.caches?.length) return e.caches;
+  return e.redis ? [e.redis as CacheEngine] : [];
+}
 
 interface DBList { engines: Engines; mariadb: string[] | null; databases: EngineDB[] | null; redis?: RedisInstance | null }
 
@@ -21,9 +33,9 @@ export function DatabasesPage({ route, role }: { route: string; role: Role }) {
   const [tab, setTab] = useState<"dbs" | "redis" | "activity" | "replication">("dbs");
   return (
     <div className="stack">
-      <PageHead title="Databases" text="MariaDB, PostgreSQL and MongoDB databases, and a private Redis for each account. Names start with the account name so accounts never clash."
+      <PageHead title="Databases" text="MariaDB, PostgreSQL and MongoDB databases, and a private cache (Redis, Valkey or Dragonfly) for each account. Names start with the account name so accounts never clash."
         actions={picker} />
-      <Tabs value={tab} onChange={setTab} tabs={[{ value: "dbs", label: "Databases" }, { value: "redis", label: "Redis" }, { value: "activity", label: "Running queries" },
+      <Tabs value={tab} onChange={setTab} tabs={[{ value: "dbs", label: "Databases" }, { value: "redis", label: "Cache" }, { value: "activity", label: "Running queries" },
         ...(role === "admin" ? [{ value: "replication" as const, label: "Replication" }] : [])]} />
       {!account && tab !== "replication" ? <Skeleton h={120} /> : tab === "dbs" ? <DbList account={account} /> : tab === "redis" ? <RedisPanel account={account} />
         : tab === "activity" ? <ActivityPanel base={`/accounts/${enc(account)}/dbs`} /> : <ReplicationPanel />}
@@ -51,7 +63,7 @@ function DbList({ account }: { account: string }) {
   return (
     <section className="panel">
       <div className="panel-head">
-        <div className="small muted">{engines ? `On this server: ${engineOptions.map((e) => engineName[e]).join(", ")}${engines.redis ? `, ${engines.redis === "valkey" ? "Valkey" : "Redis"}` : ""}` : ""}</div>
+        <div className="small muted">{engines ? `On this server: ${engineOptions.map((e) => engineName[e]).join(", ")}${cachesOf(engines).length ? `, ${cachesOf(engines).map((c) => cacheName[c]).join(", ")}` : ""}` : ""}</div>
         <div className="row">
           <Button size="sm" loading={busy === "sizes"} onClick={() => run("sizes", () => api.call("POST", `${base}/sizes`)).then(() => list.reload())}><RefreshCw size={15} />Measure sizes</Button>
           <Button variant="primary" onClick={() => { setForm({ ...form, engine: engineOptions[0] }); setCreate(true); }}><Plus size={16} />Create database</Button>
@@ -151,25 +163,39 @@ function RedisPanel({ account }: { account: string }) {
   const st = useAsync(() => api.call<RedisInstance["stats"]>("GET", base).then((x) => x).catch(() => null), [base]);
   const list = useGet<DBList>(`/accounts/${enc(account)}/dbs`);
   const inst = list.data?.redis ?? null;
-  const [f, setF] = useState<{ memory_mb: number; policy: string; persist: boolean } | null>(null);
+  const caches = cachesOf(list.data?.engines);
+  const current: CacheEngine = inst?.engine ?? (list.data?.engines.redis as CacheEngine) ?? caches[0] ?? "redis";
+  const [f, setF] = useState<{ engine: CacheEngine; memory_mb: number; policy: string; persist: boolean } | null>(null);
   const [cred, setCred] = useState<DBCredentials | null>(null);
   const [del, setDel] = useState(false);
+  const [switching, setSwitching] = useState(false);
   const { busy, run } = useAction();
-  const form = f ?? (inst ? { memory_mb: inst.memory_mb, policy: inst.policy, persist: inst.persist } : { memory_mb: 128, policy: "allkeys-lru", persist: false });
-  if (list.data && !list.data.engines.redis) return <section className="panel"><Empty icon={<Zap size={22} />} title="Redis isn't installed" text="Ask your hosting provider. The admin adds it with the installer's --redis or --valkey option." /></section>;
+  const form = f ?? (inst ? { engine: current, memory_mb: inst.memory_mb, policy: inst.policy, persist: inst.persist }
+    : { engine: caches[0] ?? "redis", memory_mb: caches[0] === "dragonfly" ? 256 : 128, policy: "allkeys-lru", persist: false });
+  if (list.data && caches.length === 0) return <section className="panel"><Empty icon={<Zap size={22} />} title="No cache is installed" text="Ask your hosting provider. The admin adds Redis, Valkey or Dragonfly with the installer's --redis, --valkey or --dragonfly option." /></section>;
+  const label = cacheName[form.engine];
   const save = (newPassword: boolean) => run("save", () => api.call<{ credentials?: DBCredentials; redis: RedisInstance }>("PUT", base, { ...form, new_password: newPassword }),
-    inst ? "Redis settings saved" : "Redis is running").then((r) => { if (r) { if (r.credentials?.password) setCred(r.credentials); list.reload(); st.reload(); } });
+    inst ? `${label} settings saved` : `${label} is running`).then((r) => { if (r) { if (r.credentials?.password) setCred(r.credentials); setF(null); list.reload(); st.reload(); } });
+  const changingEngine = !!inst && form.engine !== current;
+  const tooSmall = form.engine === "dragonfly" && form.memory_mb < 256;
   return (
     <div className="grid-2">
       <section className="panel">
-        <div className="panel-head"><div><h2>{inst ? "Your Redis" : "Start a private Redis"}</h2><p className="small muted">For caches, sessions and queues. Only this account can reach it, through a socket file.</p></div></div>
+        <div className="panel-head"><div><h2>{inst ? `Your ${cacheName[current]}` : "Start a private cache"}</h2><p className="small muted">For caches, sessions and queues. Only this account can reach it, through a socket file. Apps use any Redis client.</p></div></div>
         <div className="panel-body form-grid">
-          <NumberField label="Memory (MB)" value={form.memory_mb} onChange={(v) => setF({ ...form, memory_mb: v })} min={16} />
+          {caches.length > 1 ? (
+            <SelectField label="Engine" value={form.engine} onChange={(v) => setF({ ...form, engine: v, memory_mb: v === "dragonfly" ? Math.max(form.memory_mb, 256) : form.memory_mb })}
+              options={caches.map((c) => ({ value: c, label: cacheName[c] }))} hint={cacheHint[form.engine]} />
+          ) : null}
+          <NumberField label="Memory (MB)" value={form.memory_mb} onChange={(v) => setF({ ...form, memory_mb: v })} min={form.engine === "dragonfly" ? 256 : 16}
+            hint={tooSmall ? "Dragonfly needs at least 256 MB." : undefined} />
           <SelectField label="When memory is full" value={form.policy} onChange={(v) => setF({ ...form, policy: v })} options={[
-            { value: "allkeys-lru", label: "Remove the least used keys (cache)" }, { value: "volatile-lru", label: "Remove least used keys that expire" }, { value: "noeviction", label: "Refuse new writes (queues, sessions)" }]} />
-          <Toggle checked={form.persist} onChange={(v) => setF({ ...form, persist: v })} label="Save data to disk (survives restarts)" />
+            { value: "allkeys-lru", label: "Remove the least used keys (cache)" }, { value: "volatile-lru", label: "Remove least used keys that expire" }, { value: "noeviction", label: "Refuse new writes (queues, sessions)" }]}
+            hint={form.engine === "dragonfly" && form.policy !== "noeviction" ? "Dragonfly has one way to make room: it removes the least useful keys." : undefined} />
+          <Toggle checked={form.persist} onChange={(v) => setF({ ...form, persist: v })} label={form.engine === "dragonfly" ? "Save data to disk every 5 minutes" : "Save data to disk (survives restarts)"} />
+          {changingEngine ? <div className="callout warn small">Switching to {label} starts an empty {label}. {cacheName[current]} stops and its keys are not copied; the password and socket stay the same.</div> : null}
           <div className="row">
-            <Button variant="primary" loading={busy === "save"} onClick={() => save(false)}>{inst ? "Save" : "Start Redis"}</Button>
+            <Button variant="primary" loading={busy === "save"} disabled={tooSmall} onClick={() => (changingEngine ? setSwitching(true) : save(false))}>{inst ? (changingEngine ? `Switch to ${label}` : "Save") : `Start ${label}`}</Button>
             {inst ? <><Button onClick={() => save(true)}><KeyRound size={16} />New password</Button>
               <Button loading={busy === "flush"} onClick={() => run("flush", () => api.call("POST", `${base}/flush`), "Every key deleted")}>Empty it</Button>
               <Button variant="ghost" onClick={() => setDel(true)}><Trash2 size={16} />Remove</Button></> : null}
@@ -179,18 +205,22 @@ function RedisPanel({ account }: { account: string }) {
       </section>
       {inst ? (
         <section className="panel">
-          <div className="panel-head"><h2>Status</h2><Button size="sm" onClick={st.reload} loading={st.loading}><RefreshCw size={15} /></Button></div>
+          <div className="panel-head"><h2>Status</h2><Button size="sm" onClick={st.reload} loading={st.loading} aria-label="Refresh"><RefreshCw size={15} /></Button></div>
           <div className="panel-body">{!st.data ? <Skeleton /> : (
-            <dl className="kv"><dt>State</dt><dd>{st.data.running ? <Badge tone="ok">Running</Badge> : <Badge tone="bad">Stopped</Badge>}</dd>
+            <dl className="kv"><dt>Engine</dt><dd>{cacheName[st.data.engine ?? current]}</dd>
+              <dt>State</dt><dd>{st.data.running ? <Badge tone="ok">Running</Badge> : <Badge tone="bad">Stopped</Badge>}</dd>
               <dt>Memory used</dt><dd>{st.data.used_mb.toFixed(1)} of {inst.memory_mb} MB</dd><dt>Keys</dt><dd>{st.data.keys}</dd>
               <dt>Hit rate</dt><dd>{st.data.hit_rate.toFixed(0)}%</dd><dt>Clients</dt><dd>{st.data.clients}</dd><dt>Version</dt><dd>{st.data.version}</dd></dl>
           )}</div>
         </section>
       ) : null}
-      <OnceModal open={!!cred} onClose={() => setCred(null)} title="Redis password">
+      <OnceModal open={!!cred} onClose={() => setCred(null)} title={`${label} password`}>
         {cred ? <><CopyField value={cred.password} label="Password" /><Field label="URL">{() => <CopyField value={cred.url} label="URL" />}</Field></> : null}
       </OnceModal>
-      <ConfirmDelete open={del} onClose={() => setDel(false)} title="Remove this Redis?" name="redis" confirmLabel="Remove Redis" description="It stops and its data is deleted."
+      <FormModal open={switching} onClose={() => setSwitching(false)} title={`Switch to ${label}?`} submit={`Switch to ${label}`}
+        description={`${cacheName[current]} stops and its keys are deleted from memory. Apps reconnect to ${label} on the same socket with the same password.`}
+        onSubmit={async () => { await save(false); }}><span /></FormModal>
+      <ConfirmDelete open={del} onClose={() => setDel(false)} title={`Remove this ${cacheName[current]}?`} name="redis" confirmLabel="Remove" description="It stops and its data is deleted."
         onConfirm={async () => { await api.call("DELETE", base); list.reload(); }} />
     </div>
   );

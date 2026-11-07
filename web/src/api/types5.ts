@@ -61,9 +61,10 @@ export interface SecretsStatus { key_id: string; keys: number; stores: string[];
 
 // ---- databases
 export interface EngineDB { engine: "mariadb" | "postgres" | "mongodb"; name: string; owner: string; note?: string; roles?: { name: string; access: string }[]; created_at: string; size_mb?: number }
-export interface RedisInstance { socket: string; memory_mb: number; policy: string; persist: boolean; created_at: string; stats?: { running: boolean; used_mb: number; keys: number; clients: number; hit_rate: number; uptime_hours: number; version: string } }
+export type CacheEngine = "redis" | "valkey" | "dragonfly";
+export interface RedisInstance { engine?: CacheEngine; socket: string; memory_mb: number; policy: string; persist: boolean; created_at: string; stats?: { engine?: CacheEngine; running: boolean; used_mb: number; keys: number; clients: number; hit_rate: number; uptime_hours: number; version: string } }
 export interface AccountDBs { account: string; databases: EngineDB[]; redis?: RedisInstance | null }
-export interface Engines { mariadb: boolean; postgres: boolean; redis: string; mongodb: boolean }
+export interface Engines { mariadb: boolean; postgres: boolean; redis: string; caches?: CacheEngine[]; mongodb: boolean }
 export interface DBCredentials { engine: string; database: string; user: string; password: string; host: string; port?: number; url: string }
 export interface DBProcess { id: number; user: string; host: string; db: string; command: string; seconds: number; state: string; query: string }
 export interface SlowQuery { time: string; user: string; db: string; query_secs: number; lock_secs: number; rows_sent: number; rows_examined: number; query: string }
@@ -122,3 +123,23 @@ export interface ImportFile { file: string; size_mb: number; uploaded: string }
 export interface MetricPoint { t: string; cpu: number; mem: number; swap: number; net_in: number; net_out: number; disk_rd: number; disk_wr: number; load1: number }
 export interface NetInterface { name: string; in_bps: number; out_bps: number; rx_bytes: number; tx_bytes: number; rx_errors: number; tx_errors: number }
 export interface ServerMetrics { now: MetricPoint; mem_total_mb: number; swap_total_mb: number; interfaces: NetInterface[]; history: MetricPoint[] }
+
+// ---- real-time media (TURN, LiveKit)
+export interface TurnSettings { enabled: boolean; domain: string; tls: boolean; user_quota: number; total_quota: number; max_kbps: number; allow_accounts: boolean; updated_at?: string }
+export interface LiveKitKey { key: string; secret?: string; name: string; account?: string; created: string }
+export interface LiveKitSettings { enabled: boolean; domain: string; account: string; use_turn: boolean; empty_timeout: number; max_participants: number; webhook_urls?: string[] | null; allow_accounts: boolean; keys: LiveKitKey[] | null; updated_at?: string }
+export interface RealtimeStatus {
+  turn: TurnSettings & { installed: boolean; running?: string; uris: string[] | null; ports: string[]; cert_ready: boolean };
+  livekit: LiveKitSettings & { installed: boolean; running?: string; url: string; version?: string };
+  public_ip: string; notes?: string[] | null;
+}
+export interface TurnCredential { uris: string[]; username: string; credential: string; ttl: number; expires: string }
+export interface JoinToken { token: string; url: string; expires: string }
+export interface RealtimeAccountView { livekit_url?: string; livekit_keys: LiveKitKey[]; can_make_keys: boolean; turn_uris?: string[] | null; can_make_turn_credentials: boolean }
+
+// ---- expiry dates
+export type ExpiryKind = "domain" | "ssl" | "hosting";
+export type ExpiryState = "ok" | "soon" | "urgent" | "expired" | "unknown";
+export interface ExpiryItem { kind: ExpiryKind; name: string; account: string; expires?: string; days_left: number; state: ExpiryState; source?: string; auto_renews: boolean; detail?: string }
+export interface ExpirySummary { expired: number; within_7: number; within_30: number; unknown: number }
+export interface ExpiryList { items: ExpiryItem[]; summary: ExpirySummary }

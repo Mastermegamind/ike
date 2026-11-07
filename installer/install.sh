@@ -43,7 +43,11 @@ INSTALL_WEBMAIL=1           # Roundcube (with --mail)
 WEBMAIL_PORT=2096
 SERVER_HOSTNAME=""
 POSTGRES_VERSION=""         # "" = none, "default" = Ubuntu's, or 14-18 from apt.postgresql.org
-REDIS_KIND=""               # redis | valkey
+REDIS_KIND=""               # redis | valkey: the server-wide engine (the first of them chosen)
+CACHE_ENGINES=""            # per-account cache engines: any of redis valkey dragonfly
+INSTALL_TURN=0              # TURN server (coturn) for WebRTC calls
+INSTALL_LIVEKIT=0           # LiveKit WebRTC media server
+ADD_ONLY=""                 # --add: install only these on a server that already runs Ike
 MONGODB_VERSION=""          # e.g. 8.0
 JOIN_URL=""                 # join another server's panel instead of being managed here
 JOIN_TOKEN=""
@@ -110,6 +114,13 @@ download() {
 	fi
 }
 
+# add_cache ENGINE records a cache engine once. The first of Redis/Valkey is
+# also the server-wide one.
+add_cache() {
+	case " $CACHE_ENGINES " in *" $1 "*) ;; *) CACHE_ENGINES="${CACHE_ENGINES:+$CACHE_ENGINES }$1" ;; esac
+	if [ -z "$REDIS_KIND" ] && [ "$1" != "dragonfly" ]; then REDIS_KIND="$1"; fi
+}
+
 usage() {
 	cat <<EOF
 Usage: install.sh [options]
@@ -162,7 +173,21 @@ Security
 Databases
   --no-mariadb                Do not install MariaDB
   --postgres [VERSION]        PostgreSQL: Ubuntu's version, or 14-18 from the PostgreSQL project's repository
-  --redis | --valkey          Redis or Valkey: a private instance per account, on a unix socket
+  --redis --valkey --dragonfly
+                              Cache engines for apps: each account gets a private instance on a unix socket
+                              and picks its engine. Use one or several; the first of Redis/Valkey is also
+                              the server-wide one (replication).
+
+Adding to a server that already runs Ike
+  --add LIST                  Install only these, keep everything else as it is, and tell the agent:
+                              any of redis, valkey, dragonfly, turn, livekit (comma-separated).
+                              Example: install.sh --add dragonfly,turn,livekit
+
+Real-time media
+  --turn                      TURN server (coturn): lets WebRTC calls connect through strict firewalls and
+                              mobile networks. Switched on in the panel; opens 3478, 5349 and 40000-49999/udp.
+  --livekit                   LiveKit media server for video calls, rooms and live streams. Switched on in the
+                              panel, behind a website of yours (wss://); opens 7881/tcp and 50000-60000/udp.
   --mongodb [VERSION]         MongoDB Community from mongodb.org (default 8.0)
   --phpmyadmin stable|6|none  phpMyAdmin channel (default: stable; "6" = 6.0 development snapshot)
 
@@ -213,8 +238,22 @@ while [ $# -gt 0 ]; do
 		--join-token) JOIN_TOKEN="${2:?}"; shift 2 ;;
 		--join-fingerprint) JOIN_FINGERPRINT="${2:?}"; shift 2 ;;
 		--postgres) if [[ "${2:-}" =~ ^1[4-9]$ ]]; then POSTGRES_VERSION="$2"; shift 2; else POSTGRES_VERSION="default"; shift; fi ;;
-		--redis) REDIS_KIND="redis"; shift ;;
-		--valkey) REDIS_KIND="valkey"; shift ;;
+		--redis) add_cache redis; shift ;;
+		--valkey) add_cache valkey; shift ;;
+		--dragonfly) add_cache dragonfly; shift ;;
+		--turn) INSTALL_TURN=1; shift ;;
+		--add)
+			ADD_ONLY="${2:?}"
+			for e in ${ADD_ONLY//,/ }; do
+				case "$e" in
+					redis|valkey|dragonfly) add_cache "$e" ;;
+					turn) INSTALL_TURN=1 ;;
+					livekit) INSTALL_LIVEKIT=1 ;;
+					*) die "--add takes redis, valkey, dragonfly, turn or livekit (got: $e)" ;;
+				esac
+			done
+			shift 2 ;;
+		--livekit) INSTALL_LIVEKIT=1; shift ;;
 		--mongodb) if [[ "${2:-}" =~ ^[5-9]\.[0-9]$ ]]; then MONGODB_VERSION="$2"; shift 2; else MONGODB_VERSION="8.0"; shift; fi ;;
 		--clamav) INSTALL_SCANNER=1; shift ;;
 		--mail) INSTALL_MAIL=1; shift ;;
@@ -297,8 +336,15 @@ run_wizard() {
 	fi
 	ask "PostgreSQL (no, yes, or a version 14-18)" "no"
 	case "$REPLY" in yes) POSTGRES_VERSION="default" ;; 1[4-9]) POSTGRES_VERSION="$REPLY" ;; esac
-	ask "Redis for apps (no, redis, valkey)" "no"
-	case "$REPLY" in redis|valkey) REDIS_KIND="$REPLY" ;; esac
+	ask "Caches for apps (no, or one or more of: redis valkey dragonfly)" "no"
+	local e
+	for e in $REPLY; do
+		case "$e" in redis|valkey|dragonfly) add_cache "$e" ;; esac
+	done
+	ask "TURN server for video and voice calls (yes/no)" "no"
+	[ "$REPLY" = "yes" ] && INSTALL_TURN=1
+	ask "LiveKit media server for video rooms (yes/no)" "no"
+	[ "$REPLY" = "yes" ] && INSTALL_LIVEKIT=1
 	ask "MongoDB (no, yes, or a version like 8.0)" "no"
 	case "$REPLY" in yes) MONGODB_VERSION="8.0" ;; [5-9].[0-9]) MONGODB_VERSION="$REPLY" ;; esac
 	ask "First panel admin username" "$ADMIN_USER"; ADMIN_USER="$REPLY"
@@ -1036,28 +1082,20 @@ install_postgres() {
 	systemctl reload postgresql >>"$LOG_FILE" 2>&1 || true
 }
 
-install_redis() {
-	[ -n "$REDIS_KIND" ] || return 0
-	info "Installing ${REDIS_KIND} (a private instance per account)"
-	local bin=/usr/bin/redis-server
-	if [ "$REDIS_KIND" = "valkey" ]; then
-		pkg_available valkey-server || die "Valkey isn't packaged for Ubuntu ${OS_VERSION}; use --redis"
-		apt_install valkey-server valkey-tools 2>/dev/null || apt_install valkey-server
-		bin=/usr/bin/valkey-server
-	else
-		apt_install redis-server redis-tools
-	fi
-	install -d -m 0755 -o root -g root /etc/ike/redis
-	cat >/etc/systemd/system/ike-redis@.service <<EOF
+has_cache() { case " $CACHE_ENGINES " in *" $1 "*) return 0 ;; esac; return 1; }
+
+# cache_unit NAME DESCRIPTION EXEC TYPE writes a per-account systemd template.
+cache_unit() {
+	cat >"/etc/systemd/system/$1@.service" <<EOF
 [Unit]
-Description=${REDIS_KIND} for hosting account %i
+Description=$2 for hosting account %i
 After=network.target
 
 [Service]
-Type=notify
+Type=$4
 User=%i
 Group=%i
-ExecStart=${bin} /etc/ike/redis/%i.conf --supervised systemd --daemonize no
+ExecStart=$3
 Slice=ike-acct-%i.slice
 NoNewPrivileges=yes
 PrivateTmp=yes
@@ -1066,6 +1104,8 @@ ReadWritePaths=/home/%i/.redis
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes
+LimitNOFILE=65536
+LimitMEMLOCK=infinity
 Restart=on-failure
 RestartSec=3
 TimeoutStopSec=30
@@ -1073,7 +1113,165 @@ TimeoutStopSec=30
 [Install]
 WantedBy=multi-user.target
 EOF
+}
+
+# install_dragonfly installs Dragonfly from its GitHub release. Its own
+# service stays off: Ike runs one instance per account.
+install_dragonfly() {
+	local tag file tmp sum
+	if [ -x /usr/bin/dragonfly ]; then
+		DRAGONFLY_INSTALLED=$(/usr/bin/dragonfly --version 2>/dev/null | awk '{print $2; exit}')
+		return 0
+	fi
+	tag=$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/dragonflydb/dragonfly/releases/latest 2>>"$LOG_FILE" | sed 's#.*/tag/##')
+	[ -n "$tag" ] || { warn "Could not find the latest Dragonfly release; skipping Dragonfly."; return 1; }
+	file="dragonfly_${ARCH}.deb"
+	tmp=$(mktemp -d)
+	sum=""
+	if download "https://github.com/dragonflydb/dragonfly/releases/download/${tag}/${file}.sha256" "${tmp}/sum"; then
+		sum=$(cut -d' ' -f1 "${tmp}/sum")
+	else
+		warn "Dragonfly ${tag} publishes no checksum for ${file}; relying on HTTPS from GitHub."
+	fi
+	if ! download "https://github.com/dragonflydb/dragonfly/releases/download/${tag}/${file}" "${tmp}/${file}" "$sum"; then
+		warn "Dragonfly download failed; skipping it."
+		rm -rf "$tmp"
+		return 1
+	fi
+	if ! apt_install "${tmp}/${file}"; then
+		warn "Dragonfly didn't install; skipping it."
+		rm -rf "$tmp"
+		return 1
+	fi
+	rm -rf "$tmp"
+	systemctl disable --now dragonfly >>"$LOG_FILE" 2>&1 || true
+	# Dragonfly has no client of its own; the panel talks to it with redis-cli.
+	if ! has_cache redis && ! has_cache valkey; then apt_install redis-tools; fi
+	DRAGONFLY_INSTALLED="$tag"
+}
+
+install_redis() {
+	[ -n "$CACHE_ENGINES" ] || return 0
+	info "Installing caches for apps: ${CACHE_ENGINES} (a private instance per account)"
+	install -d -m 0755 -o root -g root /etc/ike/redis
+	local got="" e
+	for e in $CACHE_ENGINES; do
+		case "$e" in
+			redis)
+				apt_install redis-server redis-tools
+				# With a server-wide Valkey, Redis runs only per account (port 6379 is
+				# Valkey's), unless the spam filter uses it.
+				if [ "$REDIS_KIND" = "valkey" ] && ! systemctl is-enabled --quiet rspamd 2>/dev/null; then
+					systemctl disable --now redis-server >>"$LOG_FILE" 2>&1 || true
+				fi
+				got="$got redis" ;;
+			valkey)
+				if ! pkg_available valkey-server; then
+					warn "Valkey isn't packaged for Ubuntu ${OS_VERSION}; skipped. Use --redis or --dragonfly."
+					continue
+				fi
+				apt_install valkey-server valkey-tools 2>/dev/null || apt_install valkey-server
+				# With Redis too, Redis keeps port 6379; Valkey runs only per account.
+				if [ "$REDIS_KIND" != "valkey" ]; then systemctl disable --now valkey-server >>"$LOG_FILE" 2>&1 || true; fi
+				got="$got valkey" ;;
+			dragonfly)
+				if install_dragonfly; then got="$got dragonfly"; fi ;;
+		esac
+	done
+	CACHE_ENGINES="${got# }"
+	case " $CACHE_ENGINES " in *" $REDIS_KIND "*) ;; *) REDIS_KIND="" ;; esac
+	if [ "$REDIS_KIND" = "valkey" ]; then
+		cache_unit ike-redis "Valkey" "/usr/bin/valkey-server /etc/ike/redis/%i.conf --supervised systemd --daemonize no" notify
+	elif [ "$REDIS_KIND" = "redis" ]; then
+		cache_unit ike-redis "Redis" "/usr/bin/redis-server /etc/ike/redis/%i.conf --supervised systemd --daemonize no" notify
+	fi
+	if has_cache redis && [ "$REDIS_KIND" != "redis" ]; then
+		cache_unit ike-redis-server "Redis" "/usr/bin/redis-server /etc/ike/redis/%i.conf --supervised systemd --daemonize no" notify
+	fi
+	if has_cache valkey && [ "$REDIS_KIND" != "valkey" ]; then
+		cache_unit ike-valkey "Valkey" "/usr/bin/valkey-server /etc/ike/redis/%i.conf --supervised systemd --daemonize no" notify
+	fi
+	if has_cache dragonfly; then
+		cache_unit ike-dragonfly "Dragonfly" "/usr/bin/dragonfly --flagfile=/etc/ike/redis/%i.dragonfly.flags" simple
+	fi
 	systemctl daemon-reload
+}
+
+# ------------------------------------------------------- real-time media ----
+
+# install_turn installs coturn. The agent writes its config and starts it
+# when the admin switches TURN on in the panel.
+install_turn() {
+	[ "$INSTALL_TURN" -eq 1 ] || return 0
+	info "Installing the TURN server (coturn)"
+	apt_install coturn
+	systemctl disable --now coturn >>"$LOG_FILE" 2>&1 || true
+	# Older packages only start when this is set.
+	if [ -f /etc/default/coturn ]; then
+		sed -i 's/^#\?TURNSERVER_ENABLED=.*/TURNSERVER_ENABLED=1/' /etc/default/coturn
+	fi
+	install -d -m 0755 -o root -g root "${CONF_DIR}/realtime"
+	install -d -m 0750 -o root -g turnserver "${CONF_DIR}/realtime/turn"
+	TURN_INSTALLED=$(dpkg-query -W -f '${Version}' coturn 2>/dev/null || echo installed)
+}
+
+# install_livekit installs the LiveKit server from its GitHub release, checked
+# against the release's checksum file, with a service the agent configures.
+install_livekit() {
+	[ "$INSTALL_LIVEKIT" -eq 1 ] || return 0
+	info "Installing LiveKit"
+	local tag ver file tmp sums sum
+	tag=$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/livekit/livekit/releases/latest 2>>"$LOG_FILE" | sed 's#.*/tag/##')
+	[ -n "$tag" ] || { warn "Could not find the latest LiveKit release; skipping LiveKit."; return 0; }
+	ver="${tag#v}"
+	file="livekit_${ver}_linux_${ARCH}.tar.gz"
+	tmp=$(mktemp -d)
+	sum=""
+	for sums in checksums.txt "livekit_${ver}_checksums.txt"; do
+		if download "https://github.com/livekit/livekit/releases/download/${tag}/${sums}" "${tmp}/sums"; then
+			sum=$(awk -v f="$file" '$2==f {print $1}' "${tmp}/sums")
+			[ -n "$sum" ] && break
+		fi
+	done
+	[ -n "$sum" ] || warn "LiveKit ${tag} has no checksum for ${file}; relying on HTTPS from GitHub."
+	if ! download "https://github.com/livekit/livekit/releases/download/${tag}/${file}" "${tmp}/${file}" "$sum"; then
+		warn "LiveKit download failed; skipping it."
+		rm -rf "$tmp"
+		return 0
+	fi
+	tar -xzf "${tmp}/${file}" -C "$tmp"
+	install -m 0755 "${tmp}/livekit-server" /usr/local/bin/livekit-server
+	rm -rf "$tmp"
+	id livekit >/dev/null 2>&1 || useradd --system --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin livekit
+	install -d -m 0750 -o root -g livekit /etc/livekit
+	install -d -m 0755 -o root -g root "${CONF_DIR}/realtime"
+	cat >/etc/systemd/system/livekit.service <<'EOF'
+[Unit]
+Description=LiveKit media server, managed by Ike
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=livekit
+Group=livekit
+ExecStart=/usr/local/bin/livekit-server --config /etc/livekit/livekit.yaml
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+LimitNOFILE=500000
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+	systemctl daemon-reload
+	LIVEKIT_INSTALLED="$tag"
 }
 
 install_mongodb() {
@@ -2177,6 +2375,7 @@ install_agent() {
   "postgres": $( [ -n "$POSTGRES_VERSION" ] && echo true || echo false ),
   "postgres_version": "${POSTGRES_INSTALLED:-}",
   "redis": "${REDIS_KIND}",
+  "cache_engines": [$(for e in $CACHE_ENGINES; do printf '"%s",' "$e"; done | sed 's/,$//')],
   "mongodb": $( [ -n "$MONGODB_VERSION" ] && echo true || echo false ),
   "data_dir": "${STATE_DIR}/data",
   "modsecurity": $( [ "$INSTALL_MODSEC" -eq 1 ] && echo true || echo false ),
@@ -2321,6 +2520,9 @@ ${C_BLD}${C_GRN}${PANEL_NAME} installed successfully${C_RST}
   Kubernetes    ${K3S_INSTALLED:-not installed}
   MariaDB       $( [ "$INSTALL_MARIADB" -eq 1 ] && echo installed || echo skipped )
   phpMyAdmin    ${PMA_INSTALLED:-not installed}$( [ -n "${PMA_INSTALLED:-}" ] && echo " — ssh -L ${PMA_PORT}:127.0.0.1:${PMA_PORT} root@${ip}, then open http://localhost:${PMA_PORT}" )
+  Caches        ${CACHE_ENGINES:-none}$( [ -n "${DRAGONFLY_INSTALLED:-}" ] && echo " (Dragonfly ${DRAGONFLY_INSTALLED})" )
+  TURN          $( [ -n "${TURN_INSTALLED:-}" ] && echo "coturn ${TURN_INSTALLED}, switch it on under Real-time media" || echo "not installed" )
+  LiveKit       $( [ -n "${LIVEKIT_INSTALLED:-}" ] && echo "${LIVEKIT_INSTALLED}, switch it on under Real-time media" || echo "not installed" )
   Server IP     ${ip}
   Firewall      ${FIREWALL}
   Package tools${PKG_TOOLS_INSTALLED:- none}
@@ -2418,7 +2620,62 @@ install_quotas() {
 	esac
 }
 
+# add_main installs only what --add named on a server that already runs Ike,
+# then records the cache engines in agent.json (keeping every other setting)
+# and restarts the agent so the panel offers them.
+add_main() {
+	: >"$LOG_FILE"
+	chmod 0600 "$LOG_FILE"
+	if [ ! -e "$CONF_DIR/installed" ] || [ ! -e "$CONF_DIR/agent.json" ]; then
+		die "--add is for a server that already runs ${PANEL_NAME}; run the installer without it first."
+	fi
+	check_system
+	info "Adding ${ADD_ONLY//,/, } to ${PANEL_NAME} on Ubuntu ${OS_VERSION}"
+	apt-get update -q >>"$LOG_FILE" 2>&1
+	if [ -n "$CACHE_ENGINES" ]; then
+		# Keep the server-wide engine and the engines already installed.
+		local had kind e
+		kind=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("redis") or "")' "$CONF_DIR/agent.json")
+		had=$(python3 -c 'import json,sys; print(" ".join(json.load(open(sys.argv[1])).get("cache_engines") or []))' "$CONF_DIR/agent.json")
+		[ -n "$kind" ] && REDIS_KIND="$kind"
+		local new="$CACHE_ENGINES"
+		CACHE_ENGINES=""
+		for e in $kind $had $new; do add_cache "$e"; done
+		install_redis
+		python3 - "$CONF_DIR/agent.json" "$REDIS_KIND" "$CACHE_ENGINES" <<'PY'
+import json, os, sys
+path, kind, engines = sys.argv[1], sys.argv[2], sys.argv[3].split()
+with open(path) as f:
+    cfg = json.load(f)
+cfg["redis"], cfg["cache_engines"] = kind, engines
+tmp = path + ".new"
+with open(tmp, "w") as f:
+    json.dump(cfg, f, indent=2)
+os.chmod(tmp, 0o640)
+os.replace(tmp, path)
+PY
+	fi
+	install_turn
+	install_livekit
+	systemctl restart "${AGENT_NAME}" >>"$LOG_FILE" 2>&1 || warn "Restart ${AGENT_NAME} yourself: systemctl restart ${AGENT_NAME}"
+	cat <<EOF
+
+${C_BLD}${C_GRN}Added${C_RST}
+
+  Caches        ${CACHE_ENGINES:-unchanged}$( [ -n "${DRAGONFLY_INSTALLED:-}" ] && echo " (Dragonfly ${DRAGONFLY_INSTALLED})" )
+  TURN          $( [ -n "${TURN_INSTALLED:-}" ] && echo "coturn ${TURN_INSTALLED}" || echo "not added" )
+  LiveKit       $( [ -n "${LIVEKIT_INSTALLED:-}" ] && echo "${LIVEKIT_INSTALLED}" || echo "not added" )
+  Install log   ${LOG_FILE}
+
+Switch TURN and LiveKit on in the panel under Server, Real-time media. Account owners pick their cache engine under Databases, Cache.
+EOF
+}
+
 main() {
+	if [ -n "$ADD_ONLY" ]; then
+		add_main
+		return
+	fi
 	: >"$LOG_FILE"
 	chmod 0600 "$LOG_FILE"
 	check_system
@@ -2442,6 +2699,8 @@ main() {
 	install_mariadb
 	install_postgres
 	install_redis
+	install_turn
+	install_livekit
 	install_mongodb
 	install_phpmyadmin
 	configure_ssh

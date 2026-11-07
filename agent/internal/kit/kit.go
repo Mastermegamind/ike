@@ -52,6 +52,12 @@ type Opener interface {
 	AllowFrom(ctx context.Context, from, port, proto, comment string) error
 }
 
+// Closer is an Opener that can also close a port it opened for everyone
+// (when a feature is switched off).
+type Closer interface {
+	Close(ctx context.Context, port, proto string) error
+}
+
 // P maps an absolute system path into the configured root.
 func (e *Env) P(abs string) string { return filepath.Join(e.Cfg.Root, abs) }
 

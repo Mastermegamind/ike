@@ -169,6 +169,9 @@ func (s *Server) Handler(l Listener) http.Handler {
 	mux.HandleFunc("PUT /api/v1/provision/accounts/{a}/package", s.authed(s.provisionOnly(s.provisionPackage)))
 	mux.HandleFunc("PUT /api/v1/provision/accounts/{a}/password", s.authed(s.provisionOnly(s.provisionPassword)))
 	mux.HandleFunc("POST /api/v1/provision/accounts/{a}/sso", s.authed(s.provisionOnly(s.provisionSSO)))
+	mux.HandleFunc("GET /api/v1/expiry", s.authed(s.listExpiry))
+	mux.HandleFunc("PUT /api/v1/expiry/hosting/{account}", s.authed(s.setHostingExpiry))
+	mux.HandleFunc("POST /api/v1/expiry/domains/{domain}/refresh", s.authed(s.refreshDomainExpiry))
 	mux.HandleFunc("/api/v1/", s.authed(s.proxy))
 	mux.HandleFunc("/", s.static)
 

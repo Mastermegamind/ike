@@ -37,7 +37,7 @@ An open-source, all-in-one hosting control panel for Linux VPS servers. It combi
 - **Containers:** Docker containers and Compose stacks per account (policy-checked: no privileged or host-network containers), volumes, networks, private registries, image update alerts, Dockerfile/buildpack/image deployments, and optional Kubernetes (k3s) for admins
 - **DNS:** zone editor for every record type, templates (website, email, Google Workspace, Microsoft 365, Zoho), PowerDNS with secondaries and DNSSEC, Cloudflare and DigitalOcean, domain registration, propagation and reverse DNS checks, expiry reminders, and wildcard certificates
 - **Email:** Postfix, Dovecot, Rspamd and ClamAV; mailboxes, forwarders, auto-replies, catch-all, quotas, Roundcube webmail, DKIM/SPF/DMARC, SMTP relays for providers that block port 25, a mail queue and delivery log, and a deliverability checker that says what to fix
-- **Databases:** MariaDB, PostgreSQL, MongoDB and a private Redis (Valkey) per account, with connection diagnostics, slow queries, imports and exports, and replication
+- **Databases:** MariaDB, PostgreSQL, MongoDB and a private cache per account (Redis, Valkey or Dragonfly, side by side), with connection diagnostics, slow queries, imports and exports, and replication
 - **Files:** a file manager with editor, archives, search, folder sizes, snapshots and expiring share links; a browser terminal; S3, Backblaze B2 and SFTP storage
 - **Backups:** encrypted, incremental restic backups of the server, accounts, databases or mail, on a schedule with retention, integrity checks, one-click restores and full disaster recovery onto a new server
 - **Security:** malware scanning with quarantine, a ModSecurity web firewall per site, and encrypted secrets with key rotation
@@ -49,9 +49,11 @@ An open-source, all-in-one hosting control panel for Linux VPS servers. It combi
 - **SSH per account**: none, SFTP-only (chrooted to the account's home) or full shell, and each key can be narrowed to SFTP or read-only SFTP, some addresses and an expiry date; website SFTP users see one website only
 - **Developers:** account owners invite a developer to chosen accounts and areas (websites, files, databases ...), never billing
 - **Password-protected folders** with their own users, and **server graphs** for CPU, memory, swap, disk and network
+- **Video and calls:** a TURN server (coturn) and LiveKit for WebRTC rooms, calls and live streams, set up from the panel with signed TURN logins and per-app API keys ([guide](docs/REALTIME.md))
+- **Expiry dates:** domains (from their registry, even with DNS elsewhere), SSL certificates and hosting in one list, with reminders on WhatsApp, Telegram and email
 - **Updates with a way back:** Ike and Ubuntu packages update when you approve; a new Ike version is checked after it starts and rolled back by itself if it isn't healthy ([updates](docs/UPDATES.md))
 - **Frameworks:** Next.js, Nuxt, SvelteKit, Astro, Remix, NestJS, React, Vue and Angular deploy from Git without settings, with npm, pnpm, Yarn, Bun, Composer, Poetry, Pipenv, uv, Maven or Gradle
-- **API, CLI and AI agents**: every screen is in the [API](docs/API.md), the [`ike` command](docs/CLI.md) and a 186-tool [MCP server](docs/MCP.md). Each gives full or limited access: API tokens can be limited to some areas (read or write), accounts and addresses, and can expire ([who can do what](docs/ACCESS.md))
+- **API, CLI and AI agents**: every screen is in the [API](docs/API.md), the [`ike` command](docs/CLI.md) and a 199-tool [MCP server](docs/MCP.md). Each gives full or limited access: API tokens can be limited to some areas (read or write), accounts and addresses, and can expire ([who can do what](docs/ACCESS.md))
 - **Safe by design**: the root agent only accepts a fixed set of validated actions, never shell commands; failed changes roll back automatically
 
 ## Supported systems

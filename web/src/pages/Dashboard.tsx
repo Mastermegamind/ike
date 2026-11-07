@@ -7,6 +7,7 @@ import type { AuditEntry, Site, SystemInfo } from "../api/types";
 import { Badge, Meter, Skeleton, timeAgo, useAsync } from "../components/ui";
 import { PageHead, RuntimeBadge, StatusBadge } from "../components/common";
 import { href } from "../router";
+import { ExpiringSoon } from "./Expiry";
 
 function uptime(s: number) {
   const d = Math.floor(s / 86400);
@@ -132,6 +133,8 @@ export function Dashboard({ user }: { user: string }) {
           </div>
         </section>
       </div>
+
+      {isDeveloper() ? null : <ExpiringSoon />}
 
       <section className="panel">
         <div className="panel-head">

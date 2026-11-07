@@ -27,7 +27,7 @@
 - **Reseller and billing:** packages with enforced limits, reseller quotas, monthly bandwidth caps, recurring subscriptions, WHMCS and Blesta modules, white-label branding
 - **App platform:** Git deploys, previews, rollback, blue-green, Docker, Compose, buildpacks, k3s
 - **Scale:** many servers joined over mutual TLS, database clusters with failover, load balancing, server specs (infrastructure as code), webhooks, maintenance windows, inventory
-- **Automation:** the `ike` CLI, a 186-tool MCP server, the full API, scoped API tokens and per-key SSH access ([ACCESS.md](ACCESS.md))
+- **Automation:** the `ike` CLI, a 199-tool MCP server, the full API, scoped API tokens and per-key SSH access ([ACCESS.md](ACCESS.md))
 - **Migration:** cPanel full backups, including mail, cron and DNS
 - **Panel:** command palette, keyboard shortcuts, notification centre, help on every screen, and six languages
 

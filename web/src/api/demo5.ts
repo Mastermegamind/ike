@@ -99,9 +99,44 @@ export class Demo5 {
     kelechi: [{ engine: "postgres", name: "kelechi_api", owner: "kelechi_api", note: "API (Prisma)", created_at: ago(5 * day), size_mb: 48.2, roles: [{ name: "kelechi_reports", access: "read" }] },
       { engine: "mongodb", name: "kelechi_events", owner: "kelechi_events", created_at: ago(3 * day), size_mb: 210.5 }],
   };
-  private redis: Record<string, { socket: string; memory_mb: number; policy: string; persist: boolean; created_at: string }> = {
-    kelechi: { socket: "/var/lib/ike/data/kelechi/redis/redis.sock", memory_mb: 256, policy: "allkeys-lru", persist: false, created_at: ago(5 * day) },
+  private redis: Record<string, { engine?: string; socket: string; memory_mb: number; policy: string; persist: boolean; created_at: string }> = {
+    kelechi: { engine: "dragonfly", socket: "/home/kelechi/.redis/redis.sock", memory_mb: 512, policy: "allkeys-lru", persist: false, created_at: ago(5 * day) },
   };
+  private rt = {
+    turn: { enabled: true, domain: "turn.megamind.ng", tls: true, user_quota: 0, total_quota: 0, max_kbps: 0, allow_accounts: true, updated_at: ago(3 * day) },
+    livekit: { enabled: true, domain: "rtc.megamind.ng", account: "kelechi", use_turn: true, empty_timeout: 300, max_participants: 0, webhook_urls: ["https://api.kelechi.dev/livekit"] as string[],
+      allow_accounts: false, keys: [{ key: "APIk7Qm2Xc9TfPa", name: "Default", account: "", created: ago(3 * day) }, { key: "APIr4Hn8Wz2KdLs", name: "Classroom app", account: "kelechi", created: ago(2 * day) }] as { key: string; name: string; account: string; created: string; secret?: string }[], updated_at: ago(2 * day) },
+  };
+  private turnURIs() { const d = this.rt.turn.domain; return [`stun:${d}:3478`, `turn:${d}:3478?transport=udp`, `turn:${d}:3478?transport=tcp`, ...(this.rt.turn.tls ? [`turns:${d}:5349?transport=tcp`] : [])]; }
+  private rtStatus() {
+    const t = this.rt.turn, l = this.rt.livekit;
+    return { public_ip: "102.89.34.10", notes: [],
+      turn: { ...t, installed: true, running: t.enabled ? "active" : "inactive", uris: t.enabled ? this.turnURIs() : null, cert_ready: t.domain === "turn.megamind.ng",
+        ports: ["3478/udp", "3478/tcp", ...(t.tls ? ["5349/tcp", "5349/udp"] : []), "40000:49999/udp"] },
+      livekit: { ...l, keys: l.keys.map((k) => ({ ...k, secret: undefined })), installed: true, running: l.enabled ? "active" : "inactive", url: "wss://" + l.domain, version: "1.9.4" } };
+  }
+  private rtKey(name: string, account: string) {
+    if (!/^[A-Za-z0-9 ._-]{1,40}$/.test(name || "")) bad("name: letters, digits, spaces and . _ - (max 40)");
+    const k = { key: "API" + Math.random().toString(36).slice(2, 14).padEnd(12, "x"), name, account, created: now() };
+    this.rt.livekit.keys.push(k);
+    return { ...k, secret: "Zq8wLm3vT6yRb2NcK9hP4sXj7DfG5aUe1oWiYt0Q" };
+  }
+  private turnCred(user: string) {
+    const exp = Math.floor(Date.now() / 1000) + 12 * 3600;
+    return { uris: this.turnURIs(), username: `${exp}:${user}`, credential: "pL0n7k2Qx9vR4mW8sT1yB6cE3dF5gH=", ttl: 43200, expires: new Date(exp * 1000).toISOString() };
+  }
+  private expiry: { kind: "domain" | "ssl" | "hosting"; name: string; account: string; expires?: string; source?: string; auto_renews: boolean; detail?: string }[] = [
+    { kind: "domain", name: "naijabites.ng", account: "naijabites", expires: ago(-9 * day), source: "zone", auto_renews: false, detail: "Registered with Whogohost Ltd" },
+    { kind: "domain", name: "adaeze.com", account: "adaeze", expires: ago(-210 * day), source: "website", auto_renews: true, detail: "Registered with Namecheap, Inc., renews automatically" },
+    { kind: "domain", name: "lagosrentals.com.ng", account: "lagosrentals", expires: ago(-27 * day), source: "zone", auto_renews: false, detail: "Registered with Whogohost Ltd" },
+    { kind: "domain", name: "kelechi.dev", account: "kelechi", source: "website", auto_renews: false, detail: "The registry for .dev didn't answer; checking again tomorrow." },
+    { kind: "ssl", name: "lagosrentals.com.ng", account: "lagosrentals", expires: ago(-12 * day), source: "custom", auto_renews: false, detail: "Expires soon. Upload a renewed certificate." },
+    { kind: "ssl", name: "naijabites.ng", account: "naijabites", expires: ago(-50 * day), source: "letsencrypt", auto_renews: true, detail: "Let's Encrypt renews it about 30 days before it expires" },
+    { kind: "ssl", name: "api.kelechi.dev", account: "kelechi", expires: ago(-85 * day), source: "letsencrypt", auto_renews: true, detail: "Let's Encrypt renews it about 30 days before it expires" },
+    { kind: "hosting", name: "oldclient", account: "oldclient", expires: ago(70 * day), source: "subscription", auto_renews: true, detail: "Invoice INV-0042 (₦7,500.00) has been unpaid since 29 Aug 2026; the account is suspended on 5 Sep 2026" },
+    { kind: "hosting", name: "naijabites", account: "naijabites", expires: ago(-4 * day), source: "subscription", auto_renews: true, detail: "Renews every month at ₦15,000.00; the invoice is sent on the due date" },
+    { kind: "hosting", name: "lagosrentals", account: "lagosrentals", expires: ago(-140 * day), source: "manual", auto_renews: false, detail: "End date set by your hosting provider" },
+  ];
   private mailSettings = {
     relay: { provider: "brevo", host: "smtp-relay.brevo.com", port: 587, username: "postmaster@megamind.ng" }, max_message_mb: 25, hourly_send_limit: 200, spam_threshold: 6,
     reject_threshold: 15, antivirus: true, greylisting: true, webmail_port: 2096, default_quota_mb: 2048, dmarc_policy: "quarantine", has_relay_password: true, installed: true,
@@ -636,8 +671,55 @@ export class Demo5 {
       { time: "06/Nov/2026:11:20:51", client: "102.89.34.12", rule_id: "941160", message: "NoScript XSS InjectionChecker: HTML Injection", uri: "/wp-admin/post.php", blocked: false },
     ];
 
+    // ---- real-time media
+    if (is("GET", "/realtime")) return this.rtStatus();
+    if (is("PUT", "/realtime/turn")) {
+      if (b.enabled && !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(b.domain || "")) bad("TURN domain: enter a domain like turn.example.com");
+      Object.assign(this.rt.turn, b);
+      return { ...this.rtStatus(), notes: b.tls && b.domain !== "turn.megamind.ng" ? [`TURN over TLS is waiting for a certificate: no website on this server has HTTPS for ${b.domain}`] : [] };
+    }
+    if (is("POST", "/realtime/turn/credentials")) return this.turnCred("test");
+    if (is("POST", "/realtime/turn/secret")) return this.rtStatus();
+    if (is("PUT", "/realtime/livekit")) {
+      if (b.use_turn && !this.rt.turn.enabled) bad("switch the TURN server on first, or untick “use TURN”");
+      const first = b.enabled && this.rt.livekit.keys.length === 0;
+      Object.assign(this.rt.livekit, b);
+      let new_key;
+      if (first) { new_key = this.rtKey("Default", ""); }
+      return { status: this.rtStatus(), new_key };
+    }
+    if (is("POST", "/realtime/livekit/keys")) return this.rtKey(b.name, b.account || "");
+    if ((p = is("DELETE", "/realtime/livekit/keys/:k"))) { this.rt.livekit.keys = this.rt.livekit.keys.filter((k) => k.key !== p!.k); return {}; }
+    if (is("POST", "/realtime/livekit/token") || is("POST", "/accounts/:a/realtime/token")) return { token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJBUEk3ZGVtbyIsInN1YiI6InRlc3RlciJ9.c2lnbmF0dXJl", url: "wss://" + this.rt.livekit.domain, expires: ago(-60) };
+    if ((p = is("GET", "/accounts/:a/realtime"))) {
+      const a = p.a;
+      return { livekit_url: this.rt.livekit.enabled ? "wss://" + this.rt.livekit.domain : undefined, livekit_keys: this.rt.livekit.keys.filter((k) => k.account === a),
+        can_make_keys: this.rt.livekit.allow_accounts, turn_uris: this.rt.turn.enabled ? this.turnURIs() : null, can_make_turn_credentials: this.rt.turn.allow_accounts };
+    }
+    if ((p = is("POST", "/accounts/:a/realtime/keys"))) return this.rtKey(b.name, p.a);
+    if ((p = is("DELETE", "/accounts/:a/realtime/keys/:k"))) { this.rt.livekit.keys = this.rt.livekit.keys.filter((k) => k.key !== p!.k); return {}; }
+    if ((p = is("POST", "/accounts/:a/realtime/turn-credentials"))) return this.turnCred(p.a + ":app");
+
+    // ---- expiry dates
+    if (is("GET", "/expiry")) {
+      const items = this.expiry.map((x) => {
+        const days = x.expires ? Math.floor((new Date(x.expires).getTime() - Date.now()) / 86_400_000) : 0;
+        const state = !x.expires ? "unknown" : days < 0 ? "expired" : days <= 7 ? "urgent" : days <= 30 ? "soon" : "ok";
+        return { ...x, days_left: days, state };
+      }).filter((x) => !q.get("kind") || x.kind === q.get("kind")).sort((a, b) => (a.expires ? new Date(a.expires).getTime() : 9e15) - (b.expires ? new Date(b.expires).getTime() : 9e15));
+      const n = (f: (x: { state: string }) => boolean) => items.filter(f).length;
+      return { items, summary: { expired: n((x) => x.state === "expired"), within_7: n((x) => x.state === "urgent"), within_30: n((x) => x.state === "urgent" || x.state === "soon"), unknown: n((x) => x.state === "unknown") } };
+    }
+    if ((p = is("PUT", "/expiry/hosting/:a"))) {
+      const a = p.a;
+      this.expiry = this.expiry.filter((x) => !(x.kind === "hosting" && x.name === a));
+      if (b.expires) this.expiry.push({ kind: "hosting", name: a, account: a, expires: new Date(b.expires + "T23:59:00Z").toISOString(), source: "manual", auto_renews: false, detail: "End date set by your hosting provider" });
+      return { account: a, expires: b.expires };
+    }
+    if ((p = is("POST", "/expiry/domains/:d/refresh"))) return { domain: p.d };
+
     // ---- databases
-    if ((p = is("GET", "/accounts/:a/dbs"))) return { engines: { mariadb: true, postgres: true, redis: "valkey", mongodb: true }, mariadb: this.h.mariadb(p.a), databases: this.dbs[p.a] ?? [], redis: this.redis[p.a] ?? null };
+    if ((p = is("GET", "/accounts/:a/dbs"))) return { engines: { mariadb: true, postgres: true, redis: "valkey", caches: ["valkey", "redis", "dragonfly"], mongodb: true }, mariadb: this.h.mariadb(p.a), databases: this.dbs[p.a] ?? [], redis: this.redis[p.a] ?? null };
     if ((p = is("POST", "/accounts/:a/dbs"))) {
       if (!/^[a-z0-9]{1,16}$/.test(b.name)) bad("name must be 1-16 lowercase letters or digits");
       const name = `${p.a}_${b.name}`; (this.dbs[p.a] ??= []).push({ engine: b.engine, name, owner: name, note: b.note, created_at: now() });
@@ -668,10 +750,11 @@ export class Demo5 {
       { time: "2026-11-06T14:02:11", user: "naijabites_wp", db: "naijabites_wp", query_secs: 6.41, lock_secs: 0, rows_sent: 20, rows_examined: 1_842_003, query: "SELECT wp_posts.* FROM wp_posts INNER JOIN wp_postmeta ON … WHERE wp_postmeta.meta_key = '_stock_status' …" },
       { time: "2026-11-06T09:44:50", user: "lagosrentals_app", db: "lagosrentals_app", query_secs: 2.03, lock_secs: 0.1, rows_sent: 1, rows_examined: 210_442, query: "SELECT COUNT(*) FROM listings WHERE LOWER(area) LIKE '%lekki%'" },
     ];
-    if ((p = is("GET", "/accounts/:a/redis"))) { if (!this.redis[p.a]) nf("Redis"); return { running: true, used_mb: 41.8, keys: 18204, clients: 6, hit_rate: 93.4, uptime_hours: 118.2, version: "8.0.2" }; }
+    if ((p = is("GET", "/accounts/:a/redis"))) { if (!this.redis[p.a]) nf("Redis"); const e = this.redis[p.a].engine ?? "valkey"; return { engine: e, running: true, used_mb: 41.8, keys: 18204, clients: 6, hit_rate: 93.4, uptime_hours: 118.2, version: e === "dragonfly" ? "v1.34.1" : "8.0.2" }; }
     if ((p = is("PUT", "/accounts/:a/redis"))) {
       const first = !this.redis[p.a];
-      this.redis[p.a] = { socket: `/var/lib/ike/data/${p.a}/redis/redis.sock`, memory_mb: b.memory_mb, policy: b.policy, persist: b.persist, created_at: this.redis[p.a]?.created_at ?? now() };
+      if (b.engine === "dragonfly" && b.memory_mb < 256) bad("Dragonfly needs at least 256 MB");
+      this.redis[p.a] = { engine: b.engine ?? this.redis[p.a]?.engine ?? "valkey", socket: `/home/${p.a}/.redis/redis.sock`, memory_mb: b.memory_mb, policy: b.policy, persist: b.persist, created_at: this.redis[p.a]?.created_at ?? now() };
       const pass = pw() + pw();
       return { redis: this.redis[p.a], credentials: first || b.new_password ? { engine: "redis", database: "0", user: "default", password: pass, host: this.redis[p.a].socket, url: `unix://:${pass}@${this.redis[p.a].socket}` } : undefined };
     }

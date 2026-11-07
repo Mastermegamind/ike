@@ -47,8 +47,9 @@ type Role struct {
 	Access string `json:"access"` // read | write
 }
 
-// RedisInstance is an account's private Redis (or Valkey) server.
+// RedisInstance is an account's private Redis, Valkey or Dragonfly server.
 type RedisInstance struct {
+	Engine    string    `json:"engine,omitempty"` // redis | valkey | dragonfly ("" = the server's Redis)
 	Socket    string    `json:"socket"`
 	MemoryMB  int       `json:"memory_mb"`
 	Policy    string    `json:"policy"` // allkeys-lru | volatile-lru | noeviction ...
@@ -128,12 +129,15 @@ func (m *Manager) save(a *AccountDBs) error { return kit.WriteJSON(m.stateFile(a
 type Engines struct {
 	MariaDB  bool   `json:"mariadb"`
 	Postgres bool   `json:"postgres"`
-	Redis    string `json:"redis"` // redis | valkey | ""
-	MongoDB  bool   `json:"mongodb"`
+	Redis    string `json:"redis"` // redis | valkey | "": the server-wide engine
+	// Caches are the engines an account can pick for its private instance.
+	Caches  []string `json:"caches"`
+	MongoDB bool     `json:"mongodb"`
 }
 
 func (m *Manager) Engines() Engines {
-	return Engines{MariaDB: m.MariaDBOf != nil, Postgres: m.env.Cfg.Postgres, Redis: m.env.Cfg.Redis, MongoDB: m.env.Cfg.MongoDB}
+	return Engines{MariaDB: m.MariaDBOf != nil, Postgres: m.env.Cfg.Postgres, Redis: m.env.Cfg.Redis,
+		Caches: m.env.Cfg.Caches(), MongoDB: m.env.Cfg.MongoDB}
 }
 
 // List returns an account's databases of every engine.

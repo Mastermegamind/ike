@@ -383,6 +383,18 @@ Developers (people who work in some of your accounts, in chosen areas)
   ike developers set USERNAME [--account A ...] [--area AREA=read|write ...]
       areas: sites files databases containers dns mail backups security
 
+Caches, video and calls
+  ike cache ACCOUNT                            ike cache ACCOUNT set [--engine redis|valkey|dragonfly] [--memory MB] [--persist yes|no]
+  ike realtime                                 TURN and LiveKit: state, addresses, API keys
+  ike realtime turn on --domain D [--tls yes] [--accounts yes]      ike realtime turn off|login [--hours N]|rotate-secret
+  ike realtime livekit on --domain D --account A [--turn yes] [--accounts yes] [--webhook URL]    ike realtime livekit off
+  ike realtime keys add NAME [--account A]     ike realtime keys rm KEY
+  ike realtime token ROOM IDENTITY [--key K] [--minutes N]
+
+Expiry dates
+  ike expiry [--kind domain|ssl|hosting] [--account A]               domains, SSL and hosting, soonest first
+  ike expiry check DOMAIN                      ike expiry hosting ACCOUNT YYYY-MM-DD|none
+
 Reseller and billing
   ike packages                                 ike packages assign ACCOUNT PACKAGE_ID
   ike packages bandwidth
@@ -718,6 +730,12 @@ func run(args []string) error {
 		return toolsCmd(c)
 	case "developers", "team":
 		return teamCmd(c, pos, fs)
+	case "expiry", "expiries":
+		return expiryCmd(c, pos, fs)
+	case "realtime", "rtc":
+		return realtimeCmd(c, pos, fs)
+	case "cache":
+		return cacheCmd(c, pos, fs)
 	case "tokens":
 		return tokensCmd(c, pos, fs)
 	case "keys":
