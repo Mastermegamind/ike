@@ -190,18 +190,15 @@ func (m *Manager) expiryPass(ctx context.Context) {
 			continue
 		}
 		left := int(time.Until(nz.Registration.Expires).Hours() / 24)
-		for _, d := range set.ExpiryReminders {
-			if left <= d && (nz.Registration.LastReminder == 0 || nz.Registration.LastReminder > d) {
-				m.env.Publish("dns.domain.expiring", z.Name, map[string]any{
-					"account": z.Account, "days_left": left, "expires": nz.Registration.Expires, "registrar": nz.Registration.Registrar})
-				m.mu.Lock()
-				if fz, err := m.load(z.Name); err == nil && fz.Registration != nil {
-					fz.Registration.LastReminder = d
-					_ = m.save(fz)
-				}
-				m.mu.Unlock()
-				break
+		if d := dueReminder(set.ExpiryReminders, left, nz.Registration.LastReminder); d != 0 {
+			m.env.Publish("dns.domain.expiring", z.Name, map[string]any{
+				"account": z.Account, "days_left": left, "expires": nz.Registration.Expires, "registrar": nz.Registration.Registrar})
+			m.mu.Lock()
+			if fz, err := m.load(z.Name); err == nil && fz.Registration != nil {
+				fz.Registration.LastReminder = d
+				_ = m.save(fz)
 			}
+			m.mu.Unlock()
 		}
 		if left > 120 && nz.Registration.LastReminder != 0 { // renewed
 			m.mu.Lock()
@@ -214,9 +211,10 @@ func (m *Manager) expiryPass(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(2 * time.Second): // be polite to RDAP servers
+		case <-time.After(m.rdapPause): // be polite to RDAP servers
 		}
 	}
+	m.websiteExpiryPass(ctx, set.ExpiryReminders)
 	slog.Info("domain expiry check finished", "zones", len(all))
 }
 

@@ -41,7 +41,7 @@ func areaOf(apiPath string) string {
 		return "security"
 	case "docker", "kubernetes":
 		return "containers"
-	case "packages", "billing", "account-packages", "bandwidth":
+	case "packages", "billing", "account-packages", "bandwidth", "expiry":
 		return "billing"
 	case "provision", "people":
 		return "accounts"

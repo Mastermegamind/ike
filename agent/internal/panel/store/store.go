@@ -253,6 +253,11 @@ type data struct {
 	BWSuspended    map[string]string             `json:"bw_suspended"` // account → month it was suspended for bandwidth
 	NotifRead      map[string]int64              `json:"notif_read"`   // username → last read event ID
 	SSOTokens      []SSOToken                    `json:"sso_tokens"`
+	// HostingExpiry is when an account's hosting ends, for accounts billed
+	// outside Ike (subscriptions have their own due dates).
+	HostingExpiry map[string]time.Time `json:"hosting_expiry"`
+	// ExpiryAlerts remembers the last reminder day sent per item and date.
+	ExpiryAlerts map[string]int `json:"expiry_alerts"`
 }
 
 type Store struct {
@@ -279,6 +284,12 @@ func (d *data) initMaps() {
 	}
 	if d.NotifRead == nil {
 		d.NotifRead = map[string]int64{}
+	}
+	if d.HostingExpiry == nil {
+		d.HostingExpiry = map[string]time.Time{}
+	}
+	if d.ExpiryAlerts == nil {
+		d.ExpiryAlerts = map[string]int{}
 	}
 }
 

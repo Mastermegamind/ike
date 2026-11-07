@@ -478,6 +478,17 @@ Most of these are panel routes, not on the agent socket.
 | `PUT /packages/{id}` *(panel)* | Change a package; accounts on it get the new limits |
 | `DELETE /packages/{id}` *(panel)* | Delete an unused package |
 
+## Expiry dates
+
+When domains, certificates and hosting run out. Token area: `billing`. Account owners and resellers see only their own accounts.
+
+| Route | Description |
+|---|---|
+| `GET /expiry` *(panel)* | Domains, SSL certificates and hosting you can see, soonest first: `{"items":[{"kind":"domain\|ssl\|hosting","name","account","expires","days_left","state","detail"}],"summary"}` |
+| `PUT /expiry/hosting/{account}` *(panel)* | Set an account's hosting end date when it isn't billed by Ike: body `{"expires":"YYYY-MM-DD"}` (empty clears it) |
+| `POST /expiry/domains/{domain}/refresh` | Ask the domain registry now (RDAP); also for domains whose DNS is elsewhere |
+| `GET /expiry/server` | The server's raw data: `{"domains","certificates"}` (admin; the panel's `/expiry` builds on it) |
+
 ## Real-time media
 
 TURN (coturn) and LiveKit. Token area: `server` for the admin routes, `sites` for the account routes.

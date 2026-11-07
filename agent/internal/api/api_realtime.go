@@ -53,6 +53,32 @@ func (s *Server) realtimeSite(ctx context.Context, account, domain string, port 
 	return "", nil
 }
 
+// expiryRoutes report what runs out: registered domains and certificates.
+// The panel adds hosting terms and filters by who is asking.
+//
+//	GET    /v1/expiry/server                        {"domains": [...], "certificates": [...]}
+//	POST   /v1/expiry/domains/{domain}/refresh      ask the registry now
+func (s *Server) expiryRoutes(h func(string, handler)) {
+	admin := func(fn handler) handler {
+		return func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+			if !isAdmin(r) {
+				return 0, nil, kit.ErrForbidden
+			}
+			return fn(w, r)
+		}
+	}
+	h("GET /v1/expiry/server", admin(func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		doms, err := s.F.DNS.DomainExpiries()
+		return http.StatusOK, map[string]any{"domains": doms, "certificates": s.Sites.Certificates()}, err
+	}))
+	h("POST /v1/expiry/domains/{domain}/refresh", admin(func(w http.ResponseWriter, r *http.Request) (int, any, error) {
+		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+		defer cancel()
+		e, err := s.F.DNS.RefreshDomain(ctx, r.PathValue("domain"))
+		return http.StatusOK, e, err
+	}))
+}
+
 func (s *Server) realtimeRoutes(h func(string, handler)) {
 	rt := s.F.Realtime
 	ok := func(v any, err error) (int, any, error) { return http.StatusOK, v, err }

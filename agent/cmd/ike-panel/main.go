@@ -388,6 +388,7 @@ func resetPassword(args []string) error {
 // dailyChecks alerts once about certificates that are expiring or failing to
 // renew, and about newer container images.
 func dailyChecks(ctx context.Context, srv *panel.Server, agent *client.Client, told map[string]bool) {
+	srv.SendExpiryReminders(ctx) // domains and hosting; remembered in the store, so restarts don't repeat them
 	var certs []struct {
 		Domain   string `json:"domain"`
 		DaysLeft int    `json:"days_left"`

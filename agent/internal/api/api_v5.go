@@ -115,6 +115,17 @@ func (s *Server) Setup() error {
 	}
 	f := &Features{Env: env, Keys: keys}
 	f.DNS = dns.New(env, keys)
+	f.DNS.WebsiteDomains = func() []dns.DomainRef {
+		list, _ := s.Sites.List()
+		out := []dns.DomainRef{}
+		for _, site := range list {
+			out = append(out, dns.DomainRef{Domain: site.Domain, Account: site.Account})
+			for _, a := range site.Aliases {
+				out = append(out, dns.DomainRef{Domain: a, Account: site.Account})
+			}
+		}
+		return out
+	}
 	sites.DNSValidation = f.DNS.CanIssueWildcard
 	f.Mail = mail.New(env, keys)
 	f.Mail.Zone = zoneAdapter{f.DNS}
@@ -252,6 +263,7 @@ func (s *Server) v5Routes(h func(string, handler)) {
 	s.backupRoutes(h)
 	s.infraRoutes(h)
 	s.realtimeRoutes(h)
+	s.expiryRoutes(h)
 	s.migrateRoutes(h)
 
 	// ---- DNS: admin ----
