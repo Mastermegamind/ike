@@ -457,12 +457,13 @@ func (s *Server) tools5() []tool {
 			InputSchema: obj(map[string]any{"account": argAccount, "engine": enum("Engine", "postgres", "mongodb"), "database": str("Database name"),
 				"name": str("User name after <account>_"), "access": enum("Access", "read", "write")}, "account", "engine", "database", "name", "access"),
 			handler: s.call("POST", func(a map[string]any) string { return db(a) + "/roles" }, pick("name", "access"))},
-		{Name: "set_redis", Title: "Set up Redis", area: "databases", write: true, Annotations: write(false, true),
-			Description: "Create or change an account's private Redis on a unix socket. The first time, the password is shown once.",
+		{Name: "set_redis", Title: "Set up a cache", area: "databases", write: true, Annotations: write(false, true),
+			Description: "Create or change an account's private cache (Redis, Valkey or Dragonfly, whichever the server has; see list_engine_databases → engines.caches) on a unix socket. The first time, the password is shown once. Changing engine starts an empty instance (same password and socket); Dragonfly needs at least 256 MB.",
 			InputSchema: obj(map[string]any{"account": argAccount, "memory_mb": integer("Memory limit in MB, e.g. 128"),
 				"policy":  enum("What to do when full", "allkeys-lru", "volatile-lru", "allkeys-lfu", "noeviction"),
-				"persist": boolean("Save to disk so data survives a restart")}, "account", "memory_mb"),
-			handler: s.call("PUT", func(a map[string]any) string { return acct(a) + "/redis" }, pick("memory_mb", "policy", "persist"))},
+				"persist": boolean("Save to disk so data survives a restart"),
+				"engine":  enum("Engine (default: the current one, or the server's first)", "redis", "valkey", "dragonfly")}, "account", "memory_mb"),
+			handler: s.call("PUT", func(a map[string]any) string { return acct(a) + "/redis" }, pick("memory_mb", "policy", "persist", "engine"))},
 		{Name: "kill_db_query", Title: "Stop a query", area: "databases", write: true, Annotations: write(true, true),
 			Description: "Stop one running MariaDB query by id from list_db_processes.",
 			InputSchema: obj(map[string]any{"account": argAccount, "id": str("Process id")}, "account", "id"),
@@ -659,6 +660,79 @@ func (s *Server) tools5() []tool {
 		{Name: "get_disk_quotas", Title: "Disk quotas", area: "billing", Annotations: readOnly(), InputSchema: none,
 			Description: "Each account's disk use against its quota.",
 			handler:     s.get(fixed("/v1/quotas"))},
+
+		// ------------------------------------------------- real-time media
+		{Name: "get_realtime", Title: "TURN and LiveKit", area: "server", Annotations: readOnly(), InputSchema: none,
+			Description: "The TURN server (coturn) and LiveKit: installed, running, settings, addresses, ports and API keys (never secrets).",
+			handler:     s.get(fixed("/v1/realtime"))},
+		{Name: "set_turn", Title: "Set up TURN", area: "server", write: true, Annotations: write(false, true),
+			Description: "Switch the TURN server on or off and change it. domain must point at this server; tls needs HTTPS for that name here. Opens 3478, 5349 and 40000-49999/udp. Send every field: missing ones are reset.",
+			InputSchema: obj(map[string]any{"enabled": boolean("Run it"), "domain": str("e.g. turn.example.com"), "tls": boolean("Also TURN over TLS on 5349"),
+				"user_quota": integer("Logins per user, 0 = no limit"), "total_quota": integer("Logins in all, 0 = no limit"),
+				"max_kbps": integer("Kbit/s per session, 0 = no limit"), "allow_accounts": boolean("Account owners may make TURN logins")}, "enabled", "domain"),
+			handler: s.call("PUT", fixed("/v1/realtime/turn"), func(a map[string]any) any { return a })},
+		{Name: "make_turn_login", Title: "TURN login", area: "server", write: true, Annotations: write(false, false),
+			Description: "A short-lived TURN username and credential (default 12 hours, at most 168) with the addresses, for testing or an app's RTCPeerConnection.",
+			InputSchema: obj(map[string]any{"user": str("Who it's for (letters, digits, _ . @ : -)"), "ttl_hours": integer("Hours it lasts")}),
+			handler:     s.call("POST", fixed("/v1/realtime/turn/credentials"), pick("user", "ttl_hours"))},
+		{Name: "rotate_turn_secret", Title: "New TURN secret", area: "server", write: true, Annotations: write(true, false),
+			Description: "Replace the TURN shared secret; every login signed with the old one stops working. Only when the human asked (e.g. the secret leaked).",
+			InputSchema: obj(map[string]any{"confirm": str(`Type "rotate" to confirm`)}, "confirm"),
+			handler: func(ctx context.Context, a map[string]any) (any, error) {
+				if err := confirmed(a, "confirm", "rotate"); err != nil {
+					return nil, err
+				}
+				var out any
+				return out, s.Agent.Do(ctx, "POST", "/v1/realtime/turn/secret", nil, &out)
+			}},
+		{Name: "set_livekit", Title: "Set up LiveKit", area: "server", write: true, Annotations: write(false, true),
+			Description: "Switch LiveKit on or off and change it. Ike makes domain a website owned by account that forwards to LiveKit and tries to get it a certificate (the name must point here). The first time it returns an API key and secret, once. Send every field: missing ones are reset.",
+			InputSchema: obj(map[string]any{"enabled": boolean("Run it"), "domain": str("e.g. rtc.example.com"), "account": argAccount,
+				"use_turn": boolean("Give callers this server's TURN server (switch TURN on first)"), "empty_timeout": integer("Seconds before an empty room closes (default 300)"),
+				"max_participants": integer("People per room, 0 = no limit"), "webhook_urls": strList("https:// addresses for room events (max 5)"),
+				"allow_accounts": boolean("Account owners may make their own API keys")}, "enabled", "domain", "account"),
+			handler: s.call("PUT", fixed("/v1/realtime/livekit"), func(a map[string]any) any { return a })},
+		{Name: "create_livekit_key", Title: "Add a LiveKit key", area: "server", write: true, Annotations: write(false, false),
+			Description: "Add a LiveKit API key for an app; the secret is returned once. Give it to an account with account. LiveKit restarts.",
+			InputSchema: obj(map[string]any{"name": str("What it's for"), "account": str("Account it belongs to (optional)")}, "name"),
+			handler:     s.call("POST", fixed("/v1/realtime/livekit/keys"), pick("name", "account"))},
+		{Name: "delete_livekit_key", Title: "Remove a LiveKit key", area: "server", write: true, Annotations: write(true, true),
+			Description: "Remove a LiveKit API key; apps using it stop working and LiveKit restarts. Only when the human asked.",
+			InputSchema: obj(map[string]any{"key": str("The key, APIxxxxxxxxxxxx"), "confirm_key": str("Type the key again")}, "key", "confirm_key"),
+			handler: func(ctx context.Context, a map[string]any) (any, error) {
+				if err := confirmed(a, "confirm_key", argStr(a, "key")); err != nil {
+					return nil, err
+				}
+				var out any
+				return out, s.Agent.Do(ctx, "DELETE", "/v1/realtime/livekit/keys/"+esc(argStr(a, "key")), nil, &out)
+			}},
+		{Name: "make_livekit_token", Title: "LiveKit join token", area: "server", write: true, Annotations: write(false, false),
+			Description: "A join token for a room, to test LiveKit (e.g. in LiveKit Meet) or for a small app. Returns the token and wss:// URL.",
+			InputSchema: obj(map[string]any{"room": str("Room name"), "identity": str("Participant id"), "name": str("Display name"),
+				"key": str("API key (default: the first)"), "ttl_minutes": integer("Minutes it lasts (default 60)"), "can_publish": boolean("May send audio/video (default true)")}, "room", "identity"),
+			handler: s.call("POST", fixed("/v1/realtime/livekit/token"), pick("room", "identity", "name", "key", "ttl_minutes", "can_publish"))},
+		{Name: "get_account_realtime", Title: "Account's video and calls", area: "sites", Annotations: readOnly(),
+			InputSchema: obj(map[string]any{"account": argAccount}, "account"),
+			Description: "What an account can use: the LiveKit URL, its own API keys (no secrets), the TURN addresses and whether it may make keys and TURN logins.",
+			handler:     s.get(func(a map[string]any) string { return acct(a) + "/realtime" })},
+
+		// ------------------------------------------------------- expiry dates
+		{Name: "get_server_expiry", Title: "Domain and certificate expiry", area: "server", Annotations: readOnly(), InputSchema: none,
+			Description: "Every registered domain the server hosts (DNS here or elsewhere) with its expiry date from the registry, and every website certificate with its expiry. Hosting terms are in list_expiry (panel).",
+			handler:     s.get(fixed("/v1/expiry/server"))},
+		{Name: "check_domain_expiry", Title: "Check a domain's expiry now", area: "sites", write: true, Annotations: write(false, true),
+			Description: "Ask the domain's registry (RDAP) for its expiry date now instead of waiting for the daily check.",
+			InputSchema: obj(map[string]any{"domain": argDomain}, "domain"),
+			handler:     s.call("POST", func(a map[string]any) string { return "/v1/expiry/domains/" + esc(argStr(a, "domain")) + "/refresh" }, nil)},
+		{Name: "list_expiry", Title: "Expiry dates", area: "billing", panel: true, Annotations: readOnly(),
+			Description: "Domains, SSL certificates and hosting the person can see, soonest first, with state (ok, soon, urgent, expired, unknown), what happens next and a summary. Use it to answer \"what's about to expire?\".",
+			InputSchema: obj(map[string]any{"kind": enum("Only one kind", "domain", "ssl", "hosting"), "account": str("Only one account")}),
+			handler:     s.get(func(a map[string]any) string { return "/v1/expiry" + query(a, "kind", "account") })},
+		{Name: "set_hosting_expiry", Title: "Set a hosting end date", area: "billing", panel: true, write: true, Annotations: write(false, true),
+			Description: "Record when an account's hosting ends, for accounts billed outside Ike (subscriptions have their own dates). Empty expires removes it.",
+			InputSchema: obj(map[string]any{"account": argAccount, "expires": str("Date, YYYY-MM-DD, or empty")}, "account", "expires"),
+			handler: s.call("PUT", func(a map[string]any) string { return "/v1/expiry/hosting/" + esc(argStr(a, "account")) },
+				func(a map[string]any) any { return map[string]any{"expires": argStr(a, "expires")} })},
 
 		// ------------------------------------------------- panel: many servers
 		{Name: "list_servers", Title: "Servers", area: "server", panel: true, Annotations: readOnly(), InputSchema: none,

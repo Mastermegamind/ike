@@ -53,8 +53,11 @@ func (m *Manager) defaultEngine() string {
 // unitFor is the systemd template for an engine. The server-wide engine keeps
 // the original ike-redis@ name so instances made before 0.8 keep running.
 func (m *Manager) unitFor(engine, account string) string {
-	if engine == m.env.Cfg.Redis {
+	switch {
+	case engine == m.env.Cfg.Redis:
 		return "ike-redis@" + account + ".service"
+	case engine == EngineRedis: // Redis next to a server-wide Valkey
+		return "ike-redis-server@" + account + ".service"
 	}
 	return "ike-" + engine + "@" + account + ".service"
 }

@@ -96,7 +96,21 @@ Security
 Databases
   --no-mariadb                Do not install MariaDB
   --postgres [VERSION]        PostgreSQL: Ubuntu's version, or 14-18 from the PostgreSQL project's repository
-  --redis | --valkey          Redis or Valkey: a private instance per account, on a unix socket
+  --redis --valkey --dragonfly
+                              Cache engines for apps: each account gets a private instance on a unix socket
+                              and picks its engine. Use one or several; the first of Redis/Valkey is also
+                              the server-wide one (replication).
+
+Adding to a server that already runs Ike
+  --add LIST                  Install only these, keep everything else as it is, and tell the agent:
+                              any of redis, valkey, dragonfly, turn, livekit (comma-separated).
+                              Example: install.sh --add dragonfly,turn,livekit
+
+Real-time media
+  --turn                      TURN server (coturn): lets WebRTC calls connect through strict firewalls and
+                              mobile networks. Switched on in the panel; opens 3478, 5349 and 40000-49999/udp.
+  --livekit                   LiveKit media server for video calls, rooms and live streams. Switched on in the
+                              panel, behind a website of yours (wss://); opens 7881/tcp and 50000-60000/udp.
   --mongodb [VERSION]         MongoDB Community from mongodb.org (default 8.0)
   --phpmyadmin stable|6|none  phpMyAdmin channel (default: stable; "6" = 6.0 development snapshot)
 

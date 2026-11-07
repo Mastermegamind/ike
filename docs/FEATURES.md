@@ -110,7 +110,7 @@ Ike's full scope, grouped by area. Pick anything not done and open a PR; see [CO
 | ✅ | Cloudflare and other DNS provider integrations | Cloudflare and DigitalOcean |
 | ✅ | DNS propagation checks | four public resolvers, plus the registrar's name servers, explained in plain words |
 | ✅ | Reverse DNS guidance or provider integration | checks PTR and forward match, says what to ask the provider |
-| ✅ | Domain expiration reminders | expiry from RDAP, reminders before it lapses |
+| ✅ | Domain expiration reminders | expiry from RDAP for DNS zones and for websites whose DNS is elsewhere; one reminder per mark on the alert channels; Expiry dates page with SSL and hosting |
 | ✅ | DNS templates | website, website and email, Google Workspace, Microsoft 365, Zoho |
 | ✅ | DNS API automation | API, CLI, MCP, and DNS-01 for wildcard certificates |
 
@@ -159,7 +159,7 @@ Ike's full scope, grouped by area. Pick anything not done and open a PR; see [CO
 |---|---|---|
 | ✅ | MySQL and MariaDB | MariaDB |
 | ✅ | PostgreSQL |  |
-| ✅ | Redis and Valkey | a private instance per account on a unix socket |
+| ✅ | Redis and Valkey | a private instance per account on a unix socket; Redis, Valkey and Dragonfly can be installed side by side and each account picks one (Dragonfly: see "Also built") |
 | ✅ | MongoDB optional |  |
 | ✅ | Database creation and deletion |  |
 | ✅ | Database users and grants | owner plus read or write users |
@@ -268,6 +268,9 @@ Ike's full scope, grouped by area. Pick anything not done and open a PR; see [CO
 - ✅ Update Ike itself from the panel, with checksums
 - ✅ Proxy runtime: a domain and HTTPS in front of any local port
 - ✅ MCP server for AI agents, read-only by default and scoped by API token (see [MCP.md](MCP.md))
+- ✅ Expiry dates: domains, SSL certificates and hosting (subscriptions, overdue invoices, or a date set for accounts billed elsewhere) in one list, with WhatsApp, Telegram and email reminders (see [API.md](API.md#expiry-dates))
+- 🟡 Dragonfly as a per-account cache engine (`--dragonfly`): built and tested against Dragonfly's documented flags in dry-run; not yet run on a live server
+- 🟡 Real-time media: a TURN server (coturn) and LiveKit behind an Ike website, with signed TURN logins, sealed API keys and join tokens (see [REALTIME.md](REALTIME.md)); built and tested in dry-run, not yet run on a live server
 - ✅ The same access model everywhere: scoped API tokens for the API, CLI and MCP; per-key SSH access (see [API.md](API.md#api-tokens))
 
 ## Planned next

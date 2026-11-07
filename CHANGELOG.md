@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.8.0 (unreleased)
+
+### New
+
+- **Redis, Valkey and Dragonfly side by side.** `install.sh --redis --valkey --dragonfly` installs any of them; each account picks the engine for its private cache under Databases → Cache (`ike cache`). Switching engine keeps the socket and password and starts empty. Dragonfly runs on one thread with no TCP port, needs at least 256 MB, and is reached with `redis-cli`.
+- **Video and calls.** `install.sh --turn --livekit`, then Server → Real-time media (`ike realtime`). TURN (coturn) with short-lived signed logins, no relaying into private networks and TLS from a certificate Ike manages; LiveKit behind a website of yours (`wss://`), with sealed API keys per app or account, a webhook, Ike's TURN server for its callers, and a join-token tester. Account owners get **Video & calls** when the admin allows it. [docs/REALTIME.md](docs/REALTIME.md)
+- **Expiry dates.** Domains, SSL certificates and hosting in one list, soonest first (Hosting → Expiry dates, `ike expiry`), with a "Running out soon" card on the dashboard. Domains whose DNS is hosted elsewhere now get their expiry date from the registry too. Hosting comes from Billing subscriptions (an overdue invoice shows the suspension date) or an end date set for accounts billed elsewhere.
+- **Expiry reminders on your alert channels.** Domains and hosting reach WhatsApp, Telegram and email at 30, 14, 7, 3, 1 and 0 days, once per mark.
+- `install.sh --add dragonfly,turn,livekit` adds caches and media servers to a server that already runs Ike, keeping its settings.
+- API: `/realtime/...`, `/accounts/{a}/realtime/...`, `/expiry`, `/expiry/hosting/{account}`, `/expiry/domains/{domain}/refresh`; the cache route takes `engine`. MCP: 13 new tools (199 in all).
+
+### Fixed
+
+- Domain expiry reminders never reached the alert channels (only failures were forwarded).
+- A domain found already past several reminder days got one reminder per day; it now gets one, for the nearest day.
+
+### Not yet run on a live server
+
+- The Dragonfly, coturn and LiveKit configurations follow their documentation and are covered by tests, but haven't been run on a server yet. Please report anything they refuse.
+
 ## v0.7.0
 
 ### New

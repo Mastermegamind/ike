@@ -47,6 +47,7 @@ REDIS_KIND=""               # redis | valkey: the server-wide engine (the first 
 CACHE_ENGINES=""            # per-account cache engines: any of redis valkey dragonfly
 INSTALL_TURN=0              # TURN server (coturn) for WebRTC calls
 INSTALL_LIVEKIT=0           # LiveKit WebRTC media server
+ADD_ONLY=""                 # --add: install only these on a server that already runs Ike
 MONGODB_VERSION=""          # e.g. 8.0
 JOIN_URL=""                 # join another server's panel instead of being managed here
 JOIN_TOKEN=""
@@ -177,6 +178,11 @@ Databases
                               and picks its engine. Use one or several; the first of Redis/Valkey is also
                               the server-wide one (replication).
 
+Adding to a server that already runs Ike
+  --add LIST                  Install only these, keep everything else as it is, and tell the agent:
+                              any of redis, valkey, dragonfly, turn, livekit (comma-separated).
+                              Example: install.sh --add dragonfly,turn,livekit
+
 Real-time media
   --turn                      TURN server (coturn): lets WebRTC calls connect through strict firewalls and
                               mobile networks. Switched on in the panel; opens 3478, 5349 and 40000-49999/udp.
@@ -236,6 +242,17 @@ while [ $# -gt 0 ]; do
 		--valkey) add_cache valkey; shift ;;
 		--dragonfly) add_cache dragonfly; shift ;;
 		--turn) INSTALL_TURN=1; shift ;;
+		--add)
+			ADD_ONLY="${2:?}"
+			for e in ${ADD_ONLY//,/ }; do
+				case "$e" in
+					redis|valkey|dragonfly) add_cache "$e" ;;
+					turn) INSTALL_TURN=1 ;;
+					livekit) INSTALL_LIVEKIT=1 ;;
+					*) die "--add takes redis, valkey, dragonfly, turn or livekit (got: $e)" ;;
+				esac
+			done
+			shift 2 ;;
 		--livekit) INSTALL_LIVEKIT=1; shift ;;
 		--mongodb) if [[ "${2:-}" =~ ^[5-9]\.[0-9]$ ]]; then MONGODB_VERSION="$2"; shift 2; else MONGODB_VERSION="8.0"; shift; fi ;;
 		--clamav) INSTALL_SCANNER=1; shift ;;
@@ -1102,6 +1119,10 @@ EOF
 # service stays off: Ike runs one instance per account.
 install_dragonfly() {
 	local tag file tmp sum
+	if [ -x /usr/bin/dragonfly ]; then
+		DRAGONFLY_INSTALLED=$(/usr/bin/dragonfly --version 2>/dev/null | awk '{print $2; exit}')
+		return 0
+	fi
 	tag=$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/dragonflydb/dragonfly/releases/latest 2>>"$LOG_FILE" | sed 's#.*/tag/##')
 	[ -n "$tag" ] || { warn "Could not find the latest Dragonfly release; skipping Dragonfly."; return 1; }
 	file="dragonfly_${ARCH}.deb"
@@ -1138,6 +1159,11 @@ install_redis() {
 		case "$e" in
 			redis)
 				apt_install redis-server redis-tools
+				# With a server-wide Valkey, Redis runs only per account (port 6379 is
+				# Valkey's), unless the spam filter uses it.
+				if [ "$REDIS_KIND" = "valkey" ] && ! systemctl is-enabled --quiet rspamd 2>/dev/null; then
+					systemctl disable --now redis-server >>"$LOG_FILE" 2>&1 || true
+				fi
 				got="$got redis" ;;
 			valkey)
 				if ! pkg_available valkey-server; then
@@ -1158,6 +1184,9 @@ install_redis() {
 		cache_unit ike-redis "Valkey" "/usr/bin/valkey-server /etc/ike/redis/%i.conf --supervised systemd --daemonize no" notify
 	elif [ "$REDIS_KIND" = "redis" ]; then
 		cache_unit ike-redis "Redis" "/usr/bin/redis-server /etc/ike/redis/%i.conf --supervised systemd --daemonize no" notify
+	fi
+	if has_cache redis && [ "$REDIS_KIND" != "redis" ]; then
+		cache_unit ike-redis-server "Redis" "/usr/bin/redis-server /etc/ike/redis/%i.conf --supervised systemd --daemonize no" notify
 	fi
 	if has_cache valkey && [ "$REDIS_KIND" != "valkey" ]; then
 		cache_unit ike-valkey "Valkey" "/usr/bin/valkey-server /etc/ike/redis/%i.conf --supervised systemd --daemonize no" notify
@@ -2591,7 +2620,60 @@ install_quotas() {
 	esac
 }
 
+# add_main installs only what --add named on a server that already runs Ike,
+# then records the cache engines in agent.json (keeping every other setting)
+# and restarts the agent so the panel offers them.
+add_main() {
+	: >"$LOG_FILE"
+	chmod 0600 "$LOG_FILE"
+	[ -e "$CONF_DIR/installed" ] && [ -e "$CONF_DIR/agent.json" ] || die "--add is for a server that already runs ${PANEL_NAME}; run the installer without it first."
+	check_system
+	info "Adding ${ADD_ONLY//,/, } to ${PANEL_NAME} on Ubuntu ${OS_VERSION}"
+	apt-get update -q >>"$LOG_FILE" 2>&1
+	if [ -n "$CACHE_ENGINES" ]; then
+		# Keep the server-wide engine and the engines already installed.
+		local had kind e
+		kind=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("redis") or "")' "$CONF_DIR/agent.json")
+		had=$(python3 -c 'import json,sys; print(" ".join(json.load(open(sys.argv[1])).get("cache_engines") or []))' "$CONF_DIR/agent.json")
+		[ -n "$kind" ] && REDIS_KIND="$kind"
+		local new="$CACHE_ENGINES"
+		CACHE_ENGINES=""
+		for e in $kind $had $new; do add_cache "$e"; done
+		install_redis
+		python3 - "$CONF_DIR/agent.json" "$REDIS_KIND" "$CACHE_ENGINES" <<'PY'
+import json, os, sys
+path, kind, engines = sys.argv[1], sys.argv[2], sys.argv[3].split()
+with open(path) as f:
+    cfg = json.load(f)
+cfg["redis"], cfg["cache_engines"] = kind, engines
+tmp = path + ".new"
+with open(tmp, "w") as f:
+    json.dump(cfg, f, indent=2)
+os.chmod(tmp, 0o640)
+os.replace(tmp, path)
+PY
+	fi
+	install_turn
+	install_livekit
+	systemctl restart "${AGENT_NAME}" >>"$LOG_FILE" 2>&1 || warn "Restart ${AGENT_NAME} yourself: systemctl restart ${AGENT_NAME}"
+	cat <<EOF
+
+${C_BLD}${C_GRN}Added${C_RST}
+
+  Caches        ${CACHE_ENGINES:-unchanged}$( [ -n "${DRAGONFLY_INSTALLED:-}" ] && echo " (Dragonfly ${DRAGONFLY_INSTALLED})" )
+  TURN          $( [ -n "${TURN_INSTALLED:-}" ] && echo "coturn ${TURN_INSTALLED}" || echo "not added" )
+  LiveKit       $( [ -n "${LIVEKIT_INSTALLED:-}" ] && echo "${LIVEKIT_INSTALLED}" || echo "not added" )
+  Install log   ${LOG_FILE}
+
+Switch TURN and LiveKit on in the panel under Server, Real-time media. Account owners pick their cache engine under Databases, Cache.
+EOF
+}
+
 main() {
+	if [ -n "$ADD_ONLY" ]; then
+		add_main
+		return
+	fi
 	: >"$LOG_FILE"
 	chmod 0600 "$LOG_FILE"
 	check_system

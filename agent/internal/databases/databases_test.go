@@ -168,6 +168,22 @@ func TestCacheEnginesSideBySide(t *testing.T) {
 	}
 }
 
+func TestCacheUnitNames(t *testing.T) {
+	cfg := config.Default()
+	cfg.Redis, cfg.CacheEngines = "valkey", []string{"redis", "dragonfly"}
+	m := New(&kit.Env{Cfg: cfg, Run: &runner.DryRun{}})
+	for engine, want := range map[string]string{"valkey": "ike-redis@a.service", "redis": "ike-redis-server@a.service", "dragonfly": "ike-dragonfly@a.service"} {
+		if got := m.unitFor(engine, "a"); got != want {
+			t.Errorf("%s: %s, want %s", engine, got, want)
+		}
+	}
+	cfg.Redis = "redis"
+	m = New(&kit.Env{Cfg: cfg, Run: &runner.DryRun{}})
+	if got := m.unitFor("valkey", "a"); got != "ike-valkey@a.service" {
+		t.Errorf("valkey next to Redis: %s", got)
+	}
+}
+
 func TestCacheEngineNotInstalled(t *testing.T) {
 	cfg := config.Default()
 	cfg.Root, cfg.DryRun, cfg.Redis = t.TempDir(), true, "valkey"
