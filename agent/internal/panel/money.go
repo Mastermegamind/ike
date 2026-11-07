@@ -229,10 +229,76 @@ func (s *Server) checkout(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return err
 		}
-		x.Provider, x.ProviderRef, x.CheckoutURL = req.Provider, co.Ref, co.URL
+		x.AddRef(req.Provider, co.Ref)
+		x.CheckoutURL = co.URL
 		return nil
 	})
 	writeJSON(w, 200, map[string]string{"checkout_url": co.URL})
+}
+
+// transfer gives an account number to pay an invoice by bank transfer. An
+// account that hasn't expired is shown again instead of making a new one.
+func (s *Server) transfer(w http.ResponseWriter, r *http.Request) {
+	p := personFrom(r)
+	var req struct {
+		Provider string `json:"provider"`
+	}
+	if err := decode(r, &req); err != nil {
+		fail(w, 400, err.Error())
+		return
+	}
+	var inv store.Invoice
+	var err error
+	s.Store.View(func(d *store.Data) {
+		var x *store.Invoice
+		if x, err = d.Invoice(r.PathValue("id")); err == nil {
+			inv = *x
+		}
+	})
+	if err != nil {
+		failErr(w, err)
+		return
+	}
+	if !s.accessFor(p).has(inv.Account) {
+		fail(w, 403, "That invoice isn't one of yours.")
+		return
+	}
+	if inv.Status != "unpaid" {
+		fail(w, 400, "This invoice is already "+inv.Status+".")
+		return
+	}
+	if t := inv.Transfer; t != nil && time.Until(t.Expires) > 10*time.Minute && (req.Provider == "" || req.Provider == t.Provider) {
+		writeJSON(w, 200, t)
+		return
+	}
+	prov, ok := s.providers()[req.Provider]
+	tp, can := prov.(billing.TransferProvider)
+	if !ok || !can {
+		fail(w, 400, "Bank transfer isn't set up on this server; it works with Paystack or Flutterwave.")
+		return
+	}
+	email := p.Email
+	if email == "" {
+		email = "billing+" + inv.Account + "@" + strings.TrimPrefix(strings.Split(strings.TrimPrefix(s.PublicURL, "https://"), ":")[0], "www.")
+	}
+	t, err := tp.CreateTransfer(r.Context(), &inv, billing.Customer{Email: email, Name: p.Name})
+	if err != nil {
+		slog.Error("bank transfer failed", "provider", req.Provider, "invoice", inv.ID, "err", err)
+		fail(w, 502, "The payment provider couldn't give an account number: "+err.Error())
+		return
+	}
+	bt := &store.BankTransfer{Provider: req.Provider, Bank: t.Bank, AccountNumber: t.AccountNumber, AccountName: t.AccountName,
+		Amount: t.Amount, Currency: t.Currency, Expires: t.Expires, Note: t.Note}
+	_ = s.Store.Update(func(d *store.Data) error {
+		x, err := d.Invoice(inv.ID)
+		if err != nil {
+			return err
+		}
+		x.AddRef(req.Provider, t.Ref)
+		x.Transfer = bt
+		return nil
+	})
+	writeJSON(w, 200, bt)
 }
 
 func (s *Server) voidInvoice(w http.ResponseWriter, r *http.Request) {
@@ -409,6 +475,7 @@ func (s *Server) getAlertSettings(w http.ResponseWriter, r *http.Request) {
 	a.Telegram.BotToken = maskSecret(a.Telegram.BotToken)
 	a.WhatsApp.Token = maskSecret(a.WhatsApp.Token)
 	a.Email.Password = maskSecret(a.Email.Password)
+	a.SMS.APIKey = maskSecret(a.SMS.APIKey)
 	writeJSON(w, 200, a)
 }
 
@@ -416,6 +483,28 @@ func (s *Server) putAlertSettings(w http.ResponseWriter, r *http.Request) {
 	var in store.AlertSettings
 	if err := decode(r, &in); err != nil {
 		fail(w, 400, err.Error())
+		return
+	}
+	if in.SMS.Provider != "" && in.SMS.Provider != "termii" && in.SMS.Provider != "africastalking" {
+		fail(w, 400, "SMS provider is Termii or Africa's Talking.")
+		return
+	}
+	if in.SMS.Channel != "" && in.SMS.Channel != "dnd" && in.SMS.Channel != "generic" {
+		fail(w, 400, "Termii channel is dnd or generic.")
+		return
+	}
+	if in.SMS.BaseURL != "" && !strings.HasPrefix(in.SMS.BaseURL, "https://") {
+		fail(w, 400, "Termii's base URL starts with https://.")
+		return
+	}
+	for _, d := range in.Customers.Days {
+		if d < 0 || d > 90 {
+			fail(w, 400, "Reminder days are 0-90.")
+			return
+		}
+	}
+	if len(in.Customers.Days) > 6 {
+		fail(w, 400, "At most 6 reminder days.")
 		return
 	}
 	if in.UptimeIntervalMin < 0 || in.UptimeIntervalMin > 1440 {
@@ -432,6 +521,7 @@ func (s *Server) putAlertSettings(w http.ResponseWriter, r *http.Request) {
 		in.Telegram.BotToken = keep(in.Telegram.BotToken, d.Alerts.Telegram.BotToken)
 		in.WhatsApp.Token = keep(in.WhatsApp.Token, d.Alerts.WhatsApp.Token)
 		in.Email.Password = keep(in.Email.Password, d.Alerts.Email.Password)
+		in.SMS.APIKey = keep(in.SMS.APIKey, d.Alerts.SMS.APIKey)
 		d.Alerts = in
 		return nil
 	})

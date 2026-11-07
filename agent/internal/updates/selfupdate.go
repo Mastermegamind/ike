@@ -256,7 +256,7 @@ func (m *Manager) watchOnce(ctx context.Context) {
 		m.update(func(s *selfState) { s.Announced = rel.Latest })
 		m.publish("ike.update.available", "Ike "+rel.Latest, map[string]any{"current": m.Version, "latest": rel.Latest, "url": rel.URL})
 	}
-	if s.Settings.Mode == "auto" && s.Pending == nil {
+	if s.Settings.Mode == "auto" && s.Pending == nil && (m.Allowed == nil || m.Allowed()) {
 		if _, err := m.UpdateIke(ctx, "auto"); err != nil {
 			slog.Warn("automatic Ike update didn't start", "err", err)
 		}

@@ -107,6 +107,13 @@ type Manager struct {
 	store   kit.Store[[]Plan]
 	mu      sync.Mutex
 	running map[string]bool
+
+	// Saver holds scheduled backups for the data saver's window and caps
+	// restic's bandwidth (nil: no saver).
+	Saver interface {
+		Allowed() bool
+		ResticFlags() []string
+	}
 }
 
 func New(env *kit.Env, keys *secrets.Keyring, targets *storage.Manager, src Sources) *Manager {
@@ -384,6 +391,9 @@ func (m *Manager) resticRaw(ctx context.Context, repo, pw string, extra []string
 		repoHost := strings.TrimPrefix(repo, "sftp:")
 		userHost, _, _ := strings.Cut(repoHost, ":")
 		args = append([]string{"-o", "sftp.command=ssh " + sftp + " " + userHost + " -s sftp"}, args...)
+	}
+	if m.Saver != nil {
+		args = append(m.Saver.ResticFlags(), args...)
 	}
 	c := runner.Command{Name: "restic", Args: args, Env: env, Timeout: 24 * time.Hour}
 	if out != nil {
@@ -967,6 +977,9 @@ func (m *Manager) RunScheduler(ctx context.Context) {
 					continue
 				}
 				if due(p.Schedule, p.Last, now) {
+					if m.Saver != nil && !m.Saver.Allowed() {
+						continue // waits for the data saver's window; it stays due
+					}
 					_, _ = m.Run(ctx, p.Account, p.ID, func(string, ...any) {})
 					continue
 				}

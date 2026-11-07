@@ -107,6 +107,7 @@ type APIKey struct {
 type state struct {
 	Turn    TurnSettings    `json:"turn"`
 	LiveKit LiveKitSettings `json:"livekit"`
+	Jitsi   JitsiSettings   `json:"jitsi"`
 	// TurnCertSum is the fingerprint of the certificate last copied for coturn.
 	TurnCertSum string `json:"turn_cert_sum,omitempty"`
 	// LiveKitTurnUntil is when the TURN credential in LiveKit's config runs out.
@@ -217,6 +218,7 @@ type LiveKitInfo struct {
 type Status struct {
 	Turn     TurnInfo    `json:"turn"`
 	LiveKit  LiveKitInfo `json:"livekit"`
+	Jitsi    *JitsiInfo  `json:"jitsi,omitempty"`
 	PublicIP string      `json:"public_ip"`
 	Notes    []string    `json:"notes,omitempty"`
 }
@@ -299,6 +301,7 @@ func (m *Manager) Status(ctx context.Context) (*Status, error) {
 			out.LiveKit.Version = lastField(string(v))
 		}
 	}
+	out.Jitsi, _ = m.JitsiStatus(ctx)
 	if m.env.Cfg.PublicIPv4 == "" {
 		out.Notes = append(out.Notes, "This server's public IPv4 address isn't known, so media servers will try to discover it themselves.")
 	}

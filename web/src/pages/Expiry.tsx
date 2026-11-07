@@ -1,13 +1,13 @@
 // Expiry dates: registered domains, SSL certificates and hosting in one list,
 // soonest first, plus a small "running out soon" card for the dashboard.
 import { useState } from "react";
-import { CalendarClock, CalendarX2, Globe, LockKeyhole, RefreshCw, Server } from "lucide-react";
+import { CalendarClock, CalendarX2, Globe, LockKeyhole, RefreshCw, RotateCw, Server } from "lucide-react";
 import { api } from "../api/client";
 import type { Role } from "../api/types";
 import type { ExpiryItem, ExpiryKind, ExpiryList, ExpiryState } from "../api/types5";
 import { Badge, Button, Empty, Skeleton, Tabs } from "../components/ui";
-import { PageHead } from "../components/common";
-import { enc, FormModal, TextField, useAction, useGet } from "../components/kit5";
+import { PageHead, Toggle } from "../components/common";
+import { enc, FormModal, NumberField, TextField, useAction, useGet } from "../components/kit5";
 import { href } from "../router";
 
 const kindLabel: Record<ExpiryKind, string> = { domain: "Domain", ssl: "SSL certificate", hosting: "Hosting" };
@@ -48,6 +48,9 @@ export function ExpiryPage({ role }: { role: Role }) {
   const list = useGet<ExpiryList>("/expiry");
   const [dateFor, setDateFor] = useState<string | null>(null);
   const [date, setDate] = useState("");
+  const [domainFor, setDomainFor] = useState<ExpiryItem | null>(null);
+  const [dom, setDom] = useState({ auto: false, years: 1, days: 30, manual: "" });
+  const [renewing, setRenewing] = useState<ExpiryItem | null>(null);
   const { busy, run } = useAction();
   const canSetDates = role === "admin" || role === "reseller";
   const items = (list.data?.items ?? []).filter((i) => kind === "all" || i.kind === kind);
@@ -79,9 +82,15 @@ export function ExpiryPage({ role }: { role: Role }) {
                     {it.detail ? <div className="small" style={{ color: problem(it) ? "var(--bad)" : undefined }}>{it.detail}</div> : null}</td>
                   <td className="small">{it.account}</td>
                   <td className="small">{dateOnly(it.expires) || "—"}</td>
-                  <td><Badge tone={tone[it.state]}>{whenLabel(it)}</Badge></td>
+                  <td><Badge tone={tone[it.state]}>{whenLabel(it)}</Badge>
+                    {it.kind === "hosting" && it.suspends_on && it.state !== "ok" ? <div className="small" style={{ color: "var(--bad)", marginTop: 4, whiteSpace: "nowrap" }}>Suspends {dateOnly(it.suspends_on)} if unpaid</div> : null}</td>
                   <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                     {it.kind === "domain" ? <Button size="sm" variant="ghost" loading={busy === `r:${it.name}`} onClick={() => refresh(it.name)} aria-label={`Check ${it.name} now`}><RefreshCw size={15} />Check</Button> : null}
+                    {it.kind === "domain" && canSetDates ? <Button size="sm" variant="ghost" onClick={() => {
+                      setDomainFor(it); setDom({ auto: it.auto_renews, years: 1, days: 30, manual: it.source === "manual" ? it.expires?.slice(0, 10) ?? "" : "" });
+                    }}>Renewal</Button> : null}
+                    {it.kind === "domain" && it.at_registrar && role === "admin" ? <Button size="sm" variant="ghost" onClick={() => setRenewing(it)}><RotateCw size={15} />Renew</Button> : null}
+                    {it.kind === "hosting" && it.invoice_id && role !== "admin" && role !== "reseller" ? <a className="btn sm primary" href={href(`/billing?invoice=${enc(it.invoice_id)}`)}>Pay now</a> : null}
                     {it.kind === "hosting" && it.source === "manual" && canSetDates ? <Button size="sm" variant="ghost" onClick={() => { setDateFor(it.account); setDate(it.expires?.slice(0, 10) ?? ""); }}>Change</Button> : null}
                   </td>
                 </tr>
@@ -96,6 +105,27 @@ export function ExpiryPage({ role }: { role: Role }) {
             <Button onClick={() => { setDateFor(""); setDate(""); }}><CalendarX2 size={16} />Set an end date</Button></div>
         </section>
       ) : null}
+      <FormModal open={!!domainFor} onClose={() => setDomainFor(null)} title={domainFor ? `Renewing ${domainFor.name}` : ""} submit="Save"
+        description={domainFor?.at_registrar ? "This domain is in the Namecheap account connected under DNS settings." : "This domain is registered elsewhere. Set its renewal date if its registry doesn't report one, so reminders go out on time."}
+        onSubmit={async () => {
+          const body: Record<string, unknown> = { manual_expires: dom.manual };
+          if (role === "admin" && domainFor?.at_registrar) Object.assign(body, { auto_renew: dom.auto, years: dom.years, days_before: dom.days });
+          await api.call("PUT", `/expiry/domains/${enc(domainFor!.name)}`, body); list.reload();
+        }}>
+        {role === "admin" && domainFor?.at_registrar ? <>
+          <Toggle checked={dom.auto} onChange={(v) => setDom({ ...dom, auto: v })} label="Renew it automatically through Namecheap" />
+          {dom.auto ? <div className="grid-2">
+            <NumberField label="Days before it expires" value={dom.days} onChange={(v) => setDom({ ...dom, days: v })} min={1} max={90} />
+            <NumberField label="Years each time" value={dom.years} onChange={(v) => setDom({ ...dom, years: v })} min={1} max={10} />
+          </div> : null}
+          {dom.auto ? <p className="small muted">Renewals are paid from your Namecheap balance. A failed renewal is reported on your alert channels and shown here.</p> : null}
+        </> : null}
+        <TextField label="Renewal date set by hand (optional)" type="date" value={dom.manual} onChange={(v) => setDom({ ...dom, manual: v })}
+          hint="Leave empty to use the date from the registry." />
+      </FormModal>
+      <FormModal open={!!renewing} onClose={() => setRenewing(null)} title={renewing ? `Renew ${renewing.name} now?` : ""} submit="Renew for 1 year"
+        description="Namecheap charges your account balance now. The new expiry date shows here once the registry updates."
+        onSubmit={async () => { await api.call("POST", `/expiry/domains/${enc(renewing!.name)}/renew`, { years: 1 }); list.reload(); }}><span /></FormModal>
       <FormModal open={dateFor !== null} onClose={() => setDateFor(null)} title="Hosting end date" submit="Save"
         description="Leave the date empty to remove it."
         onSubmit={async () => { await api.call("PUT", `/expiry/hosting/${enc(dateFor || "")}`, { expires: date }); list.reload(); }}

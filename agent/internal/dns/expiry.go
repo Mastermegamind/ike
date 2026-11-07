@@ -34,6 +34,10 @@ type DomainExpiry struct {
 	AtRegistrar bool      `json:"at_registrar,omitempty"`
 	CheckedAt   time.Time `json:"checked_at,omitzero"`
 	Error       string    `json:"error,omitempty"`
+	// RenewDaysBefore is when Ike renews it (with AutoRenew); RenewError is
+	// why the last automatic renewal failed.
+	RenewDaysBefore int    `json:"renew_days_before,omitempty"`
+	RenewError      string `json:"renew_error,omitempty"`
 }
 
 type cachedReg struct {
@@ -124,6 +128,7 @@ func (m *Manager) DomainExpiries() ([]DomainExpiry, error) {
 		e.DaysLeft = daysLeft(e.Expires)
 		out = append(out, e)
 	}
+	out = m.applyRenewals(out)
 	sort.SliceStable(out, func(i, j int) bool {
 		a, b := out[i], out[j]
 		if a.Expires.IsZero() != b.Expires.IsZero() {

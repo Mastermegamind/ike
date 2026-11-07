@@ -314,3 +314,59 @@ func TestDeleteAccountRemovesKeys(t *testing.T) {
 		t.Fatalf("%+v", st.LiveKit.Keys)
 	}
 }
+
+func TestJitsi(t *testing.T) {
+	m, run, fw, _, root := setup(t)
+	ctx := context.Background()
+	var proxied string
+	m.ProxySite = func(_ context.Context, account, domain string, port int) (string, error) {
+		proxied = account + " " + domain + " " + strconv.Itoa(port)
+		return "", nil
+	}
+	if _, _, err := m.SetJitsi(ctx, JitsiSettings{Enabled: true, Domain: "meet.example.ng", Account: "media", UseTurn: true}); err == nil {
+		t.Fatal("TURN used while off")
+	}
+	if _, err := m.SetTurn(ctx, TurnRequest{Enabled: true, Domain: "turn.example.ng", TLS: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := m.SetJitsi(ctx, JitsiSettings{Enabled: true, Domain: "meet.example.ng", Account: "media", Version: "bad tag!"}); err == nil {
+		t.Fatal("bad image tag accepted")
+	}
+	info, _, err := m.SetJitsi(ctx, JitsiSettings{Enabled: true, Domain: "meet.example.ng", Account: "media", UseTurn: true, Lobby: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.URL != "https://meet.example.ng" || proxied != "media meet.example.ng 8000" {
+		t.Fatalf("%+v %q", info, proxied)
+	}
+	env := read(t, filepath.Join(root, "var/lib/ike/jitsi/.env"))
+	for _, want := range []string{"PUBLIC_URL=https://meet.example.ng", "HTTP_PORT=8000", "DISABLE_HTTPS=1", "ENABLE_LOBBY=1",
+		"JVB_ADVERTISE_IPS=203.0.113.7", "TURN_HOST=turn.example.ng", "TURNS_PORT=5349", "TURN_CREDENTIALS="} {
+		if !strings.Contains(env, want) {
+			t.Errorf(".env missing %q", want)
+		}
+	}
+	compose := read(t, filepath.Join(root, "var/lib/ike/jitsi/docker-compose.yml"))
+	if !strings.Contains(compose, `"127.0.0.1:${HTTP_PORT}:80"`) || strings.Contains(compose, "network_mode: host") {
+		t.Fatal("web not bound to localhost")
+	}
+	pw := readEnvFile(filepath.Join(root, "var/lib/ike/jitsi/.env"))["JVB_AUTH_PASSWORD"]
+	// saving again keeps the generated passwords
+	if _, _, err := m.SetJitsi(ctx, JitsiSettings{Enabled: true, Domain: "meet.example.ng", Account: "media"}); err != nil {
+		t.Fatal(err)
+	}
+	env2 := readEnvFile(filepath.Join(root, "var/lib/ike/jitsi/.env"))
+	if env2["JVB_AUTH_PASSWORD"] != pw || env2["TURN_HOST"] != "" {
+		t.Fatalf("password changed or TURN kept: %v", env2)
+	}
+	if !strings.Contains(strings.Join(fw.open, " "), "10000/udp") || !strings.Contains(strings.Join(run.History(), "\n"), "docker compose -p ike-jitsi -f /var/lib/ike/jitsi/docker-compose.yml up -d") {
+		t.Fatalf("%v %v", fw.open, run.History())
+	}
+	if _, _, err := m.SetJitsi(ctx, JitsiSettings{}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(run.History(), "\n"), "docker compose -p ike-jitsi -f /var/lib/ike/jitsi/docker-compose.yml down") ||
+		!strings.Contains(strings.Join(fw.closed, " "), "10000/udp") {
+		t.Fatal("not stopped")
+	}
+}

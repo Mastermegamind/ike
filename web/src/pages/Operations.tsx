@@ -11,7 +11,7 @@ import { Badge, Button, Empty, Field, Meter, Modal, Segmented, Skeleton, formatM
 import { PageHead, Toggle } from "../components/common";
 import { JobModal, useJob } from "../components/job";
 import { UsageChart } from "../components/chart";
-import { IkeVersions, PackageHistory, ServerVersions, UbuntuReleaseCard } from "./UpdatesV7";
+import { DataSaverCard, IkeVersions, PackageHistory, ServerVersions, UbuntuReleaseCard } from "./UpdatesV7";
 import type { MetricPoint, ServerMetrics } from "../api/types5";
 
 /* =============================================================== Updates */
@@ -100,6 +100,7 @@ export function Updates() {
       </div>
 
       <PackageHistory onJob={() => st.reload()} />
+      <DataSaverCard />
       <div className="grid-2">
         <UbuntuReleaseCard />
         <ServerVersions latest={rel.data?.latest} />

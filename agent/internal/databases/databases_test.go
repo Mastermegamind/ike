@@ -192,3 +192,53 @@ func TestCacheEngineNotInstalled(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+func TestMeilisearchPerAccount(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Default()
+	cfg.Root, cfg.DryRun = root, true
+	run := &runner.DryRun{}
+	m := New(&kit.Env{Cfg: cfg, Run: run})
+	ctx := context.Background()
+	cred, inst, err := m.SetSearch(ctx, "shop", SearchRequest{}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inst.Port != 7700 || inst.MemoryMB != 256 || cred == nil || len(cred.Password) != 48 || cred.URL != "http://127.0.0.1:7700" {
+		t.Fatalf("%+v %+v", inst, cred)
+	}
+	env, _ := os.ReadFile(filepath.Join(root, "etc/ike/meilisearch/shop.env"))
+	for _, want := range []string{"MEILI_HTTP_ADDR=127.0.0.1:7700", "MEILI_MASTER_KEY=" + cred.Password, "MEILI_ENV=production",
+		"MEILI_NO_ANALYTICS=true", "MEILI_DB_PATH=/home/shop/.meilisearch/data", "MEILI_MAX_INDEXING_MEMORY=256Mb"} {
+		if !strings.Contains(string(env), want) {
+			t.Errorf("env missing %q", want)
+		}
+	}
+	if fi, _ := os.Stat(filepath.Join(root, "etc/ike/meilisearch/shop.env")); fi.Mode().Perm() != 0o600 {
+		t.Fatalf("env readable by others: %v", fi.Mode())
+	}
+	// a second account gets the next port; changing memory keeps key and port
+	_, inst2, _ := m.SetSearch(ctx, "blog", SearchRequest{}, false)
+	if inst2.Port != 7701 {
+		t.Fatalf("port %d", inst2.Port)
+	}
+	c2, inst3, err := m.SetSearch(ctx, "shop", SearchRequest{MemoryMB: 512}, false)
+	if err != nil || c2 != nil || inst3.Port != 7700 {
+		t.Fatalf("%+v %+v %v", c2, inst3, err)
+	}
+	if !strings.Contains(strings.Join(run.History(), "\n"), "systemctl enable --now ike-meilisearch@shop.service") {
+		t.Fatal("not started")
+	}
+	if strings.Contains(strings.Join(run.History(), "\n"), cred.Password) {
+		t.Fatal("key on a command line")
+	}
+	if _, _, err := m.SetSearch(ctx, "shop", SearchRequest{MemoryMB: 10}, false); err == nil {
+		t.Fatal("10 MB accepted")
+	}
+	if err := m.DeleteAccount(ctx, "shop"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "etc/ike/meilisearch/shop.env")); !os.IsNotExist(err) {
+		t.Fatal("env left after account deletion")
+	}
+}

@@ -270,6 +270,15 @@ Ike's full scope, grouped by area. Pick anything not done and open a PR; see [CO
 - ✅ MCP server for AI agents, read-only by default and scoped by API token (see [MCP.md](MCP.md))
 - ✅ Expiry dates: domains, SSL certificates and hosting (subscriptions, overdue invoices, or a date set for accounts billed elsewhere) in one list, with WhatsApp, Telegram and email reminders (see [API.md](API.md#expiry-dates))
 - 🟡 Dragonfly as a per-account cache engine (`--dragonfly`): built and tested against Dragonfly's documented flags in dry-run; not yet run on a live server
+- ✅ Customer expiry emails (30, 14, 7, 1 days, reseller-branded, Pay now link) and a suspension date next to each hosting expiry
+- ✅ SMS alerts through Termii or Africa's Talking
+- ✅ Invoices paid by bank transfer (Paystack Pay with Transfer, Flutterwave bank transfer)
+- ✅ Data saver for the server: backups and automatic updates in a night window, under a speed cap
+- ✅ Public status pages per reseller with 90 days of uptime
+- 🟡 Domain auto-renew through Namecheap, and renewal dates by hand: built and tested against Namecheap's API format; not yet run against a live account
+- 🟡 Laravel queue workers, scheduler and Reverb per website: built and tested in dry-run; not yet run on a live server
+- 🟡 Meilisearch per account and Garage S3 storage per account: built and tested in dry-run; Garage is written against its v2 admin API and not yet run on a live server
+- 🟡 Jitsi Meet one-click (Docker): built and tested in dry-run; not yet run on a live server
 - 🟡 Real-time media: a TURN server (coturn) and LiveKit behind an Ike website, with signed TURN logins, sealed API keys and join tokens (see [REALTIME.md](REALTIME.md)); built and tested in dry-run, not yet run on a live server
 - ✅ The same access model everywhere: scoped API tokens for the API, CLI and MCP; per-key SSH access (see [API.md](API.md#api-tokens))
 

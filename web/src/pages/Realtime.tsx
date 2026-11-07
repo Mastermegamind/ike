@@ -121,6 +121,8 @@ function RealtimeAdmin() {
         )}
       </section>
 
+      <JitsiPanel s={s} accounts={(accounts.data ?? []).map((a) => a.name)} onSaved={st.reload} />
+
       {s.livekit.enabled ? <KeysPanel keys={s.livekit.keys ?? []} base="/realtime/livekit" accounts={(accounts.data ?? []).map((a) => a.name)} onChange={st.reload} /> : null}
 
       <OnceModal open={!!secret} onClose={() => setSecret(null)} title="LiveKit API key">
@@ -131,6 +133,41 @@ function RealtimeAdmin() {
         description="Logins signed with the old secret stop working at once. Apps that make their own logins need the new secret; LiveKit is updated for you."
         onSubmit={async () => { done(await api.call<RealtimeStatus>("POST", "/realtime/turn/secret")); }}><span /></FormModal>
     </div>
+  );
+}
+
+interface Jitsi { enabled: boolean; domain: string; account: string; use_turn: boolean; lobby: boolean; version?: string; docker_ready: boolean; running: string; url?: string }
+
+function JitsiPanel({ s, accounts, onSaved }: { s: RealtimeStatus & { jitsi?: Jitsi }; accounts: string[]; onSaved: () => void }) {
+  const j = s.jitsi;
+  const [f, setF] = useState<Jitsi | null>(null);
+  const [notes, setNotes] = useState<string[]>([]);
+  const { busy, run } = useAction();
+  if (!j) return null;
+  const cur = f ?? j;
+  const set = (p: Partial<Jitsi>) => setF({ ...cur, ...p });
+  return (
+    <section className="panel">
+      <div className="panel-head"><div><h2>Jitsi Meet</h2><p className="small muted">Video meetings in the browser, no app or account needed. Runs the official Jitsi images in Docker, behind a website of yours.</p></div>
+        {!j.docker_ready ? <Badge>Needs Docker</Badge> : !j.enabled ? <Badge>Off</Badge> : j.running === "active" ? <Badge tone="ok">Running</Badge> : <Badge tone="warn">{j.running === "partial" ? "Starting" : "Stopped"}</Badge>}</div>
+      {!j.docker_ready ? <div className="panel-body"><Empty icon={<Video size={22} />} title="Docker isn't installed" text="Add it with the installer's --docker, then switch Jitsi on here." /></div> : (
+        <div className="panel-body form-grid">
+          <Toggle checked={cur.enabled} onChange={(v) => set({ enabled: v })} label="Run Jitsi Meet" />
+          <div className="grid-2">
+            <TextField label="Domain" value={cur.domain} onChange={(v) => set({ domain: v })} placeholder="meet.example.com" mono hint="Ike makes it a website with HTTPS. Point the name at this server first." />
+            <SelectField label="Website owner" value={cur.account || accounts[0] || ""} onChange={(v) => set({ account: v })} options={accounts.map((a) => ({ value: a, label: a }))} />
+          </div>
+          <Toggle checked={cur.use_turn} onChange={(v) => set({ use_turn: v })} label="Use this server's TURN server" />
+          <Toggle checked={cur.lobby} onChange={(v) => set({ lobby: v })} label="Lobby: people wait until a moderator lets them in" />
+          {notes.length ? <div className="callout warn small"><div>{notes.map((n, i) => <div key={i}>{n}</div>)}</div></div> : null}
+          <div className="row"><Button variant="primary" disabled={!f} loading={busy === "j"} onClick={() => run("j", () => api.call<{ notes?: string[] }>("PUT", "/realtime/jitsi",
+            { enabled: cur.enabled, domain: cur.domain, account: cur.account || accounts[0] || "", use_turn: cur.use_turn, lobby: cur.lobby, version: cur.version || "stable" }),
+            cur.enabled ? "Jitsi Meet is starting (the first start downloads it)" : "Jitsi Meet stopped").then((r) => { if (r) { setNotes(r.notes ?? []); setF(null); onSaved(); } })}>Save</Button>
+            {j.enabled && j.url ? <a className="btn" href={j.url} target="_blank" rel="noreferrer">Open</a> : null}
+            <span className="small muted">Opens 10000/udp for media.</span></div>
+        </div>
+      )}
+    </section>
   );
 }
 

@@ -79,6 +79,7 @@ func (m *Manager) applyDeployLayout(s *Site, L *layout) {
 // cleanupExtras removes what a website had beyond its web server configs:
 // certificates, Git keys and mirrors, deployment history and containers.
 func (m *Manager) cleanupExtras(ctx context.Context, s *Site, L layout) {
+	m.removeLaravel(ctx, L)
 	m.deleteCertificate(ctx, s)
 	m.removeDeployState(ctx, s, L)
 	_ = os.Remove(m.p(m.wafFile(s.Domain)))

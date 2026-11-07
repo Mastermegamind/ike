@@ -7,7 +7,8 @@ import { api, getServer, setServer } from "../api/client";
 import type { Job } from "../api/types";
 import type { RemoteServer } from "../api/types5";
 import { Badge, Button, Empty, Modal, Segmented, Skeleton, timeAgo, useToast } from "../components/ui";
-import { dateTime, enc, useAction, useGet } from "../components/kit5";
+import { dateTime, enc, NumberField, TextField, useAction, useGet } from "../components/kit5";
+import { Toggle } from "../components/common";
 import { JobModal, useJob } from "../components/job";
 
 export interface Upgrade { id: string; kind: "update" | "rollback"; from: string; to: string; by?: string; status: string; reason?: string; started_at: string; finished_at?: string }
@@ -231,4 +232,39 @@ function cmp(a: string, b: string) {
   const pb = b.replace(/^v/, "").split(/[.-]/).map((x) => parseInt(x, 10) || 0);
   for (let i = 0; i < 3; i++) if (pa[i] !== pb[i]) return (pa[i] ?? 0) - (pb[i] ?? 0);
   return 0;
+}
+
+interface DataSaver { enabled: boolean; start?: string; end?: string; upload_kbps?: number; download_kbps?: number; open?: boolean; next_open?: string }
+
+/** The server's data saver: background work at night, under a cap. */
+export function DataSaverCard() {
+  const st = useGet<DataSaver>("/datasaver");
+  const [f, setF] = useState<DataSaver | null>(null);
+  const { busy, run } = useAction();
+  const cur = f ?? st.data ?? { enabled: false };
+  const set = (p: Partial<DataSaver>) => setF({ ...cur, ...p });
+  return (
+    <section className="panel">
+      <div className="panel-head"><div><h2>Data saver for the server</h2><p className="small muted">For metered or slow links: scheduled backups and automatic updates wait for a quiet window, and stay under a speed cap. Anything you start by hand runs at once.</p></div>
+        <Toggle checked={cur.enabled} onChange={(v) => set({ enabled: v, start: cur.start || "00:00", end: cur.end || "06:00" })} label={cur.enabled ? "On" : "Off"} /></div>
+      {cur.enabled ? (
+        <div className="panel-body form-grid">
+          <div className="grid-3">
+            <TextField label="From" type="time" value={cur.start ?? ""} onChange={(v) => set({ start: v })} />
+            <TextField label="Until" type="time" value={cur.end ?? ""} onChange={(v) => set({ end: v })} />
+            <div />
+          </div>
+          <div className="grid-3">
+            <NumberField label="Upload cap (KB/s)" value={cur.upload_kbps ?? 0} onChange={(v) => set({ upload_kbps: v })} min={0} hint="Backups. 0 = none" />
+            <NumberField label="Download cap (KB/s)" value={cur.download_kbps ?? 0} onChange={(v) => set({ download_kbps: v })} min={0} hint="Updates and restores. 0 = none" />
+            <div />
+          </div>
+          {st.data?.enabled && !f ? <p className="small muted">{st.data.open ? "Background work may run now." : `Waiting until ${dateTime(st.data.next_open)}.`}</p> : null}
+        </div>
+      ) : null}
+      {f ? <div className="panel-body"><Button variant="primary" loading={busy === "s"} onClick={() => run("s", () => api.call<DataSaver>("PUT", "/datasaver",
+        cur.enabled ? { enabled: true, start: cur.start, end: cur.end, upload_kbps: cur.upload_kbps ?? 0, download_kbps: cur.download_kbps ?? 0 } : { enabled: false }), "Data saver saved")
+        .then((r) => { if (r) { st.setData(r); setF(null); } })}>Save</Button></div> : null}
+    </section>
+  );
 }

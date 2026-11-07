@@ -35,6 +35,7 @@ type Site struct {
 	SPA       bool         `json:"spa,omitempty"`
 	StagingOf string       `json:"staging_of,omitempty"` // the live domain it was copied from
 	Health    *HealthCheck `json:"health,omitempty"`     // apps only
+	Laravel   *Laravel     `json:"laravel,omitempty"`    // PHP: queue workers, scheduler, Reverb
 	CreatedAt time.Time    `json:"created_at"`
 
 	// Domains: extra names served by this website.

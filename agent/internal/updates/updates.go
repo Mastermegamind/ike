@@ -29,6 +29,9 @@ import (
 )
 
 type Manager struct {
+	// Allowed holds automatic installs for the data saver's window (nil: any time).
+	Allowed func() bool
+
 	Run     runner.Runner
 	Jobs    *jobs.Manager
 	Root    string // "/" in production

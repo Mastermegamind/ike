@@ -43,6 +43,7 @@ import (
 
 	"github.com/Mastermegamind/ike/agent/internal/backups"
 	"github.com/Mastermegamind/ike/agent/internal/databases"
+	"github.com/Mastermegamind/ike/agent/internal/datasaver"
 	"github.com/Mastermegamind/ike/agent/internal/dns"
 	"github.com/Mastermegamind/ike/agent/internal/files"
 	"github.com/Mastermegamind/ike/agent/internal/firewall"
@@ -50,6 +51,7 @@ import (
 	"github.com/Mastermegamind/ike/agent/internal/kit"
 	"github.com/Mastermegamind/ike/agent/internal/mail"
 	"github.com/Mastermegamind/ike/agent/internal/malware"
+	"github.com/Mastermegamind/ike/agent/internal/objects"
 	"github.com/Mastermegamind/ike/agent/internal/realtime"
 	"github.com/Mastermegamind/ike/agent/internal/secrets"
 	"github.com/Mastermegamind/ike/agent/internal/sites"
@@ -73,6 +75,10 @@ type Features struct {
 	Spec    *spec.Manager
 	// Realtime is the TURN server and LiveKit.
 	Realtime *realtime.Manager
+	// DataSaver holds background traffic for a time window and caps it.
+	DataSaver *datasaver.Manager
+	// Objects is per-account S3 storage (Garage).
+	Objects *objects.Manager
 }
 
 // zoneAdapter lets the mail manager publish records through DNS.
@@ -153,13 +159,21 @@ func (s *Server) Setup() error {
 	}
 	s.F = f
 	f.Backups = backups.New(env, keys, f.Storage, s.backupSources())
+	f.DataSaver = datasaver.New(env)
+	f.Backups.Saver = f.DataSaver
+	if s.Updates != nil {
+		s.Updates.Allowed = f.DataSaver.Allowed
+	}
 	s.setupInfra(f)
 	f.Realtime = realtime.New(env, keys)
 	f.Realtime.CertFiles = s.Sites.CertFiles
 	f.Realtime.ProxySite = s.realtimeSite
+	f.Objects = objects.New(env, keys)
+	f.Objects.ProxySite = s.realtimeSite
 	s.Sites.OnAccountDelete = func(ctx context.Context, account string) {
 		_ = f.DB.DeleteAccount(ctx, account)
 		f.Realtime.DeleteAccount(ctx, account)
+		f.Objects.DeleteAccount(ctx, account)
 		if doms, err := f.Mail.Domains(account); err == nil {
 			for _, d := range doms {
 				_ = f.Mail.RemoveDomain(ctx, account, d.Domain.Domain, true)
@@ -264,6 +278,8 @@ func (s *Server) v5Routes(h func(string, handler)) {
 	s.infraRoutes(h)
 	s.realtimeRoutes(h)
 	s.expiryRoutes(h)
+	s.dataSaverRoutes(h)
+	s.objectRoutes(h)
 	s.migrateRoutes(h)
 
 	// ---- DNS: admin ----

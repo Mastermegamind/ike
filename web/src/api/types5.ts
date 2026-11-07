@@ -140,6 +140,7 @@ export interface RealtimeAccountView { livekit_url?: string; livekit_keys: LiveK
 // ---- expiry dates
 export type ExpiryKind = "domain" | "ssl" | "hosting";
 export type ExpiryState = "ok" | "soon" | "urgent" | "expired" | "unknown";
-export interface ExpiryItem { kind: ExpiryKind; name: string; account: string; expires?: string; days_left: number; state: ExpiryState; source?: string; auto_renews: boolean; detail?: string }
+export interface ExpiryItem { kind: ExpiryKind; name: string; account: string; expires?: string; days_left: number; state: ExpiryState; source?: string; auto_renews: boolean; detail?: string;
+  invoice_id?: string; suspends_on?: string; at_registrar?: boolean }
 export interface ExpirySummary { expired: number; within_7: number; within_30: number; unknown: number }
 export interface ExpiryList { items: ExpiryItem[]; summary: ExpirySummary }

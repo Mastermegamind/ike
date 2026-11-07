@@ -1,10 +1,10 @@
 // Running a hosting business: invoices and payment gateways, uptime alerts, and the people who sign in.
 import { useState } from "react";
 import {
-  BellRing, CircleAlert, CreditCard, ExternalLink, FileText, KeyRound, Mail, MessageCircle, Plus, Send, ShieldCheck, UserPlus, Users,
+  BellRing, CircleAlert, CreditCard, ExternalLink, FileText, KeyRound, Landmark, Mail, MessageCircle, MessageSquareText, Plus, Send, ShieldCheck, UserPlus, Users,
 } from "lucide-react";
 import { api } from "../api/client";
-import type { AlertSettings, BillingSettings, Invoice, PaymentProvider, Person, Role } from "../api/types";
+import type { AlertSettings, BankTransfer, BillingSettings, Invoice, PaymentProvider, Person, Role } from "../api/types";
 import { Badge, Button, CopyField, Empty, Field, Modal, Segmented, Skeleton, Tabs, timeAgo, useAsync, useToast } from "../components/ui";
 import { PageHead, Toggle } from "../components/common";
 import { roleLabel } from "../layouts/nav";
@@ -152,8 +152,24 @@ function PayInvoice({ inv, onClose, settings }: { inv: Invoice | null; onClose: 
   const [url, setUrl] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [transfer, setTransfer] = useState<BankTransfer | null>(null);
   const p = provider || enabled[0];
-  const close = () => { setUrl(null); setError(null); onClose(); };
+  const canTransfer: PaymentProvider[] = enabled.filter((x) => x === "paystack" || x === "flutterwave");
+  const close = () => { setUrl(null); setError(null); setTransfer(null); onClose(); };
+  if (inv && transfer) {
+    return (
+      <Modal open onClose={close} title={`Pay ${money(transfer.amount, transfer.currency)} by bank transfer`} description={`${inv.id}: ${inv.description}`}
+        footer={<Button variant="primary" onClick={close}>Done</Button>}>
+        <div className="form-grid">
+          <p>Send exactly this amount from any Nigerian bank app. The invoice updates on its own once the transfer arrives.</p>
+          <dl className="kv"><dt>Bank</dt><dd>{transfer.bank}</dd><dt>Account name</dt><dd>{transfer.account_name}</dd></dl>
+          <CopyField value={transfer.account_number} label="Account number" />
+          <Field label="Amount">{() => <CopyField value={(transfer.amount / 100).toFixed(2)} label="Amount" />}</Field>
+          <p className="small muted">This account number works until {new Date(transfer.expires).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}. Send one transfer only.</p>
+        </div>
+      </Modal>
+    );
+  }
   return (
     <Modal open={!!inv} onClose={close} title={inv ? `Pay ${money(inv.amount, inv.currency)}` : ""} description={inv ? `${inv.id}: ${inv.description}` : undefined}
       footer={url ? <><Button onClick={close}>Close</Button><a className="btn primary" href={url} target="_blank" rel="noreferrer"><ExternalLink size={16} />Open checkout</a></>
@@ -176,6 +192,13 @@ function PayInvoice({ inv, onClose, settings }: { inv: Invoice | null; onClose: 
               <span><strong>{providerName[x]}</strong><span className="small muted" style={{ display: "block" }}>{providerText[x]}</span></span>
             </label>
           ))}
+          {canTransfer.length ? (
+            <Button loading={busy} onClick={async () => {
+              setBusy(true); setError(null);
+              try { setTransfer(await api.call<BankTransfer>("POST", `/billing/invoices/${encodeURIComponent(inv!.id)}/transfer`, { provider: canTransfer.includes(p as PaymentProvider) ? p : canTransfer[0] })); }
+              catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+            }}><Landmark size={16} />Pay by bank transfer instead</Button>
+          ) : null}
           {error ? <div className="callout bad" role="alert"><CircleAlert size={18} />{error}</div> : null}
         </div>
       )}
@@ -319,6 +342,8 @@ export function Alerts() {
         </section>
       </div>
 
+      <SmsAndCustomers cur={cur} set={set} />
+
       <div><Button variant="primary" disabled={!a} loading={busy === "save"} onClick={async () => {
         setBusy("save");
         try { st.setData(await api.saveAlertSettings(cur)); setA(null); toast("ok", "Alert settings saved"); } catch (e) { toast("error", (e as Error).message); } finally { setBusy(null); }
@@ -338,6 +363,49 @@ export function Alerts() {
             ))}</tbody>
           </table></div>
         )}
+      </section>
+    </div>
+  );
+}
+
+const defaultSms: NonNullable<AlertSettings["sms"]> = { enabled: false, provider: "termii", to: "" };
+
+/** SMS alerts (Termii, Africa's Talking) and expiry emails to customers. */
+function SmsAndCustomers({ cur, set }: { cur: AlertSettings; set: (p: Partial<AlertSettings>) => void }) {
+  const sms = { ...defaultSms, ...(cur.sms ?? {}) };
+  const cust = cur.customers ?? { enabled: false, days: null };
+  const days = (cust.days?.length ? cust.days : [30, 14, 7, 1]).join(", ");
+  const setSms = (p: Partial<typeof sms>) => set({ sms: { ...sms, ...p } });
+  return (
+    <div className="grid-2" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", alignItems: "start" }}>
+      <section className="panel">
+        <div className="panel-head"><div className="row" style={{ gap: 8 }}><MessageSquareText size={18} aria-hidden /><h2>SMS</h2></div>
+          <Toggle checked={sms.enabled} onChange={(v) => setSms({ enabled: v })} label={sms.enabled ? "On" : "Off"} /></div>
+        {sms.enabled ? <div className="panel-body form-grid">
+          <Segmented label="Provider" value={sms.provider || "termii"} onChange={(v) => setSms({ provider: v as "termii" | "africastalking" })}
+            options={[{ value: "termii", label: "Termii" }, { value: "africastalking", label: "Africa's Talking" }]} />
+          <Field label="API key">{(id) => <input id={id} className="input mono" type="password" autoComplete="off" value={sms.api_key ?? ""} onChange={(e) => setSms({ api_key: e.target.value })} />}</Field>
+          {sms.provider === "africastalking" ? (
+            <Field label="App username" hint="“sandbox” sends to the simulator.">{(id) => <input id={id} className="input mono" value={sms.username ?? ""} onChange={(e) => setSms({ username: e.target.value })} />}</Field>
+          ) : null}
+          <Field label={sms.provider === "termii" ? "Sender ID" : "Sender ID (optional)"} hint={sms.provider === "termii" ? "An approved sender ID from Termii (Rental → Sender IDs)." : undefined}>
+            {(id) => <input id={id} className="input mono" maxLength={11} value={sms.sender_id ?? ""} onChange={(e) => setSms({ sender_id: e.target.value })} />}</Field>
+          {sms.provider === "termii" ? <>
+            <Segmented label="Route" value={sms.channel || "dnd"} onChange={(v) => setSms({ channel: v as "dnd" | "generic" })}
+              options={[{ value: "dnd", label: "DND (reaches every number)" }, { value: "generic", label: "Generic" }]} />
+            <Field label="Base URL (optional)" hint="Only if your Termii dashboard shows an account-specific one.">{(id) => <input id={id} className="input mono" placeholder="https://api.ng.termii.com" value={sms.base_url ?? ""} onChange={(e) => setSms({ base_url: e.target.value })} />}</Field>
+          </> : null}
+          <Field label="Send to" hint="One or more numbers, separated by commas: 0803… or +234803… both work.">{(id) => <input id={id} className="input mono" inputMode="tel" value={sms.to} onChange={(e) => setSms({ to: e.target.value })} />}</Field>
+        </div> : null}
+      </section>
+      <section className="panel">
+        <div className="panel-head"><div><h2>Expiry emails to customers</h2><p className="small muted">Account owners get an email before their hosting, and domains and certificates that don't renew themselves, run out. Hosting emails have a Pay now link. Sent in each reseller's branding.</p></div>
+          <Toggle checked={cust.enabled} onChange={(v) => set({ customers: { ...cust, enabled: v } })} label={cust.enabled ? "On" : "Off"} /></div>
+        {cust.enabled ? <div className="panel-body form-grid">
+          <Field label="Days before" hint="Up to six, separated by commas.">{(id) => <input id={id} className="input mono" defaultValue={days}
+            onBlur={(e) => set({ customers: { ...cust, days: e.target.value.split(/[ ,]+/).map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n <= 90).slice(0, 6) } })} />}</Field>
+          {!cur.email.host || !cur.email.from ? <div className="callout warn small"><CircleAlert size={18} />These go through the SMTP server under Email. Switch Email on to set it up (you can switch it off again afterwards).</div> : null}
+        </div> : null}
       </section>
     </div>
   );

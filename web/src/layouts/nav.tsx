@@ -2,7 +2,7 @@ import {
   Box, Cloud, Puzzle, Ship,
   ArrowUpCircle, BarChart3, BellRing, CreditCard, FolderInput, KeyRound, ShieldHalf, UserCog,
   Activity, AppWindow, Bot, Boxes, CalendarClock, Database, Gauge, Globe, HardDriveDownload, LockKeyhole, Mail,
-  Network, Palette, Server, CalendarX2, RadioTower, Video, ShieldCheck, SquareTerminal, Users, FolderOpen, ServerCog, Bug, Inbox, Settings2, Brush, Bell, KeySquare,
+  Network, Palette, Server, CalendarX2, RadioTower, Video, Archive, Activity as Pulse, ShieldCheck, SquareTerminal, Users, FolderOpen, ServerCog, Bug, Inbox, Settings2, Brush, Bell, KeySquare,
   type LucideIcon,
 } from "lucide-react";
 import type { Role } from "../api/types";
@@ -42,6 +42,7 @@ export const navGroups: NavGroup[] = [
       { to: "/ssl", label: "SSL certificates", icon: LockKeyhole, roles: all, area: "sites" },
       { to: "/expiry", label: "Expiry dates", icon: CalendarX2, roles: ["admin", "reseller", "user"] },
       { to: "/realtime", label: "Video & calls", icon: Video, roles: ["reseller", "user", "developer"], area: "sites" },
+      { to: "/s3", label: "S3 storage", icon: Archive, roles: all, area: "files" },
       { to: "/terminal", label: "Terminal", icon: SquareTerminal, roles: all, area: "files" },
     ],
   },
@@ -74,6 +75,7 @@ export const navGroups: NavGroup[] = [
       { to: "/people", label: "People", icon: UserCog, roles: ["admin", "reseller"] },
       { to: "/branding", label: "Branding", icon: Brush, roles: ["admin", "reseller"] },
       { to: "/alerts", label: "Alerts", icon: BellRing, roles: ["admin"] },
+      { to: "/status-page", label: "Status page", icon: Pulse, roles: ["admin", "reseller"] },
     ],
   },
   { title: "Settings", items: [

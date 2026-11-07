@@ -41,6 +41,7 @@ func (m *Manager) SuspendAccount(ctx context.Context, name, reason string) (*Acc
 		if _, err := m.setStatus(ctx, s, StatusSuspended, nil); err != nil {
 			return nil, fmt.Errorf("suspend %s: %w", s.Domain, err)
 		}
+		m.laravelControl(ctx, s, false)
 	}
 	// Block logins but remember the SSH mode for later.
 	if _, err := m.run.Run(ctx, "usermod", "--shell", "/usr/sbin/nologin", "--groups", "", name); err != nil {
@@ -88,6 +89,7 @@ func (m *Manager) UnsuspendAccount(ctx context.Context, name string) (*Account, 
 		if _, err := m.setStatus(ctx, s, prev, s.AllowIPs); err != nil {
 			return nil, fmt.Errorf("reactivate %s: %w", s.Domain, err)
 		}
+		m.laravelControl(ctx, s, true)
 	}
 	shell, groups := "/usr/sbin/nologin", ""
 	switch a.SSH {

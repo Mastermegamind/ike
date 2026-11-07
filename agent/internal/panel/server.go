@@ -48,10 +48,12 @@ type Server struct {
 	Agent     *client.Client
 	UI        fs.FS
 	PublicURL string // https://panel.example.com:2083, for payment return links
-	TLS       bool
-	Issuer    string // shown in authenticator apps
-	Notifier  *alerts.Notifier
-	Monitor   *alerts.Monitor
+	// MailHook replaces sending customer emails (tests).
+	MailHook func(fromName, to, subject, body string) error
+	TLS      bool
+	Issuer   string // shown in authenticator apps
+	Notifier *alerts.Notifier
+	Monitor  *alerts.Monitor
 	// Providers overrides billing providers (tests); nil = from settings.
 	Providers func() map[string]billing.Provider
 
@@ -119,6 +121,7 @@ func (s *Server) Handler(l Listener) http.Handler {
 	mux.HandleFunc("GET /api/v1/billing/invoices", s.authed(s.listInvoices))
 	mux.HandleFunc("POST /api/v1/billing/invoices", s.authed(s.createInvoice))
 	mux.HandleFunc("POST /api/v1/billing/invoices/{id}/checkout", s.authed(s.checkout))
+	mux.HandleFunc("POST /api/v1/billing/invoices/{id}/transfer", s.authed(s.transfer))
 	mux.HandleFunc("POST /api/v1/billing/invoices/{id}/void", s.authed(s.voidInvoice))
 	mux.HandleFunc("POST /api/v1/billing/invoices/{id}/mark-paid", s.authed(s.adminOnly(s.markPaid)))
 	mux.HandleFunc("POST /webhooks/{provider}", s.webhook)
@@ -139,6 +142,9 @@ func (s *Server) Handler(l Listener) http.Handler {
 	mux.HandleFunc("POST /api/v1/clusters", s.authed(s.adminOnly(s.createCluster)))
 	mux.HandleFunc("POST /api/v1/clusters/{id}/promote", s.authed(s.adminOnly(s.promoteCluster)))
 	mux.HandleFunc("DELETE /api/v1/clusters/{id}", s.authed(s.adminOnly(s.deleteCluster)))
+	mux.HandleFunc("GET /status/{slug}", s.statusPage) // public
+	mux.HandleFunc("GET /api/v1/status-page", s.authed(s.getStatusPage))
+	mux.HandleFunc("PUT /api/v1/status-page", s.authed(s.putStatusPage))
 	mux.HandleFunc("GET /s/{token}", s.shareLink)
 	mux.HandleFunc("POST /s/{token}", s.shareLink)
 	mux.HandleFunc("GET /api/v1/tokens", s.authed(s.listTokens))
@@ -172,6 +178,8 @@ func (s *Server) Handler(l Listener) http.Handler {
 	mux.HandleFunc("GET /api/v1/expiry", s.authed(s.listExpiry))
 	mux.HandleFunc("PUT /api/v1/expiry/hosting/{account}", s.authed(s.setHostingExpiry))
 	mux.HandleFunc("POST /api/v1/expiry/domains/{domain}/refresh", s.authed(s.refreshDomainExpiry))
+	mux.HandleFunc("PUT /api/v1/expiry/domains/{domain}", s.authed(s.setDomainRenewal))
+	mux.HandleFunc("POST /api/v1/expiry/domains/{domain}/renew", s.authed(s.renewDomain))
 	mux.HandleFunc("/api/v1/", s.authed(s.proxy))
 	mux.HandleFunc("/", s.static)
 

@@ -113,7 +113,8 @@ export class Demo5 {
     return { public_ip: "102.89.34.10", notes: [],
       turn: { ...t, installed: true, running: t.enabled ? "active" : "inactive", uris: t.enabled ? this.turnURIs() : null, cert_ready: t.domain === "turn.megamind.ng",
         ports: ["3478/udp", "3478/tcp", ...(t.tls ? ["5349/tcp", "5349/udp"] : []), "40000:49999/udp"] },
-      livekit: { ...l, keys: l.keys.map((k) => ({ ...k, secret: undefined })), installed: true, running: l.enabled ? "active" : "inactive", url: "wss://" + l.domain, version: "1.9.4" } };
+      livekit: { ...l, keys: l.keys.map((k) => ({ ...k, secret: undefined })), installed: true, running: l.enabled ? "active" : "inactive", url: "wss://" + l.domain, version: "1.9.4" },
+      jitsi: this.jitsiInfo() };
   }
   private rtKey(name: string, account: string) {
     if (!/^[A-Za-z0-9 ._-]{1,40}$/.test(name || "")) bad("name: letters, digits, spaces and . _ - (max 40)");
@@ -125,8 +126,17 @@ export class Demo5 {
     const exp = Math.floor(Date.now() / 1000) + 12 * 3600;
     return { uris: this.turnURIs(), username: `${exp}:${user}`, credential: "pL0n7k2Qx9vR4mW8sT1yB6cE3dF5gH=", ttl: 43200, expires: new Date(exp * 1000).toISOString() };
   }
-  private expiry: { kind: "domain" | "ssl" | "hosting"; name: string; account: string; expires?: string; source?: string; auto_renews: boolean; detail?: string }[] = [
+  private saver = { enabled: true, start: "00:00", end: "06:00", upload_kbps: 512, download_kbps: 1024 };
+  private statusPage = { enabled: true, slug: "megamind", title: "Megamind Hosting status", intro: "", entries: [{ domain: "naijabites.ng", name: "Naija Bites" }, { domain: "lagosrentals.com.ng" }] as { domain: string; name?: string }[] };
+  private buckets: Record<string, { name: string; quota_mb: number; used_mb: number; objects: number; created_at: string }[]> = {
+    kelechi: [{ name: "kelechi-media", quota_mb: 10240, used_mb: 2380.4, objects: 18240, created_at: ago(9 * day) }, { name: "kelechi-backups", quota_mb: 0, used_mb: 640, objects: 31, created_at: ago(4 * day) }],
+  };
+  private search: Record<string, { port: number; memory_mb: number }> = { kelechi: { port: 7700, memory_mb: 256 } };
+  private jitsi = { enabled: true, domain: "meet.megamind.ng", account: "kelechi", use_turn: true, lobby: true, version: "stable" };
+  private jitsiInfo() { return { ...this.jitsi, docker_ready: true, running: this.jitsi.enabled ? "active" : "inactive", url: "https://" + this.jitsi.domain }; }
+  private expiry: { kind: "domain" | "ssl" | "hosting"; name: string; account: string; expires?: string; source?: string; auto_renews: boolean; detail?: string; at_registrar?: boolean; suspends_on?: string; invoice_id?: string }[] = [
     { kind: "domain", name: "naijabites.ng", account: "naijabites", expires: ago(-9 * day), source: "zone", auto_renews: false, detail: "Registered with Whogohost Ltd" },
+    { kind: "domain", name: "megamind.ng", account: "kelechi", expires: ago(-24 * day), source: "zone", auto_renews: true, at_registrar: true, detail: "Renewed through the registrar 30 days before it expires" },
     { kind: "domain", name: "adaeze.com", account: "adaeze", expires: ago(-210 * day), source: "website", auto_renews: true, detail: "Registered with Namecheap, Inc., renews automatically" },
     { kind: "domain", name: "lagosrentals.com.ng", account: "lagosrentals", expires: ago(-27 * day), source: "zone", auto_renews: false, detail: "Registered with Whogohost Ltd" },
     { kind: "domain", name: "kelechi.dev", account: "kelechi", source: "website", auto_renews: false, detail: "The registry for .dev didn't answer; checking again tomorrow." },
@@ -134,7 +144,7 @@ export class Demo5 {
     { kind: "ssl", name: "naijabites.ng", account: "naijabites", expires: ago(-50 * day), source: "letsencrypt", auto_renews: true, detail: "Let's Encrypt renews it about 30 days before it expires" },
     { kind: "ssl", name: "api.kelechi.dev", account: "kelechi", expires: ago(-85 * day), source: "letsencrypt", auto_renews: true, detail: "Let's Encrypt renews it about 30 days before it expires" },
     { kind: "hosting", name: "oldclient", account: "oldclient", expires: ago(70 * day), source: "subscription", auto_renews: true, detail: "Invoice INV-0042 (₦7,500.00) has been unpaid since 29 Aug 2026; the account is suspended on 5 Sep 2026" },
-    { kind: "hosting", name: "naijabites", account: "naijabites", expires: ago(-4 * day), source: "subscription", auto_renews: true, detail: "Renews every month at ₦15,000.00; the invoice is sent on the due date" },
+    { kind: "hosting", name: "naijabites", account: "naijabites", expires: ago(-4 * day), source: "subscription", auto_renews: true, invoice_id: "INV-0051", suspends_on: ago(-11 * day), detail: "Invoice INV-0051 (₦15,000.00) is due on 11 Nov 2026" },
     { kind: "hosting", name: "lagosrentals", account: "lagosrentals", expires: ago(-140 * day), source: "manual", auto_renews: false, detail: "End date set by your hosting provider" },
   ];
   private mailSettings = {
@@ -700,6 +710,36 @@ export class Demo5 {
     if ((p = is("DELETE", "/accounts/:a/realtime/keys/:k"))) { this.rt.livekit.keys = this.rt.livekit.keys.filter((k) => k.key !== p!.k); return {}; }
     if ((p = is("POST", "/accounts/:a/realtime/turn-credentials"))) return this.turnCred(p.a + ":app");
 
+    // ---- billing extras, data saver, Laravel, status page, S3, search, Jitsi
+    if ((p = is("POST", "/billing/invoices/:id/transfer"))) return { provider: b.provider || "paystack", bank: "Paystack-Titan", account_number: "9912345678", account_name: "MEGAMIND TECH / PAYSTACK", amount: 1500000, currency: "NGN", expires: ago(-480) };
+    if (is("GET", "/datasaver")) return { ...this.saver, open: false, next_open: ago(-600) };
+    if (is("PUT", "/datasaver")) { this.saver = b as typeof this.saver; return { ...this.saver, open: false, next_open: ago(-600) }; }
+    if ((p = is("PUT", "/sites/:d/laravel"))) return { note: b && b.reverb ? `Reverb runs. HTTPS for ${b.reverb_domain || "ws." + p.d} isn't ready yet (the name doesn't point here yet).` : "" };
+    if (is("GET", "/status-page")) return { page: this.statusPage, url: "https://panel.megamind.ng/status/" + this.statusPage.slug, websites: this.h.sites().map((x) => x.domain) };
+    if (is("PUT", "/status-page")) { if (!/^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/.test(b.slug || "")) bad("The address is 3-40 lowercase letters, digits and dashes."); this.statusPage = b as typeof this.statusPage; return { page: b, url: "https://panel.megamind.ng/status/" + b.slug }; }
+    if (is("GET", "/objects")) return { installed: true, settings: { domain: "s3.megamind.ng", account: "kelechi" }, endpoint: "https://s3.megamind.ng" };
+    if (is("PUT", "/objects")) return { settings: b, note: "", endpoint: "https://" + b.domain };
+    if ((p = is("GET", "/accounts/:a/objects"))) return { installed: true, endpoint: "https://s3.megamind.ng", region: "garage", access_key: this.buckets[p.a]?.length ? "GK31c2f218a2e44f485b94239e" : undefined, buckets: this.buckets[p.a] ?? [] };
+    if ((p = is("POST", "/accounts/:a/objects/buckets"))) {
+      const a = p.a, list = (this.buckets[a] ??= []);
+      if (!/^[a-z0-9-]{1,40}$/.test(b.name || "")) bad("bucket names are lowercase letters, digits and dashes");
+      list.push({ name: `${a}-${b.name}`, quota_mb: b.quota_mb, used_mb: 0, objects: 0, created_at: now() });
+      return { bucket: list[list.length - 1], credentials: list.length === 1 ? { endpoint: "https://s3.megamind.ng", region: "garage", access_key: "GK31c2f218a2e44f485b94239e", secret_key: hex(32), path_style: true } : undefined };
+    }
+    if ((p = is("DELETE", "/accounts/:a/objects/buckets/:b"))) { const x = p; this.buckets[x.a] = (this.buckets[x.a] ?? []).filter((y) => y.name !== x.b); return {}; }
+    if (is("POST", "/accounts/:a/objects/key")) return { endpoint: "https://s3.megamind.ng", region: "garage", access_key: "GK" + hex(12), secret_key: hex(32), path_style: true };
+    if ((p = is("GET", "/accounts/:a/search"))) { if (!this.search[p.a]) nf("Meilisearch"); return { running: true, version: "1.24.0", indexes: 3, documents: 18420, size_mb: 96, port: this.search[p.a].port }; }
+    if ((p = is("PUT", "/accounts/:a/search"))) {
+      const first = !this.search[p.a];
+      this.search[p.a] = { port: this.search[p.a]?.port ?? 7700 + Object.keys(this.search).length, memory_mb: b.memory_mb };
+      const host = "http://127.0.0.1:" + this.search[p.a].port;
+      return { search: this.search[p.a], credentials: first || b.new_key ? { engine: "meilisearch", database: "", user: "", password: hex(24), host, port: this.search[p.a].port, url: host } : undefined };
+    }
+    if ((p = is("DELETE", "/accounts/:a/search"))) { delete this.search[p.a]; return {}; }
+    if (is("PUT", "/realtime/jitsi")) { Object.assign(this.jitsi, b); return { jitsi: this.jitsiInfo(), notes: [] }; }
+    if ((p = is("PUT", "/expiry/domains/:d"))) { const x = this.expiry.find((e) => e.kind === "domain" && e.name === p!.d); if (x && b.auto_renew !== undefined) x.auto_renews = b.auto_renew; if (x && b.manual_expires) { x.expires = new Date(b.manual_expires + "T23:59:00Z").toISOString(); x.source = "manual"; } return {}; }
+    if ((p = is("POST", "/expiry/domains/:d/renew"))) { const x = this.expiry.find((e) => e.kind === "domain" && e.name === p!.d); if (x?.expires) x.expires = new Date(new Date(x.expires).getTime() + 365 * 86_400_000).toISOString(); return { renewed: true }; }
+
     // ---- expiry dates
     if (is("GET", "/expiry")) {
       const items = this.expiry.map((x) => {
@@ -719,7 +759,7 @@ export class Demo5 {
     if ((p = is("POST", "/expiry/domains/:d/refresh"))) return { domain: p.d };
 
     // ---- databases
-    if ((p = is("GET", "/accounts/:a/dbs"))) return { engines: { mariadb: true, postgres: true, redis: "valkey", caches: ["valkey", "redis", "dragonfly"], mongodb: true }, mariadb: this.h.mariadb(p.a), databases: this.dbs[p.a] ?? [], redis: this.redis[p.a] ?? null };
+    if ((p = is("GET", "/accounts/:a/dbs"))) return { engines: { mariadb: true, postgres: true, redis: "valkey", caches: ["valkey", "redis", "dragonfly"], mongodb: true, search: true }, mariadb: this.h.mariadb(p.a), databases: this.dbs[p.a] ?? [], redis: this.redis[p.a] ?? null, search: this.search[p.a] ?? null };
     if ((p = is("POST", "/accounts/:a/dbs"))) {
       if (!/^[a-z0-9]{1,16}$/.test(b.name)) bad("name must be 1-16 lowercase letters or digits");
       const name = `${p.a}_${b.name}`; (this.dbs[p.a] ??= []).push({ engine: b.engine, name, owner: name, note: b.note, created_at: now() });

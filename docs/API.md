@@ -189,6 +189,7 @@ Token area: `sites`.
 | `GET /sites/{domain}/env` | Env .env variables |
 | `PUT /sites/{domain}/env` | Set the env: body `[{"key","value"}]` |
 | `PUT /sites/{domain}/healthcheck` | Set the healthcheck: body `{"path","interval_sec","fail_threshold","action"}` or null |
+| `PUT /sites/{domain}/laravel` | Laravel on a PHP website: body `{"workers":0-8,"queues","connection","tries","timeout","scheduler","reverb","reverb_domain","path"}` (null switches all off). Queue workers and Reverb run as systemd services, the scheduler every minute; Reverb gets a website of its own (default `ws.<domain>`) that forwards WebSockets to it. Workers and Reverb restart after each deploy |
 | `GET /sites/{domain}/logs/{kind}` | Access \| error \| php \| apache-access \| apache-error \| app |
 | `POST /sites/{domain}/permissions` | Reset ownership and modes |
 | `PUT /sites/{domain}/php` | Pool and php.ini settings |
@@ -297,6 +298,9 @@ Token area: `databases`.
 | `GET /accounts/{a}/redis` | List redis |
 | `PUT /accounts/{a}/redis` | Start or change the account's cache: body `{"engine":"redis\|valkey\|dragonfly","memory_mb","policy","persist","new_password"}` (a new engine starts empty; the password carries over) |
 | `DELETE /accounts/{a}/redis` | Delete redis |
+| `GET /accounts/{a}/search` | The account's Meilisearch: running, version, indexes, documents, size, port |
+| `PUT /accounts/{a}/search` | Start or change it: body `{"memory_mb","new_key"}` → the master key and URL when made or reset (for Laravel Scout: `MEILISEARCH_HOST`, `MEILISEARCH_KEY`) |
+| `DELETE /accounts/{a}/search` | Stop it and delete its indexes |
 | `POST /accounts/{a}/redis/flush` | Delete every key in the account's Redis |
 | `GET /accounts/{name}/databases` | The account's MariaDB databases |
 | `POST /accounts/{name}/databases` | Create a database: body `{"name","note"}` → password shown once |
@@ -321,6 +325,13 @@ Token area: `files`.
 
 | Route | Description |
 |---|---|
+| `GET /objects` | S3 storage (Garage): installed, where the endpoint is served (admin) |
+| `PUT /objects` | Serve the S3 endpoint on a website of yours: body `{"domain":"s3.example.com","account"}` (admin) |
+| `GET /accounts/{a}/objects` | The account's S3 storage: endpoint, region, access key id and buckets with their size and object count |
+| `POST /accounts/{a}/objects/buckets` | Add a bucket named `<account>-<name>`: body `{"name","quota_mb"}`; the first bucket also returns the access key and secret, once |
+| `PATCH /accounts/{a}/objects/buckets/{b}` | Change a bucket's quota: body `{"quota_mb"}` (0 = none) |
+| `DELETE /accounts/{a}/objects/buckets/{b}` | Delete an empty bucket |
+| `POST /accounts/{a}/objects/key` | Replace the account's access key (new secret, once); the old key stops working |
 | `GET /accounts/{a}/files` | Folder listing |
 | `GET /accounts/{a}/files/content` | Content: body `{"content"}` for the editor (≤ 2 MB text) |
 | `PUT /accounts/{a}/files/content` | Set the content: body `{"content","overwrite"}` |
@@ -466,6 +477,7 @@ Most of these are panel routes, not on the agent socket.
 | `GET /billing/invoices` *(panel)* | Invoices with amount, status (open, paid, void) and due date |
 | `POST /billing/invoices` *(panel)* | New invoice {"account","items","due"} |
 | `POST /billing/invoices/{id}/checkout` *(panel)* | Payment link (Bachs, Paystack or Flutterwave) |
+| `POST /billing/invoices/{id}/transfer` *(panel)* | Pay by bank transfer: body `{"provider":"paystack\|flutterwave"}` → `{"bank","account_number","account_name","amount","currency","expires"}`; the same account is returned until it expires (Paystack: 8 hours) |
 | `POST /billing/invoices/{id}/mark-paid` *(panel)* | Record a payment made another way |
 | `POST /billing/invoices/{id}/void` *(panel)* | Cancel an invoice |
 | `GET /billing/settings` *(panel)* | Currency, tax, payment providers (keys hidden) |
@@ -486,6 +498,8 @@ When domains, certificates and hosting run out. Token area: `billing`. Account o
 |---|---|
 | `GET /expiry` *(panel)* | Domains, SSL certificates and hosting you can see, soonest first: `{"items":[{"kind":"domain\|ssl\|hosting","name","account","expires","days_left","state","detail"}],"summary"}` |
 | `PUT /expiry/hosting/{account}` *(panel)* | Set an account's hosting end date when it isn't billed by Ike: body `{"expires":"YYYY-MM-DD"}` (empty clears it) |
+| `PUT /expiry/domains/{domain}` | How a domain is renewed: body `{"auto_renew","years","days_before","manual_expires":"YYYY-MM-DD"}` (missing fields stay). Auto-renew renews through the connected Namecheap account `days_before` the expiry (default 30); only admins switch it. Resellers may set `manual_expires` for their customers' domains |
+| `POST /expiry/domains/{domain}/renew` | Renew at the registrar now (admins): body `{"years"}` (default 1) |
 | `POST /expiry/domains/{domain}/refresh` | Ask the domain registry now (RDAP); also for domains whose DNS is elsewhere |
 | `GET /expiry/server` | The server's raw data: `{"domains","certificates"}` (admin; the panel's `/expiry` builds on it) |
 
@@ -501,6 +515,7 @@ TURN logins are short-lived and signed with a shared secret (the TURN REST API s
 | `POST /realtime/turn/credentials` | A TURN login: body `{"user","ttl_hours"}` (default 12, at most 168) → `{"uris","username","credential","expires"}` |
 | `POST /realtime/turn/secret` | New TURN secret; logins signed with the old one stop working |
 | `PUT /realtime/livekit` | LiveKit settings: body `{"enabled","domain","account","use_turn","empty_timeout","max_participants","webhook_urls","allow_accounts"}`; the first time also returns `new_key` with its secret |
+| `PUT /realtime/jitsi` | Jitsi Meet (needs Docker): body `{"enabled","domain","account","use_turn","lobby","version"}`. Runs the official images as one Compose project; web on 127.0.0.1:8000 behind a website with a certificate, media on 10000/udp |
 | `POST /realtime/livekit/keys` | Add an API key: body `{"name","account"}` → key and secret, once |
 | `DELETE /realtime/livekit/keys/{key}` | Remove an API key (LiveKit restarts) |
 | `POST /realtime/livekit/token` | A join token: body `{"key","room","identity","name","ttl_minutes","can_publish","room_admin"}` → `{"token","url","expires"}` |
@@ -518,6 +533,8 @@ Services, updates, usage, inventory, maintenance, webhooks, specs, migration and
 | Route | Description |
 |---|---|
 | `GET /alerts/events` *(panel)* | Alerts sent recently |
+| `GET /status-page` *(panel)* | Your public status page (admins and resellers), its address and the websites you may list |
+| `PUT /status-page` *(panel)* | Change it: body `{"enabled","slug","title","intro","entries":[{"domain","name"}]}`. The page is public at `/status/{slug}` (and `/status/{slug}.json`), in your branding, with 90 days of uptime |
 | `GET /alerts/settings` *(panel)* | Where serious events are sent (Telegram, WhatsApp, email) |
 | `PUT /alerts/settings` *(panel)* | Change alert channels |
 | `POST /alerts/test` *(panel)* | Send a test alert |
@@ -557,6 +574,8 @@ Services, updates, usage, inventory, maintenance, webhooks, specs, migration and
 | `POST /php/{version}/pecl/{name}` | Build a PECL extension for this PHP version → job |
 | `DELETE /php/{version}/pecl/{name}` | Remove it → job |
 | `GET /quotas` | Disk quota status and per-account use |
+| `GET /datasaver` | Data saver: settings, whether held-back work may run now (`open`) and when it next may (`next_open`) |
+| `PUT /datasaver` | Data saver: body `{"enabled","start":"00:00","end":"06:00","upload_kbps","download_kbps"}`. Scheduled backups and automatic Ike and Ubuntu updates wait for the window; restic and apt keep under the caps. Backups and updates started by hand run at once |
 | `GET /server/metrics` | Server CPU, memory, swap, network per interface, disk I/O (+24 h history) |
 | `POST /server/reboot` | Reboot: body `{"in_minutes":` 5} |
 | `DELETE /server/reboot` | Cancel a scheduled reboot |
