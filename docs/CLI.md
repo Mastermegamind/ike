@@ -60,10 +60,20 @@ ike backups restore PLAN_ID SNAPSHOT_ID --path /home/shop/web --wait
 # Security
 ike malware scan --account shop --wait
 ike waf shop.ng block --profile wordpress
+ike protect shop.ng user ada                   # makes up a password and shows it once
+ike protect shop.ng path /admin/ --realm "Staff only" --user ada
+ike firewall open 6379/tcp --from 10.20.0.5 --note "Redis replica"
+ike firewall block 203.0.113.7 --note "Brute force"
+
+# Server
+ike metrics
 
 # Access
 ike tokens create "CI deploy" --username andre --scope sites=write --account shop --days 90
 ike keys add --account shop --key-file ~/.ssh/id_ed25519.pub --access sftp
+ike sftp add designer --account shop --domain shop.ng --read-only
+ike developers invite emeka.dev --email emeka@pixelforge.ng --account shop --area sites=write
+ike passkeys
 
 # Reseller and billing
 ike packages

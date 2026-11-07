@@ -1,5 +1,15 @@
 # Roadmap
 
+## Done in v0.6.0
+
+- Swap and network graphs for the server (24 hours, every 5 minutes)
+- Password-protected folders and websites
+- Website SFTP users, jailed to one website
+- A developer role for people who work inside some accounts
+- nftables and firewalld next to ufw
+- Passkeys
+- Caddy and OpenLiteSpeed next to Nginx and Apache
+
 ## Done in v0.5.0
 
 - **Foundation:** installer for Ubuntu 22.04, 24.04 and 26.04; root agent on a socket; web panel with roles on separate ports, two-factor sign-in, audit log; websites, PHP 5.6–8.5, Node.js, Python, Java, Go, Dart; HTTPS; billing; alerts
@@ -10,7 +20,7 @@
 - **Reseller and billing:** packages with enforced limits, reseller quotas, monthly bandwidth caps, recurring subscriptions, WHMCS and Blesta modules, white-label branding
 - **App platform:** Git deploys, previews, rollback, blue-green, Docker, Compose, buildpacks, k3s
 - **Scale:** many servers joined over mutual TLS, database clusters with failover, load balancing, server specs (infrastructure as code), webhooks, maintenance windows, inventory
-- **Automation:** the `ike` CLI, a 164-tool MCP server, the full API, scoped API tokens and per-key SSH access ([ACCESS.md](ACCESS.md))
+- **Automation:** the `ike` CLI, a 177-tool MCP server, the full API, scoped API tokens and per-key SSH access ([ACCESS.md](ACCESS.md))
 - **Migration:** cPanel full backups, including mail, cron and DNS
 - **Panel:** command palette, keyboard shortcuts, notification centre, help on every screen, and six languages
 
@@ -19,9 +29,7 @@
 - One-click app catalog: Laravel, Joomla, Drupal, Nextcloud, Ghost, n8n, Plausible, Metabase
 - A Let's Encrypt certificate for the panel's own address from the settings screen
 - MCP over Streamable HTTP served by the panel
-- Password-protected folders and websites
-- Passkeys; a developer role
-- OpenLiteSpeed and Caddy; nftables and firewalld
+- ModSecurity on OpenLiteSpeed
 - Create servers through Hetzner, DigitalOcean, Vultr and Linode
 - Server-to-server migration (for example 22.04 to 24.04 before end of support)
 

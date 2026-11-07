@@ -63,7 +63,7 @@ func readSecret() (string, error) {
 	return strings.TrimRight(line, "\r\n"), nil
 }
 
-const version = "0.5.0"
+const version = "0.6.0"
 
 // ---------------------------------------------------------------- config
 

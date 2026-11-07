@@ -43,7 +43,7 @@ export function Firewall() {
           <div className="panel-body row" style={{ alignItems: "flex-end" }}>
             <Field label="Port or range">{(id) => <input id={id} className="input mono" style={{ width: 150 }} value={port} onChange={(e) => setPort(e.target.value)} placeholder="8080 or 6000:6100" />}</Field>
             <Segmented label="Protocol" value={proto} onChange={setProto} options={[{ value: "tcp", label: "TCP" }, { value: "udp", label: "UDP" }]} />
-            <Field label="Only from (optional)" hint="An IP address or range; empty lets anyone connect.">{(id) => <input id={id} className="input mono" style={{ width: 190 }} value={from} onChange={(e) => setFrom(e.target.value)} placeholder="Anyone" />}</Field>
+            <Field label="Only from (optional)">{(id) => <input id={id} className="input mono" style={{ width: 190 }} value={from} onChange={(e) => setFrom(e.target.value)} placeholder="Anyone" title="An IP address or range, like 203.0.113.7 or 10.0.0.0/8. Empty lets anyone connect." />}</Field>
             <Field label="Note">{(id) => <input id={id} className="input" style={{ width: 200 }} value={note} onChange={(e) => setNote(e.target.value)} placeholder="What uses it" />}</Field>
             <Button variant="primary" loading={busy} disabled={!port} onClick={() => run(async () => { await api.openPort(port, proto, note, from.trim()); setPort(""); setNote(""); setFrom(""); }, `Opened ${port}/${proto}${from.trim() ? ` for ${from.trim()}` : ""}`)}><Plus size={16} />Open port</Button>
           </div>

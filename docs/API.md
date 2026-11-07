@@ -2,7 +2,7 @@
 
 Everything the panel does goes through this API, so anything you can click you can also script. The `ike` CLI, the MCP server (`ike-mcp`), and the WHMCS and Blesta modules all use it.
 
-This page is generated from the code by `scripts/gen_api_doc.py`. A test fails when a route is missing, so the list stays complete: 372 routes.
+This page is generated from the code by `scripts/gen_api_doc.py`. A test fails when a route is missing, so the list stays complete: 379 routes.
 
 ## Where to send requests
 
@@ -93,6 +93,8 @@ Any signed-in person or token, whatever its areas.
 | `GET /session` *(panel)* | Who is signed in; with an API token, also the token's access |
 | `POST /session` *(panel)* | Sign in {"username","password","code"} (browser session cookie) |
 | `DELETE /session` *(panel)* | Sign out |
+| `POST /session/passkey` *(panel)* | Finish a passkey sign-in {"id","client_data_json","authenticator_data","signature","user_handle"} → session cookie |
+| `POST /session/passkey/options` *(panel)* | Start a passkey sign-in → WebAuthn request options (no username needed) |
 
 ## Your sign-in and tokens
 
@@ -100,11 +102,16 @@ Never with a limited token (except `GET /session`); creating a token needs a pas
 
 | Route | Description |
 |---|---|
-| `POST /me/2fa/disable` *(panel)* | Turn off two-factor (needs a code) |
+| `POST /me/2fa/disable` *(panel)* | Turn off two-factor (needs your password) |
 | `POST /me/2fa/enable` *(panel)* | Turn on two-factor with a code |
 | `POST /me/2fa/setup` *(panel)* | Start two-factor setup → secret and QR code |
 | `GET /me/branding` *(panel)* | Your branding (admin: the default; reseller: your own) |
 | `PUT /me/branding` *(panel)* | Set product name, logo (PNG/JPEG data URL), colour, support links, host names |
+| `GET /me/passkeys` *(panel)* | Your passkeys (names, synced or not, last used; never key material) |
+| `POST /me/passkeys` *(panel)* | Finish adding a passkey {"name","password","id","client_data_json","attestation_object"} (base64url) |
+| `POST /me/passkeys/options` *(panel)* | Start adding a passkey → WebAuthn creation options (browser only; the panel must be opened by its name over HTTPS) |
+| `PATCH /me/passkeys/{id}` *(panel)* | Rename {"name"} |
+| `DELETE /me/passkeys/{id}` *(panel)* | Remove one |
 | `POST /me/password` *(panel)* | Change your password {"current","new"} |
 | `GET /tokens` *(panel)* | Your API tokens (never the secret) |
 | `POST /tokens` *(panel)* | New token {"name","read_only","days","limited","scopes","accounts","allow_ips"} → secret once. Only from a signed-in browser or CLI session, never with another token |
@@ -430,13 +437,13 @@ Firewall, bans, malware, the web application firewall and stored secrets.
 | `GET /accounts/{a}/quarantine` | Files the scanner moved out of the account's websites |
 | `DELETE /accounts/{a}/quarantine/{id}` | Delete a quarantined file for good |
 | `POST /accounts/{a}/quarantine/{id}/restore` | Put a quarantined file back where it was |
-| `GET /firewall` | Open ports + blocked addresses |
+| `GET /firewall` | The firewall in use (ufw\|nftables\|firewalld), open ports + blocked addresses |
 | `GET /firewall/bans` | Fail2ban bans |
 | `DELETE /firewall/bans` | Unban an address: ?ip=&jail= |
 | `POST /firewall/blocks` | Block an address or range {"address","comment"} |
 | `DELETE /firewall/blocks` | Unblock an address or range: ?address= |
-| `POST /firewall/ports` | Open a port {"port","proto","comment"} |
-| `DELETE /firewall/ports` | Close a port: ?port=&proto= |
+| `POST /firewall/ports` | Open a port {"port","proto","comment","from"}; from limits it to one IP or range |
+| `DELETE /firewall/ports` | Close a port: ?port=&proto=[&from=] |
 | `GET /secrets` | List secrets |
 | `POST /secrets/rotate` | New key for stored passwords and API keys; everything is re-encrypted |
 | `GET /security` | Security baseline scan |

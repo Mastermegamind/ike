@@ -146,8 +146,8 @@ export class Demo5 {
       plan("mail1", "Email, weekly", "mail", "b2main", "weekly", { last: { status: "failed", started_at: ago(6 * day), error: "B2 said: 403 the application key has no access to this bucket" } }),
     ];
     this.servers = [
-      { id: "s2", name: "vps-abuja-2", address: "102.89.41.22:2089", group: "web", hostname: "vps-abuja-2.megamind.ng", added_at: ago(20 * day), last_seen: ago(1), version: "0.5.0", status: "online" },
-      { id: "s3", name: "db-lagos-1", address: "10.20.0.5:2089", group: "databases", hostname: "db-lagos-1", added_at: ago(15 * day), last_seen: ago(1), version: "0.5.0", status: "online" },
+      { id: "s2", name: "vps-abuja-2", address: "102.89.41.22:2089", group: "web", hostname: "vps-abuja-2.megamind.ng", added_at: ago(20 * day), last_seen: ago(1), version: "0.6.0", status: "online" },
+      { id: "s3", name: "db-lagos-1", address: "10.20.0.5:2089", group: "databases", hostname: "db-lagos-1", added_at: ago(15 * day), last_seen: ago(1), version: "0.6.0", status: "online" },
       { id: "s4", name: "vps-ph-1", address: "102.89.43.8:2089", group: "web", hostname: "vps-ph-1.megamind.ng", added_at: ago(9 * day), last_seen: ago(220), version: "0.4.0", status: "offline" },
     ];
     this.clusters = [{ id: "c1", name: "main-db", engine: "mariadb", primary: "s3", replicas: ["local"], created_at: ago(14 * day),

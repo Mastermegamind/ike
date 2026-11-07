@@ -2,7 +2,7 @@
 
 Ike's full scope, grouped by area. Pick anything not done and open a PR; see [CONTRIBUTING.md](../CONTRIBUTING.md).
 
-**v0.5.0: 170 done · 7 partly done · 0 planned** (of 177)
+**v0.6.0: 177 done · 0 partly done · 0 planned** (of 177)
 
 | Mark | Meaning |
 |---|---|
@@ -15,7 +15,7 @@ Ike's full scope, grouped by area. Pick anything not done and open a PR; see [CO
 | | Feature | Notes |
 |---|---|---|
 | ✅ | Linux server installation and initial configuration | one-line installer with a guided wizard |
-| 🟡 | CPU, RAM, disk, swap and network monitoring | CPU, RAM and disk live, 24 h graphs per account, bandwidth per account; swap and network graphs planned |
+| ✅ | CPU, RAM, disk, swap and network monitoring | CPU, RAM, disk, swap and network live and as 24 h server graphs (5-minute points, network per interface), plus per-account graphs and bandwidth |
 | ✅ | Service management with systemd | status, start, stop and restart from the panel, CLI and MCP |
 | ✅ | Process manager and resource limits | systemd unit per app; CPU, memory and process limits per account |
 | ✅ | System package installation and updates | apt updates, security-only option, job log |
@@ -31,14 +31,14 @@ Ike's full scope, grouped by area. Pick anything not done and open a PR; see [CO
 
 | | Feature | Notes |
 |---|---|---|
-| 🟡 | Apache, Nginx, OpenLiteSpeed and Caddy integration | Nginx, Apache, Nginx in front of Apache; OpenLiteSpeed and Caddy planned |
+| ✅ | Apache, Nginx, OpenLiteSpeed and Caddy integration | Nginx, Apache, Nginx in front of Apache, Caddy or OpenLiteSpeed (PHP through Ike's PHP-FPM pools; ModSecurity needs Nginx or Apache) |
 | ✅ | Virtual hosts and website creation |  |
 | ✅ | Domain, subdomain, wildcard and alias support | aliases, *.wildcards, www handling, redirect to the main domain |
 | ✅ | Reverse proxy configuration | Node.js and Python apps, Nginx in front of Apache, any local port |
 | ✅ | HTTP/2 and HTTP/3 support where available | HTTP/3 with Nginx 1.25+ built with QUIC |
 | ✅ | Per-website access/error logs |  |
 | ✅ | URL redirects and rewrite rules | exact, prefix and pattern rules; 301, 302, 307, 308 |
-| 🟡 | Custom error pages and password protection | error pages; password protection planned |
+| ✅ | Custom error pages and password protection | error pages per website; password-protected folders with their own users, realms and addresses that skip the password (not on OpenLiteSpeed) |
 | ✅ | PHP-FPM pools per website |  |
 | ✅ | Website staging and cloning | staging copy with its database, push to live |
 | ✅ | One-click WordPress installation | WP-CLI |
@@ -122,9 +122,9 @@ Ike's full scope, grouped by area. Pick anything not done and open a PR; see [CO
 | ✅ | Wildcard certificates with DNS-01 validation | for zones in Ike, here or at Cloudflare or DigitalOcean |
 | ✅ | Custom SSL certificate upload |  |
 | ✅ | Certificate expiration monitoring | alerts when renewal fails |
-| 🟡 | UFW, nftables and firewalld integration | UFW; nftables and firewalld planned |
+| ✅ | UFW, nftables and firewalld integration | chosen at install; nftables keeps its own inet ike table; ports can be limited to one address; fail2ban bans through the same one |
 | ✅ | Fail2ban or CrowdSec integration | fail2ban |
-| 🟡 | Two-factor authentication and passkeys | TOTP and recovery codes; passkeys planned |
+| ✅ | Two-factor authentication and passkeys | TOTP with recovery codes, and passkeys (WebAuthn: ES256, EdDSA, RS256) that sign in without a password or code |
 | ✅ | Role-based access control | admin, reseller, account owner on their own ports; scoped API tokens; per-key SSH access |
 | ✅ | SSH hardening | key-only, jailed SFTP, root-owned keys, per-key restrictions |
 | ✅ | Security audit logs | agent, panel and MCP audit logs |
@@ -179,7 +179,7 @@ Ike's full scope, grouped by area. Pick anything not done and open a PR; see [CO
 | ✅ | ZIP and TAR extraction/compression |  |
 | ✅ | File permission and ownership editor | chmod in the file manager, fix-permissions per site |
 | ✅ | Code/text editor |  |
-| 🟡 | SFTP account management | per account and per key; per-website SFTP users planned |
+| ✅ | SFTP account management | per account and per key, plus per-website SFTP users jailed to one website (read-only option, expiry date) |
 | ✅ | Disk quota enforcement | Linux quotas set up by the installer (ext4 now, XFS after a reboot) |
 | ✅ | S3-compatible object storage integration | S3, Backblaze B2, Wasabi, R2, MinIO, plus SFTP |
 | ✅ | Storage usage breakdown | per account and per folder |
@@ -208,7 +208,7 @@ Ike's full scope, grouped by area. Pick anything not done and open a PR; see [CO
 
 | | Feature | Notes |
 |---|---|---|
-| 🟡 | Administrator, reseller, customer and developer roles | admin, reseller, account owner; developers get scoped API tokens and SSH keys; a developer role is planned |
+| ✅ | Administrator, reseller, customer and developer roles | admin, reseller, account owner and developer (invited to chosen accounts and areas, never billing) |
 | ✅ | Hosting packages and resource limits | named packages, enforced when accounts, sites, domains and mail are added |
 | ✅ | Customer account provisioning | panel, API, WHMCS and Blesta |
 | ✅ | Domain and website quotas | per package, and totals per reseller |
@@ -229,7 +229,7 @@ Ike's full scope, grouped by area. Pick anything not done and open a PR; see [CO
 | ✅ | Multiple server nodes and server grouping |  |
 | ✅ | Remote agents with secure communication | mutual TLS with pinned certificates |
 | ✅ | Infrastructure templates | spec templates with variables |
-| ✅ | API-first administration | 363 routes, scoped tokens, documented in API.md |
+| ✅ | API-first administration | 379 routes, scoped tokens, documented in API.md |
 | ✅ | CLI for automation | the ike command for Linux, macOS and Windows |
 | ✅ | Webhooks and event subscriptions | signed, with retries and a delivery log |
 | ✅ | Infrastructure as code integration | declarative specs: plan, apply, export |

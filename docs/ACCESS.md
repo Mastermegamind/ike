@@ -11,8 +11,35 @@ Every request is made *as someone*, and can never do more than that person could
 | **Admin** | The whole server, every account, every server the panel manages |
 | **Reseller** | Their own customers' accounts, within the quotas the admin gave them (websites, domains, disk, bandwidth) |
 | **Account owner** | Their own hosting accounts, within their package's limits |
+| **Developer** | Only the accounts they were invited to, and in those only the areas they were given |
 
-Each role signs in on its own port: 2087 for admins, 2086 for resellers, 2083 for account owners. Two-factor sign-in is available for everyone.
+Each role signs in on its own port: 2087 for admins, 2086 for resellers, 2083 for account owners and developers. Two-factor codes and passkeys are available for everyone.
+
+## Developers
+
+An account owner (or a reseller, for their customers' accounts) can invite a developer from the **Developers** page or with `ike developers invite`. They pick the accounts and, for each area, whether the developer may look or change:
+
+| Area | Covers |
+|---|---|
+| `sites` | settings, deployments, logs, cron jobs and certificates of existing websites |
+| `files` | file manager, browser terminal, snapshots and website SFTP users |
+| `databases` | MariaDB, PostgreSQL, MongoDB and Redis |
+| `containers` | Docker containers and Compose stacks |
+| `dns`, `mail`, `backups`, `security` | zones, mailboxes, backup plans, malware scans and the web firewall |
+
+Developers never see billing or plans, can't add or delete websites, accounts or people, and can't change an account's SSH mode or suspend it. A developer's API tokens can't do more than the developer. Pausing or removing a developer signs them out at once.
+
+```sh
+ike developers invite emeka.dev --email emeka@pixelforge.ng --account shop --area sites=write --area files=write --area databases=read
+ike developers set emeka.dev --area sites=read
+ike developers rm emeka.dev
+```
+
+## Passkeys
+
+Under **Profile**, anyone can add passkeys: a phone, a laptop's fingerprint reader or screen lock, a password manager, or a security key. Signing in with one needs no password and no code, and it only works on this panel's address, so a look-alike page can't use it. Adding a passkey asks for your password. Passkeys can be listed with an API token (`ike passkeys`) but only added or removed in a browser.
+
+The panel must be opened by its name (like `panel.example.com`) over HTTPS with a valid certificate; browsers don't offer passkeys for IP addresses.
 
 ## API tokens: the key to the API, CLI and MCP
 
@@ -73,6 +100,13 @@ Each key can also be limited to some addresses (`--from 203.0.113.0/24`) and giv
 ```sh
 ike keys add --account shop --key-file designer.pub --access sftp --from 102.89.0.0/16 --expires 2026-12-31
 ike keys set SHA256:abc… --account shop --access sftp-readonly
+```
+
+**Website SFTP users** go one step narrower: a separate login (`shop_designer`) that only sees one website, or one folder of it such as `public_html/wp-content`. It can be upload-and-edit or download only, and can stop working on a date. Files it uploads belong to the account, so the website can still change them. Suspending the account stops these logins too.
+
+```sh
+ike sftp add designer --account shop --domain shop.ng --folder public_html --expires 2026-12-31
+ike sftp passwd shop_designer --account shop
 ```
 
 For an AI over SSH, pin the key to the MCP server in root's `authorized_keys`, so it can never open a shell:

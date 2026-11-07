@@ -14,14 +14,14 @@ An open-source, all-in-one hosting control panel for Linux VPS servers. It combi
 
 - **Accounts → websites:** a server holds many isolated accounts; each account holds many websites
 - **Runtimes per website:** PHP 5.6–8.5 side by side, Node.js, Python (own virtualenv) or static
-- **Web server of the admin's choice:** Nginx, Apache, or Nginx + Apache per website (`.htaccess` support)
+- **Web server of the admin's choice:** Nginx, Apache, Nginx + Apache per website (`.htaccess` support), Caddy or OpenLiteSpeed
 - **Maintenance and suspension:** branded status pages, allowed IPs during maintenance, account suspension that stops apps, cron and SSH
 - **Custom error pages** (400–504), admin-branded with per-website overrides
 - **Cron jobs, MariaDB databases, phpMyAdmin (stable or 6.0 preview), one-click WordPress**
 - **Firewall:** open ports, block IPs and ranges, see and lift fail2ban bans
 - **Detailed logs:** access, error, PHP, Apache and app logs, plus an audit log of every change
 - **Modern web panel:** responsive, light/dark, 5 themes, 3 layout templates, role-aware (admin, reseller, account owner), and a data saver mode for slow connections
-- **Sign-in:** separate ports for account owners (2083), resellers (2086) and admins (2087), two-factor codes with recovery codes
+- **Sign-in:** separate ports for account owners (2083), resellers (2086) and admins (2087), two-factor codes with recovery codes, and passkeys (fingerprint, face or security key)
 - **Billing in naira first:** invoices in NGN or any currency, paid through **Bachs**, **Paystack** or **Flutterwave**, confirmed by signed webhooks; overdue accounts are suspended and reactivated on payment
 - **Alerts:** uptime and app-health alerts by **WhatsApp**, **Telegram** and email
 - **Server care:** OS updates (security-only or all), automatic security updates, scheduled restarts, and one-click Ike updates with checksums
@@ -46,8 +46,10 @@ An open-source, all-in-one hosting control panel for Linux VPS servers. It combi
 - **cPanel migration:** restores a cPanel full backup: websites, files, databases (WordPress rewired), mailboxes with their passwords, forwarders, cron jobs and DNS
 - **Panel:** Ctrl K command palette, keyboard shortcuts, notifications, help on every screen, in English, French, Nigerian Pidgin, Yoruba, Igbo and Hausa
 
-- **SSH per account**: none, SFTP-only (chrooted to the account's home) or full shell, and each key can be narrowed to SFTP or read-only SFTP, some addresses and an expiry date
-- **API, CLI and AI agents**: every screen is in the [API](docs/API.md), the [`ike` command](docs/CLI.md) and a 164-tool [MCP server](docs/MCP.md). Each gives full or limited access: API tokens can be limited to some areas (read or write), accounts and addresses, and can expire ([who can do what](docs/ACCESS.md))
+- **SSH per account**: none, SFTP-only (chrooted to the account's home) or full shell, and each key can be narrowed to SFTP or read-only SFTP, some addresses and an expiry date; website SFTP users see one website only
+- **Developers:** account owners invite a developer to chosen accounts and areas (websites, files, databases ...), never billing
+- **Password-protected folders** with their own users, and **server graphs** for CPU, memory, swap, disk and network
+- **API, CLI and AI agents**: every screen is in the [API](docs/API.md), the [`ike` command](docs/CLI.md) and a 177-tool [MCP server](docs/MCP.md). Each gives full or limited access: API tokens can be limited to some areas (read or write), accounts and addresses, and can expire ([who can do what](docs/ACCESS.md))
 - **Safe by design**: the root agent only accepts a fixed set of validated actions, never shell commands; failed changes roll back automatically
 
 ## Supported systems
@@ -82,7 +84,8 @@ Installer options:
 
 | Flag | Meaning |
 |---|---|
-| `--web nginx\|apache\|hybrid` | Web server stack (default `nginx`; `hybrid` lets each website choose Nginx or Nginx + Apache) |
+| `--web nginx\|apache\|hybrid\|caddy\|openlitespeed` | Web server stack (default `nginx`; `hybrid` lets each website choose Nginx or Nginx + Apache) |
+| `--firewall ufw\|nftables\|firewalld` | The firewall Ike drives (default `ufw`) |
 | `--php "7.4 8.3"` or `--php all` | PHP versions, 5.6 to 8.5 (default: `8.2 8.3 8.4 8.5`) |
 | `--node "20 22 24"` | Node.js major versions (default `22`, `none` to skip) |
 | `--python "3.12 3.13"` | Python versions via uv (default `3.12`, `none` to skip) |
@@ -101,7 +104,7 @@ Installer options:
 | `--admin-user NAME --admin-email EMAIL` | The first admin sign-in |
 | `--wizard` | Ask for each choice interactively |
 
-What it sets up, per your choices: Nginx and/or Apache, PHP-FPM, Node.js, Python, MariaDB, phpMyAdmin, WP-CLI, OpenSSH with SFTP jail rules, ufw (SSH, 80, 443), fail2ban, and the `ike-agent` service. Run `install.sh --help` for every option.
+What it sets up, per your choices: Nginx, Apache, Caddy or OpenLiteSpeed, PHP-FPM, Node.js, Python, MariaDB, phpMyAdmin, WP-CLI, OpenSSH with SFTP jail rules, a firewall (ufw, nftables or firewalld: SSH, 80, 443 and the panel), fail2ban, and the `ike-agent` service. Run `install.sh --help` for every option.
 
 ## SSH and SFTP
 
@@ -162,7 +165,7 @@ docs/         Guides, API reference, feature tracker and roadmap
 
 ## Roadmap
 
-v0.5.0 covers 170 of the 177 features in the [tracker](docs/FEATURES.md), with 7 more partly done. Next: a one-click app catalog, a certificate for the panel's own address from the settings, MCP over HTTP from the panel, password-protected folders, passkeys, and creating servers through cloud provider APIs. See [docs/ROADMAP.md](docs/ROADMAP.md) and the [ports plan](docs/PORTS.md).
+v0.6.0 covers all 177 features in the [tracker](docs/FEATURES.md). Next: a one-click app catalog, a certificate for the panel's own address from the settings, MCP over HTTP from the panel, and creating servers through cloud provider APIs. See [docs/ROADMAP.md](docs/ROADMAP.md) and the [ports plan](docs/PORTS.md).
 
 ## Development
 

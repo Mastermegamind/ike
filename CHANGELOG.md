@@ -1,5 +1,34 @@
 # Changelog
 
+## v0.6.0
+
+Every item in the feature tracker is now done.
+
+### New
+
+- **Server graphs:** CPU, memory, swap, disk and network (per interface) for the last 24 hours, every 5 minutes. `GET /v1/server/metrics`, `ike metrics`, MCP `get_server_metrics`.
+- **Password-protected folders:** protect a whole website or some folders, each with its own users and realm, and let some addresses in without a password (Nginx, Apache and Caddy). Website tab "Passwords", `ike protect`.
+- **Website SFTP users:** a login that only sees one website (or one folder of it), upload-and-edit or download only, with an optional expiry date. Files stay owned by the account. Website tab "SFTP", `ike sftp`.
+- **Developers:** account owners (and resellers) invite a developer to some of their accounts and choose what they may look at or change: websites, files, databases, containers, DNS, email, backups or security. Developers never see billing or plans, can't add or delete websites, and their API tokens are limited the same way. Page "Developers", `ike developers`.
+- **Firewalls:** `install.sh --firewall ufw|nftables|firewalld`. With nftables Ike keeps its own `inet ike` table, checked with `nft --check` before it loads, and `ike-firewall.service` loads it at boot. Ports can be limited to one address or range. `ike firewall`.
+- **Passkeys:** sign in with a fingerprint, face, screen lock or security key, without a password or code. Passkeys are bound to the panel's address, so a fake sign-in page can't use them. Add them under Profile (it needs your password). The panel must be opened by its name over HTTPS.
+- **Caddy and OpenLiteSpeed:** `install.sh --web caddy` or `--web openlitespeed`. PHP runs in Ike's PHP-FPM pools on both, and Ike still issues the certificates. OpenLiteSpeed reads `.htaccess` rewrites.
+
+### Limits
+
+- ModSecurity needs Nginx or Apache.
+- OpenLiteSpeed can't let addresses into a password-protected folder without the password, and can't load-balance.
+- The OpenLiteSpeed configuration was checked against its source code but not yet run on a server; please report anything it rejects.
+
+### Changed
+
+- `POST /v1/firewall/ports` takes `from`, and `DELETE /v1/firewall/ports` takes `&from=` for rules limited to one address.
+- People in API responses include `passkeys` (names and dates, never keys).
+
+### Upgrading
+
+Run the installer again with the options you used the first time. Existing servers keep ufw and their web server.
+
 ## v0.5.0
 
 ### New

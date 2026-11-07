@@ -2,4 +2,4 @@
 package version
 
 // Version is the Ike release.
-const Version = "0.5.0"
+const Version = "0.6.0"

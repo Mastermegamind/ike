@@ -49,9 +49,13 @@ This is `install.sh --help`:
 Usage: install.sh [options]
 
 Web server
-  --web nginx|apache|hybrid   nginx: Nginx only (default)
+  --web nginx|apache|hybrid|caddy|openlitespeed
+                              nginx: Nginx only (default)
                               apache: Apache only
                               hybrid: Nginx in front; each website picks Nginx or Nginx+Apache (.htaccess)
+                              caddy: Caddy only (Ike still issues the certificates; no ModSecurity)
+                              openlitespeed: OpenLiteSpeed from LiteSpeed's repository, PHP through
+                              Ike's PHP-FPM pools, .htaccess rewrites (no ModSecurity)
   --default-web-server X      hybrid only: "nginx" or "nginx+apache" for new websites
 
 Languages
@@ -79,6 +83,9 @@ DNS and email
   --hostname mail.example.com This server's name (mail greeting, reverse DNS); default: hostname -f
 
 Security
+  --firewall ufw|nftables|firewalld
+                              The firewall Ike drives (default: ufw). nftables: Ike keeps its own "inet ike"
+                              table, loaded at boot by ike-firewall.service. fail2ban bans through the same one.
   --disk-quotas               Enforce per-account disk limits with Linux user quotas (ext4; XFS after a reboot).
   --modsecurity               Web application firewall (ModSecurity + OWASP Core Rule Set), switched on per website.
                               With Nginx this uses Ubuntu's Nginx package, which the ModSecurity module is built for.
