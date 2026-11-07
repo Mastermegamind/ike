@@ -11,8 +11,10 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime"
 	"net"
 	"net/http"
+	"net/mail"
 	"net/smtp"
 	"strconv"
 	"strings"
@@ -134,17 +136,37 @@ func (n *Notifier) whatsapp(ctx context.Context, s store.AlertSettings, title, b
 // sendEmail uses implicit TLS on 465 and STARTTLS otherwise; it never sends a
 // password over an unencrypted connection.
 func sendEmail(s store.AlertSettings, title, body string) error {
-	e := s.Email
-	if e.Host == "" || e.From == "" || e.To == "" {
+	if s.Email.To == "" {
 		return errors.New("SMTP host, from and to are required")
+	}
+	return SendMail(s, "", s.Email.To, "[Ike] "+title, body)
+}
+
+// SendMail sends one plain-text email through the alert SMTP server, to
+// customers as well as admins. fromName is the display name ("" for none);
+// to may list several addresses separated by commas.
+func SendMail(s store.AlertSettings, fromName, to, subject, body string) error {
+	e := s.Email
+	if e.Host == "" || e.From == "" || to == "" {
+		return errors.New("SMTP host, from and to are required")
+	}
+	for _, v := range []string{fromName, to, subject} {
+		if strings.ContainsAny(v, "\r\n") {
+			return errors.New("email headers can't contain line breaks")
+		}
+	}
+	from := e.From
+	if fromName != "" {
+		from = (&mail.Address{Name: fromName, Address: e.From}).String()
 	}
 	port := e.Port
 	if port == 0 {
 		port = 587
 	}
 	addr := net.JoinHostPort(e.Host, strconv.Itoa(port))
-	msg := "From: " + e.From + "\r\nTo: " + e.To + "\r\nSubject: [Ike] " + strings.ReplaceAll(title, "\n", " ") +
-		"\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n" + body + "\r\n"
+	msg := "From: " + from + "\r\nTo: " + to + "\r\nSubject: " + mime.QEncoding.Encode("utf-8", subject) +
+		"\r\nDate: " + time.Now().Format(time.RFC1123Z) + "\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n" +
+		strings.ReplaceAll(strings.ReplaceAll(body, "\r\n", "\n"), "\n", "\r\n") + "\r\n"
 	tlsCfg := &tls.Config{ServerName: e.Host, MinVersion: tls.VersionTLS12}
 	var c *smtp.Client
 	var err error
@@ -180,8 +202,8 @@ func sendEmail(s store.AlertSettings, title, body string) error {
 	if err := c.Mail(e.From); err != nil {
 		return err
 	}
-	for _, to := range strings.Split(e.To, ",") {
-		if err := c.Rcpt(strings.TrimSpace(to)); err != nil {
+	for _, rcpt := range strings.Split(to, ",") {
+		if err := c.Rcpt(strings.TrimSpace(rcpt)); err != nil {
 			return err
 		}
 	}

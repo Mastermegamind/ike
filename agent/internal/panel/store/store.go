@@ -227,6 +227,21 @@ type AlertSettings struct {
 		From     string `json:"from"`
 		To       string `json:"to"`
 	} `json:"email"`
+	// SMS sends the same alerts as text messages (Termii or Africa's Talking).
+	SMS struct {
+		Enabled  bool   `json:"enabled"`
+		Provider string `json:"provider"` // termii | africastalking
+		APIKey   string `json:"api_key,omitempty"`
+		Username string `json:"username,omitempty"` // Africa's Talking app username
+		SenderID string `json:"sender_id,omitempty"`
+		To       string `json:"to"` // comma-separated numbers, +234...
+	} `json:"sms"`
+	// Customers get expiry reminders by email (through the SMTP server above)
+	// for their own domains, certificates and hosting.
+	Customers struct {
+		Enabled bool  `json:"enabled"`
+		Days    []int `json:"days,omitempty"` // default 30, 14, 7, 1
+	} `json:"customers"`
 	UptimeIntervalMin int `json:"uptime_interval_min"` // 0 = off
 }
 
@@ -258,6 +273,8 @@ type data struct {
 	HostingExpiry map[string]time.Time `json:"hosting_expiry"`
 	// ExpiryAlerts remembers the last reminder day sent per item and date.
 	ExpiryAlerts map[string]int `json:"expiry_alerts"`
+	// CustomerAlerts remembers expiry emails sent to account owners.
+	CustomerAlerts map[string]int `json:"customer_alerts"`
 }
 
 type Store struct {
@@ -290,6 +307,9 @@ func (d *data) initMaps() {
 	}
 	if d.ExpiryAlerts == nil {
 		d.ExpiryAlerts = map[string]int{}
+	}
+	if d.CustomerAlerts == nil {
+		d.CustomerAlerts = map[string]int{}
 	}
 }
 

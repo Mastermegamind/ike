@@ -48,6 +48,8 @@ type Server struct {
 	Agent     *client.Client
 	UI        fs.FS
 	PublicURL string // https://panel.example.com:2083, for payment return links
+	// MailHook replaces sending customer emails (tests).
+	MailHook func(fromName, to, subject, body string) error
 	TLS       bool
 	Issuer    string // shown in authenticator apps
 	Notifier  *alerts.Notifier

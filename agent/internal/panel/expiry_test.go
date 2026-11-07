@@ -56,10 +56,10 @@ func TestExpiryView(t *testing.T) {
 	}
 	shop := by["shop"]
 	// the overdue invoice decides, not the next renewal
-	if shop.State != "expired" || !strings.Contains(shop.Detail, "INV-0007") || !strings.Contains(shop.Detail, "suspended on") || !strings.Contains(shop.Detail, "₦15,000.00") {
+	if shop.State != "expired" || !strings.Contains(shop.Detail, "INV-0007") || !strings.Contains(shop.Detail, "suspends on") || shop.InvoiceID != "INV-0007" || shop.SuspendsOn.Sub(shop.Expires) != 7*24*time.Hour || !strings.Contains(shop.Detail, "₦15,000.00") {
 		t.Fatalf("%+v", shop)
 	}
-	if b := by["blog"]; b.State != "urgent" || b.Source != "subscription" || !b.AutoRenews {
+	if b := by["blog"]; b.State != "urgent" || b.Source != "subscription" || !b.AutoRenews || b.SuspendsOn.IsZero() {
 		t.Fatalf("%+v", b)
 	}
 	if l := by["legacy"]; l.Source != "manual" || l.State != "ok" || l.DaysLeft < 89 {
@@ -120,6 +120,23 @@ func TestExpiryView(t *testing.T) {
 	}
 }
 
+// A subscription invoices 7 days ahead and moves NextDue on at once; the
+// invoice's due date is still when hosting runs out.
+func TestHostingExpiryFollowsInvoice(t *testing.T) {
+	e := setup(t)
+	now := time.Now().UTC()
+	_ = e.st.Update(func(d *store.Data) error {
+		d.Subscriptions = append(d.Subscriptions, &store.Subscription{ID: "s", Account: "shop", Price: 100, Currency: "NGN", Interval: "month",
+			NextDue: now.AddDate(0, 1, 5), Status: "active"})
+		d.Invoices = append(d.Invoices, &store.Invoice{ID: "INV-0009", Account: "shop", Amount: 100, Currency: "NGN", Status: "unpaid", DueAt: now.Add(5 * 24 * time.Hour)})
+		return nil
+	})
+	items := e.srv.hostingExpiries(access{all: true})
+	if len(items) != 1 || items[0].InvoiceID != "INV-0009" || !strings.Contains(items[0].Detail, "is due on") || !items[0].SuspendsOn.IsZero() {
+		t.Fatalf("%+v", items)
+	}
+}
+
 func TestExpiryState(t *testing.T) {
 	now := time.Now()
 	cases := []struct {
@@ -131,5 +148,64 @@ func TestExpiryState(t *testing.T) {
 		if got := expiryState(c.t, daysUntil(c.t)); got != c.want {
 			t.Errorf("%v: %s, want %s", c.t, got, c.want)
 		}
+	}
+}
+
+func TestCustomerReminders(t *testing.T) {
+	e := setup(t)
+	now := time.Now().UTC()
+	h, _ := auth.HashPassword("owner-password-1")
+	type mail struct{ from, to, subject, body string }
+	var got []mail
+	e.srv.MailHook = func(from, to, subject, body string) error {
+		got = append(got, mail{from, to, subject, body})
+		return nil
+	}
+	_ = e.st.Update(func(d *store.Data) error {
+		_ = d.AddPerson(&store.Person{Username: "ngozi", Name: "Ngozi", Email: "n@shop.ng", Role: store.User, Accounts: []string{"shop"}, PasswordHash: h})
+		_ = d.AddPerson(&store.Person{Username: "dev1", Email: "d@shop.ng", Role: store.Developer, Accounts: []string{"shop"}, PasswordHash: h})
+		d.AccountOf["shop"] = "webafrica"
+		d.Branding["webafrica"] = &store.Branding{ProductName: "WebAfrica Hosting", SupportEmail: "help@webafrica.ng", Hostnames: []string{"panel.webafrica.ng"}}
+		d.Billing.AutoSuspend, d.Billing.GraceDays = true, 3
+		d.Subscriptions = append(d.Subscriptions, &store.Subscription{ID: "s", Account: "shop", Price: 1500000, Currency: "NGN", Interval: "month", NextDue: now.AddDate(0, 1, 6), Status: "active"})
+		d.Invoices = append(d.Invoices, &store.Invoice{ID: "INV-0011", Account: "shop", Amount: 1500000, Currency: "NGN", Status: "unpaid", DueAt: now.Add(6*24*time.Hour + time.Hour)})
+		d.HostingExpiry["legacy"] = now.AddDate(0, 3, 0) // nobody owns it: no email
+		return nil
+	})
+	// off until the admin turns it on
+	e.srv.SendCustomerReminders(context.Background())
+	if len(got) != 0 {
+		t.Fatal("sent while off")
+	}
+	_ = e.st.Update(func(d *store.Data) error {
+		d.Alerts.Customers.Enabled = true
+		d.Alerts.Email.Host, d.Alerts.Email.From = "smtp.example.ng", "billing@example.ng"
+		return nil
+	})
+	e.srv.SendCustomerReminders(context.Background())
+	e.srv.SendCustomerReminders(context.Background())
+	if len(got) != 1 {
+		t.Fatalf("%d emails: %+v", len(got), got)
+	}
+	m := got[0]
+	for _, want := range []string{"Hello Ngozi", "expires on", "Invoice INV-0011", "Pay now: https://panel.webafrica.ng/#/billing?invoice=INV-0011",
+		"suspended on", "help@webafrica.ng", "WebAfrica Hosting"} {
+		if !strings.Contains(m.body, want) {
+			t.Errorf("body missing %q:\n%s", want, m.body)
+		}
+	}
+	if m.to != "n@shop.ng" || m.from != "WebAfrica Hosting" || !strings.HasPrefix(m.subject, "Your hosting for shop expires in 6 days") {
+		t.Fatalf("%+v", m)
+	}
+	// paid: the reminder record goes, nothing more is sent
+	_ = e.st.Update(func(d *store.Data) error {
+		d.Invoices[len(d.Invoices)-1].Status = "paid"
+		return nil
+	})
+	e.srv.SendCustomerReminders(context.Background())
+	var left int
+	e.st.View(func(d *store.Data) { left = len(d.CustomerAlerts) })
+	if left != 0 || len(got) != 1 {
+		t.Fatalf("records %d, emails %d", left, len(got))
 	}
 }

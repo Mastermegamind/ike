@@ -28,9 +28,13 @@ type ExpiryItem struct {
 	// State: ok (more than 30 days), soon (30 or fewer), urgent (7 or fewer),
 	// expired, or unknown.
 	State      string `json:"state"`
-	Source     string `json:"source,omitempty"` // domain: zone|website; ssl: letsencrypt|custom; hosting: subscription|manual
+	Source     string `json:"source,omitempty"` // domain: zone|website|manual; ssl: letsencrypt|custom; hosting: subscription|manual
 	AutoRenews bool   `json:"auto_renews"`
 	Detail     string `json:"detail,omitempty"`
+	// Hosting: the unpaid invoice that decides, and when the account is
+	// suspended if it stays unpaid (billing's grace days, when auto-suspend is on).
+	InvoiceID  string    `json:"invoice_id,omitempty"`
+	SuspendsOn time.Time `json:"suspends_on,omitzero"`
 }
 
 // ExpirySummary counts what needs attention.
@@ -137,31 +141,45 @@ func (s *Server) expiries(ctx context.Context, agent *client.Client, acc access)
 	return out, nil
 }
 
-// hostingExpiries are hosting terms: an active subscription's next due date
-// (with what happens if it isn't paid), or a date set by hand.
+// hostingExpiries are hosting terms. For a subscription, the oldest unpaid
+// invoice decides (subscriptions invoice ahead of the due date and move on to
+// the next period at once); without one it's the next due date. Accounts
+// billed elsewhere use a date set by hand.
 func (s *Server) hostingExpiries(acc access) []ExpiryItem {
 	out := []ExpiryItem{}
 	s.Store.View(func(d *store.Data) {
 		now := time.Now()
+		grace := func(due time.Time) time.Time {
+			if !d.Billing.AutoSuspend {
+				return time.Time{}
+			}
+			return due.AddDate(0, 0, d.Billing.GraceDays)
+		}
 		subscribed := map[string]bool{}
 		for _, sub := range d.Subscriptions {
-			if sub.Status != "active" || !acc.has(sub.Account) {
+			if sub.Status != "active" || !acc.has(sub.Account) || subscribed[sub.Account] {
 				continue
 			}
 			subscribed[sub.Account] = true
 			it := ExpiryItem{Kind: "hosting", Name: sub.Account, Account: sub.Account, Expires: sub.NextDue, Source: "subscription", AutoRenews: true,
-				Detail: fmt.Sprintf("Renews every %s at %s; the invoice is sent on the due date", sub.Interval, formatMoney(sub.Price, sub.Currency))}
-			// An unpaid, overdue invoice is what actually ends hosting.
+				Detail: fmt.Sprintf("Renews every %s at %s; the invoice comes 7 days before", sub.Interval, formatMoney(sub.Price, sub.Currency))}
+			var oldest *store.Invoice
 			for _, inv := range d.Invoices {
-				if inv.Account != sub.Account || inv.Status != "unpaid" || inv.DueAt.After(now) {
-					continue
+				if inv.Account == sub.Account && inv.Status == "unpaid" && (oldest == nil || inv.DueAt.Before(oldest.DueAt)) {
+					oldest = inv
 				}
-				it.Expires = inv.DueAt
-				it.Detail = fmt.Sprintf("Invoice %s (%s) has been unpaid since %s", inv.ID, formatMoney(inv.Amount, inv.Currency), inv.DueAt.Format("2 Jan 2006"))
-				if d.Billing.AutoSuspend {
-					it.Detail += fmt.Sprintf("; the account is suspended on %s", inv.DueAt.AddDate(0, 0, d.Billing.GraceDays).Format("2 Jan 2006"))
+			}
+			if oldest != nil {
+				it.Expires, it.InvoiceID = oldest.DueAt, oldest.ID
+				if oldest.DueAt.Before(now) {
+					it.Detail = fmt.Sprintf("Invoice %s (%s) has been unpaid since %s", oldest.ID, formatMoney(oldest.Amount, oldest.Currency), oldest.DueAt.Format("2 Jan 2006"))
+				} else {
+					it.Detail = fmt.Sprintf("Invoice %s (%s) is due on %s", oldest.ID, formatMoney(oldest.Amount, oldest.Currency), oldest.DueAt.Format("2 Jan 2006"))
 				}
-				break
+			}
+			it.SuspendsOn = grace(it.Expires)
+			if !it.SuspendsOn.IsZero() {
+				it.Detail += fmt.Sprintf("; suspends on %s if unpaid", it.SuspendsOn.Format("2 Jan 2006"))
 			}
 			out = append(out, it)
 		}
